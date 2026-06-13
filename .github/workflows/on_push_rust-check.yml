@@ -1,0 +1,14 @@
+name: "[rust] Push"
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Call Rust check
+    uses: ./.github/workflows/_rust-check.yml

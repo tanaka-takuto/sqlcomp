@@ -1,0 +1,8 @@
+[package]
+name = "sqlcomp"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "SQL Compose & Compile CLI."
+
+[dependencies]

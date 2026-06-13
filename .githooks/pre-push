@@ -1,6 +1,10 @@
 #!/bin/sh
 
-set -u
+set -eu
+
+if [ -n "${HOME:-}" ] && [ -f "$HOME/.cargo/env" ]; then
+  . "$HOME/.cargo/env"
+fi
 
 protected_branches='^(main|master|develop)$'
 issue_branch_pattern='^issue/#[0-9]+$'
@@ -49,5 +53,24 @@ Allowed maintenance branches:
 EOF
   status=1
 done
+
+if [ "$status" -ne 0 ]; then
+  exit "$status"
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+pre-push: cargo is required.
+
+Install Rust:
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  source "$HOME/.cargo/env"
+  rustup component add rustfmt clippy
+EOF
+  exit 1
+fi
+
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
 
 exit "$status"

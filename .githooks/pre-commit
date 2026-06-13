@@ -1,6 +1,10 @@
 #!/bin/sh
 
-set -u
+set -eu
+
+if [ -n "${HOME:-}" ] && [ -f "$HOME/.cargo/env" ]; then
+  . "$HOME/.cargo/env"
+fi
 
 if ! command -v dprint >/dev/null 2>&1; then
   cat >&2 <<'EOF'
@@ -12,4 +16,17 @@ EOF
   exit 1
 fi
 
+if ! command -v cargo >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+pre-commit: cargo is required.
+
+Install Rust:
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  source "$HOME/.cargo/env"
+  rustup component add rustfmt clippy
+EOF
+  exit 1
+fi
+
 dprint check
+cargo fmt --all -- --check

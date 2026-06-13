@@ -12,6 +12,23 @@ Install dprint before setting up Git hooks:
 brew install dprint
 ```
 
+Install Rust with rustup:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup component add rustfmt clippy
+```
+
+Verify the local toolchain:
+
+```sh
+rustc --version
+cargo --version
+cargo fmt --version
+cargo clippy --version
+```
+
 ## Set up Git hooks
 
 Run these commands once after cloning the repository:
@@ -102,3 +119,17 @@ Formatting CI follows a three-layer GitHub Actions layout:
 - Composite Action layer: `.github/actions/setup-dprint/action.yml`
 
 Trigger workflows define when formatting CI runs. The reusable workflow owns the format-check job. The composite action installs the pinned dprint CLI version used by CI.
+
+Rust CI follows the same layout:
+
+- Trigger layer: `.github/workflows/on_pull_request_rust-check.yml` and `.github/workflows/on_push_rust-check.yml`
+- Reusable Workflow layer: `.github/workflows/_rust-check.yml`
+- Composite Action layer: `.github/actions/setup-rust/action.yml`
+
+The Rust workflow runs:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+```

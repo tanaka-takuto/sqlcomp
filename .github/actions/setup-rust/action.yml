@@ -1,0 +1,17 @@
+name: Setup Rust
+description: Install the Rust toolchain declared by rust-toolchain.toml.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install
+
+    - name: Show Rust versions
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version
+        cargo fmt --version
+        cargo clippy --version
