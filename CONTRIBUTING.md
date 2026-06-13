@@ -130,8 +130,8 @@ The Rust workflow runs:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features
-cargo test --all-targets --all-features
+cargo clippy --locked --all-targets --all-features
+cargo test --locked --all-targets --all-features
 ```
 
 Rust lint policy is defined in `Cargo.toml`. The default is intentionally strict:

@@ -1,15 +1,12 @@
 # GitHub Actions Layout
 
-This repository keeps GitHub Actions in three layers so CI changes stay small and predictable.
+This repository keeps GitHub Actions in three layers so CI changes stay small and
+predictable. The layers separate when CI runs from what CI does and how shared setup
+is performed.
 
 ## Layers
 
-### Trigger workflows
-
-Files:
-
-- `on_pull_request_format-check.yml`
-- `on_push_format-check.yml`
+### Trigger Workflows
 
 Trigger workflows are entry points. They define GitHub events, branch filters, permissions, and
 inputs passed to reusable workflows.
@@ -18,34 +15,28 @@ Keep trigger workflows thin:
 
 - Do not add formatting, build, test, or deploy steps here.
 - Do not duplicate job logic across trigger workflows.
-- Prefer a filename that starts with the triggering event, such as `on_push_` or
-  `on_pull_request_`.
+- Name files as `on_<event>_<check-family>.yml`.
 
-### Reusable workflows
-
-Files:
-
-- `_format-check.yml`
+### Reusable Workflows
 
 Reusable workflows own CI orchestration. They define jobs, runners, shared permissions, and the
 sequence of repository-level checks.
 
-Use this layer when changing what a CI job does. For example, change `_format-check.yml` when
-adding another formatting check or changing the dprint CI job.
+Use this layer when changing what a CI job does, such as adding a check command or
+changing the order of checks.
 
-Reusable workflow filenames start with `_` and are invoked through `workflow_call`.
+Reusable workflow filenames are named `_<check-family>.yml` and are invoked through
+`workflow_call`.
 
-### Composite actions
-
-Files:
-
-- `../actions/setup-dprint/action.yml`
+### Composite Actions
 
 Composite actions provide reusable step groups. They are for low-level setup or repeated command
 sequences, not for deciding when CI runs.
 
-Use this layer when changing how a tool is installed or initialized. For example, change
-`setup-dprint` when changing the dprint install method.
+Use this layer when changing how a tool is installed or initialized.
+
+Composite actions are named `setup-<tool>/action.yml` when their main purpose is
+tool setup.
 
 ## Maintenance Guide
 
