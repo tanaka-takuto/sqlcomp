@@ -1,0 +1,15 @@
+[package]
+name = "sqlcomp-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Internal sqlcomp CLI orchestration crate."
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sqlcomp-adapters = { path = "../adapters" }
+sqlcomp-app = { path = "../app" }

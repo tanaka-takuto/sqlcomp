@@ -5,3 +5,33 @@ version = 4
 [[package]]
 name = "sqlcomp"
 version = "0.1.0"
+dependencies = [
+ "sqlcomp-cli",
+]
+
+[[package]]
+name = "sqlcomp-adapters"
+version = "0.1.0"
+dependencies = [
+ "sqlcomp-app",
+ "sqlcomp-core",
+]
+
+[[package]]
+name = "sqlcomp-app"
+version = "0.1.0"
+dependencies = [
+ "sqlcomp-core",
+]
+
+[[package]]
+name = "sqlcomp-cli"
+version = "0.1.0"
+dependencies = [
+ "sqlcomp-adapters",
+ "sqlcomp-app",
+]
+
+[[package]]
+name = "sqlcomp-core"
+version = "0.1.0"

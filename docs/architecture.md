@@ -7,6 +7,49 @@ their database and target-language dependencies stay visible.
 The authoritative product rules live in [Vision](./vision.md), and the current MVP
 boundary lives in [MVP](./mvp.md).
 
+## Crate Layout
+
+`sqlcomp` is a Cargo workspace. Component boundaries are represented as separate
+workspace crates, not only as Rust modules, so dependency direction is enforced by
+`Cargo.toml` path dependencies.
+
+The root `src/` directory belongs only to the final `sqlcomp` binary package.
+Reusable implementation crates live under `crates/`, which is the conventional
+workspace layout for multiple Rust packages in one repository.
+
+Runtime flow and dependency direction are intentionally different. Runtime flow
+moves from intake toward generation, but crate dependencies point inward. Inner
+crates never depend on outer crates.
+
+```text
+sqlcomp binary crate
+  -> sqlcomp-cli
+
+sqlcomp-cli
+  -> sqlcomp-app
+  -> sqlcomp-adapters
+
+sqlcomp-adapters
+  -> sqlcomp-app
+  -> sqlcomp-core
+
+sqlcomp-app
+  -> sqlcomp-core
+
+sqlcomp-core
+  -> no sqlcomp-* dependencies
+```
+
+Only `sqlcomp-cli` may depend on both `sqlcomp-app` and `sqlcomp-adapters`.
+`sqlcomp-cli` is the composition root: it wires concrete adapters into application
+ports. `sqlcomp-adapters` groups infrastructure adapters as modules such as
+`config_jsonc`, `source_fs`, `dialect_mysql`, `metadata_mysql_sqlx`,
+`target_typescript`, and `output_fs`. Adapter modules implement ports from
+`sqlcomp-app` and exchange only `sqlcomp-core` types. `sqlcomp-app` owns use cases
+and port traits. `sqlcomp-core` owns shared domain vocabulary and language-neutral
+IR. A new dependency edge between workspace crates is an architecture decision, not
+an incidental import.
+
 ## Component Flow
 
 ```text
@@ -25,12 +68,12 @@ Metadata Provider
   RawQuery.sql + database connection
   -> DbQueryMetadata
 
-Compilation Core
+Application Use Case + Core IR
   RawQuery + AnalyzedQuery + DbQueryMetadata
-  -> CompiledQuery / Core IR
+  -> CompiledQuery
 
 Target Generator
-  CompiledQuery / Core IR
+  CompiledQuery
   -> generated files
 ```
 
@@ -43,6 +86,10 @@ generators map the Core IR into language-specific code.
 The CLI Driver owns command selection, configuration discovery, process environment
 access, and user-facing diagnostics. It should not parse SQL or generate
 TypeScript directly.
+
+The CLI crate is also the composition root. It may depend on `sqlcomp-app`,
+`sqlcomp-core`, and all concrete adapter crates. No inner crate may depend on the
+CLI crate.
 
 For the MVP, the command surface is:
 
@@ -159,10 +206,25 @@ See also:
 - [ADR 0001: Use MySQL 8.x as the MVP dialect](./adr/0001-use-mysql-8-for-mvp.md)
 - [ADR 0003: Use Hjson `@sqlcomp` comments](./adr/0003-use-hjson-sqlcomp-comments.md)
 
+## Application Use Cases and Ports
+
+Application use cases coordinate the MVP workflow and own the port traits that
+adapters implement.
+
+Responsibilities:
+
+- define ports such as config loading, source reading, dialect analysis, metadata
+  lookup, target generation, and generated-file writing.
+- coordinate `init`, `check`, and `compile` workflows.
+- depend only on `sqlcomp-core`.
+- avoid filesystem, database, SQL parser, and TypeScript formatting implementation
+  details.
+
 ## Compilation Core
 
-Compilation Core is the main pure component. It combines source metadata, dialect
-analysis, and database metadata into a language-neutral Core IR.
+Compilation Core is the innermost crate. It owns shared domain vocabulary and
+language-neutral Core IR. It must not depend on source intake, dialect analyzers,
+metadata providers, target generators, or the CLI.
 
 IR means intermediate representation: an internal data structure that is no longer
 raw SQL input, but is not yet TypeScript, Go, Rust, or any other generated language.
@@ -278,6 +340,20 @@ The project should keep local and CI checks aligned. Rust formatting, linting, a
 unit tests remain the baseline checks. The MVP also needs a reproducible MySQL 8.x
 development service, fixture schema, and MySQL-backed integration tests so metadata
 behavior is validated against the supported database.
+
+Rust tests should follow the conventional crate layout:
+
+- unit tests live inside the module they test, usually in a `#[cfg(test)] mod tests`
+  block near the implementation inside the owning crate.
+- integration tests live outside the crate source tree under that package's
+  `tests/` directory and exercise public crate APIs the way an external caller
+  would.
+
+This placement is intentional. Component-local behavior should be tested from
+inside the component module so private helpers can stay private. Cross-component,
+CLI, generated-output, filesystem, and database-backed behavior should be tested from
+the appropriate package-level `tests/` directory so the test boundary matches the
+public library or binary behavior.
 
 Generated TypeScript should be type-checked in CI with `tsc --noEmit` once the
 generator exists. This verifies that generated builders are usable in ordinary

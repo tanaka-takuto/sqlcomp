@@ -21,7 +21,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Rust lint
-        run: cargo clippy --locked --all-targets --all-features
+        run: cargo clippy --locked --workspace --all-targets --all-features
 
       - name: Run Rust tests
-        run: cargo test --locked --all-targets --all-features
+        run: cargo test --locked --workspace --all-targets --all-features
