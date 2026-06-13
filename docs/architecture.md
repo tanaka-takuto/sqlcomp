@@ -10,6 +10,10 @@ boundary lives in [MVP](./mvp.md).
 ## Component Flow
 
 ```text
+CLI Driver
+  -> Config Loader
+  -> Compilation Plan
+
 Source Intake
   -> RawQuery
 
@@ -33,6 +37,49 @@ Target Generator
 This structure avoids a direct `database dialect x target language` implementation
 matrix. Database-specific logic maps database behavior into the Core IR. Target
 generators map the Core IR into language-specific code.
+
+## CLI Driver
+
+The CLI Driver owns command selection, configuration discovery, process environment
+access, and user-facing diagnostics. It should not parse SQL or generate
+TypeScript directly.
+
+For the MVP, the command surface is:
+
+- `init` writes a starter `sqlcomp.config.json`.
+- `check` runs the full compile pipeline without writing generated files.
+- `compile` writes generated TypeScript files.
+
+`check` and `compile` use the same analysis and generation pipeline so CI and local
+generation validate the same behavior.
+
+## Config Loader
+
+Config Loader resolves the project configuration before Source Intake runs.
+
+Responsibilities:
+
+- find `sqlcomp.config.json` from the current working directory upward when
+  `--config` is not provided.
+- parse JSON with comments and trailing commas allowed.
+- validate the supported MVP values for source, output, database, and target
+  settings.
+- resolve source and output paths relative to the configuration file directory.
+- read the database URL from the process environment using `database.urlEnv`.
+
+The CLI does not implicitly load `.env` files in the MVP.
+
+## Compilation Plan
+
+The Compilation Plan is the resolved work order produced from configuration. It is
+not a semantic SQL representation.
+
+Responsibilities:
+
+- expand `source.include` and `source.exclude` into the input SQL file set.
+- keep each input file path relative to the configuration file directory.
+- carry the resolved output directory.
+- carry the database URL and target selection for downstream components.
 
 ## Source Intake
 
@@ -69,6 +116,7 @@ For the MVP:
 - `type: query` is required.
 - `id` is required and is never inferred.
 - `id` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
+- `id` must be unique across the full compile run.
 - `cardinality` is optional and may override compiler inference.
 - one SQL file may contain multiple query annotations.
 
@@ -185,9 +233,10 @@ validated text carried by the Core IR.
 The MVP target generator emits TypeScript SQL builder code. Generated code returns
 SQL text and parameter arrays, not database execution behavior.
 
-Generated TypeScript is emitted per SQL file while preserving the input-root-relative
-directory structure. If one SQL file contains multiple queries, the corresponding
-TypeScript file contains multiple generated query functions and type aliases.
+Generated TypeScript is emitted per SQL file while preserving the input path
+relative to the directory containing `sqlcomp.config.json`. If one SQL file
+contains multiple queries, the corresponding TypeScript file contains multiple
+generated query functions and type aliases.
 
 Generated names are not case-converted. The query `id` is used exactly as written,
 with fixed suffixes for generated TypeScript types:
@@ -219,7 +268,23 @@ containing `${...}` must not break generated TypeScript. MVP examples use ordina
 double-quoted string literals; multiline SQL may use any representation that is
 semantically equivalent after JavaScript string escaping.
 
+Generated files include a generated-code header. The MVP treats the configured
+output directory as generated output and overwrites same-path files during
+`compile`. Stale generated files are removed only when `compile --clean` is used.
+
+## Development and Integration Checks
+
+The project should keep local and CI checks aligned. Rust formatting, linting, and
+unit tests remain the baseline checks. The MVP also needs a reproducible MySQL 8.x
+development service, fixture schema, and MySQL-backed integration tests so metadata
+behavior is validated against the supported database.
+
+Generated TypeScript should be type-checked in CI with `tsc --noEmit` once the
+generator exists. This verifies that generated builders are usable in ordinary
+TypeScript projects without adding runtime dependencies.
+
 See also:
 
+- [ADR 0006: Define MVP CLI, Config, and Generation Workflow](./adr/0006-define-mvp-cli-config-and-generation-workflow.md)
 - [ADR 0002: Use TypeScript SQL builders as the first target generator](./adr/0002-use-typescript-target-generator-first.md)
 - [ADR 0005: Do not automatically transform generated names](./adr/0005-do-not-transform-generated-names.md)
