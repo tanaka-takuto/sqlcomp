@@ -8,9 +8,6 @@ pre-commit: dprint is required.
 
 Install dprint:
   brew install dprint
-
-Then format files:
-  dprint fmt
 EOF
   exit 1
 fi

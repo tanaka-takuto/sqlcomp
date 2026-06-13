@@ -4,6 +4,14 @@ Thanks for contributing to `sqlcomp`.
 
 This repository uses GitHub issue templates, a pull request template, and local Git hooks to keep contributions consistent.
 
+## Install local tools
+
+Install dprint before setting up Git hooks:
+
+```sh
+brew install dprint
+```
+
 ## Set up Git hooks
 
 Run these commands once after cloning the repository:
