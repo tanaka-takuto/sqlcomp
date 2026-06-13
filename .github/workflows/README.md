@@ -2,8 +2,6 @@
 
 This repository keeps GitHub Actions in three layers so CI changes stay small and predictable.
 
-Background: https://zenn.dev/jirtosterone/articles/99cea8c1af0657
-
 ## Layers
 
 ### Trigger workflows
