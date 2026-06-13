@@ -1,0 +1,68 @@
+#!/bin/sh
+
+set -u
+
+commit_msg_file=${1:-}
+max_subject_length=100
+
+if [ -z "$commit_msg_file" ] || [ ! -f "$commit_msg_file" ]; then
+  echo "commit-msg: missing commit message file" >&2
+  exit 1
+fi
+
+subject=$(
+  sed -n '/^[[:space:]]*#/d; /^[[:space:]]*$/d; p; q' "$commit_msg_file"
+)
+
+if [ -z "$subject" ]; then
+  echo "commit-msg: commit message subject is required" >&2
+  exit 1
+fi
+
+case "$subject" in
+  Merge\ *|Revert\ \"*\"|fixup!\ *|squash!\ *|amend!\ *)
+    exit 0
+    ;;
+esac
+
+subject_length=$(printf '%s' "$subject" | wc -c | tr -d ' ')
+
+if [ "$subject_length" -gt "$max_subject_length" ]; then
+  echo "commit-msg: subject must be ${max_subject_length} characters or fewer" >&2
+  echo "commit-msg: current subject is ${subject_length} characters" >&2
+  exit 1
+fi
+
+commit_pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([A-Za-z0-9._/-]+\))?!?: .+$'
+
+if ! printf '%s\n' "$subject" | grep -Eq "$commit_pattern"; then
+  cat >&2 <<'EOF'
+commit-msg: subject must follow Conventional Commits.
+
+Expected:
+  type(scope): short summary
+  type: short summary
+  type!: short summary
+  type(scope)!: short summary
+
+Allowed types:
+  build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test
+
+Examples:
+  feat: add query parser
+  fix(parser): handle empty input
+  docs: update setup steps
+EOF
+  exit 1
+fi
+
+summary=${subject#*: }
+summary_without_space=$(printf '%s' "$summary" | tr -d '[:space:]')
+
+if [ -z "$summary_without_space" ]; then
+  echo "commit-msg: summary after type is required" >&2
+  exit 1
+fi
+
+exit 0
+

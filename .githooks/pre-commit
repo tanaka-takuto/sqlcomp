@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# Placeholder for repository checks. Add lint, format, or test commands here.
+exit 0
+

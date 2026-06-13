@@ -1,0 +1,19 @@
+# type(scope): short summary
+#
+# Body:
+# - Explain why the change is needed.
+# - Describe important implementation details or tradeoffs.
+#
+# Footer:
+# - Link issues with "Closes #123" when relevant.
+# - Mark breaking changes with "BREAKING CHANGE: ...".
+#
+# Allowed types:
+# build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test
+#
+# Examples:
+# feat: add query parser
+# fix(parser): handle empty input
+# docs: update setup steps
+# feat!: change public API shape
+

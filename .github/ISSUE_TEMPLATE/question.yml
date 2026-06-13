@@ -1,0 +1,36 @@
+name: Question
+description: Ask a question about usage, design, or project direction.
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+      placeholder: Ask the question clearly and include the result you are trying to reach.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add any relevant background, links, examples, or constraints.
+    validations:
+      required: false
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Share anything you already checked or attempted.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues before opening this one.
+          required: true
+
