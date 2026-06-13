@@ -65,4 +65,3 @@ if [ -z "$summary_without_space" ]; then
 fi
 
 exit 0
-

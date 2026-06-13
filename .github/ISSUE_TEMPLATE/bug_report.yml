@@ -68,4 +68,3 @@ body:
           required: true
         - label: I can reproduce this issue with the steps above.
           required: true
-

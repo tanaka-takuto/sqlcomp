@@ -33,4 +33,3 @@ body:
       options:
         - label: I searched existing issues before opening this one.
           required: true
-
