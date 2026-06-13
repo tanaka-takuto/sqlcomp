@@ -1,0 +1,53 @@
+#!/bin/sh
+
+set -u
+
+protected_branches='^(main|master|develop)$'
+issue_branch_pattern='^issue/#[0-9]+$'
+
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/*)
+      branch=${remote_ref#refs/heads/}
+      ;;
+    *)
+      case "$local_ref" in
+        refs/heads/*)
+          branch=${local_ref#refs/heads/}
+          ;;
+        *)
+          continue
+          ;;
+      esac
+      ;;
+  esac
+
+  case "$local_sha" in
+    0000000000000000000000000000000000000000)
+      continue
+      ;;
+  esac
+
+  if printf '%s\n' "$branch" | grep -Eq "$protected_branches"; then
+    continue
+  fi
+
+  if printf '%s\n' "$branch" | grep -Eq "$issue_branch_pattern"; then
+    continue
+  fi
+
+  cat >&2 <<EOF
+pre-push: branch "$branch" is not allowed.
+
+Issue-based pull request branches must match:
+  issue/#123
+
+Allowed maintenance branches:
+  main, master, develop
+EOF
+  status=1
+done
+
+exit "$status"
