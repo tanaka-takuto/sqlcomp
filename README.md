@@ -14,10 +14,28 @@ The planned MVP workflow is:
 
 ```sh
 sqlcomp init
-DATABASE_URL='mysql://user:password@localhost:3306/app' sqlcomp check
-DATABASE_URL='mysql://user:password@localhost:3306/app' sqlcomp compile
+docker compose up -d --wait mysql
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' sqlcomp check
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' sqlcomp compile
 ```
 
 `sqlcomp.config.json` is the project configuration file. It is parsed as JSON with
 comments and trailing commas allowed. The MVP CLI does not implicitly load `.env`
 files.
+
+## Local MySQL
+
+The repository includes a Docker Compose service for local MySQL 8.x development:
+
+```sh
+docker compose up -d --wait mysql
+```
+
+The service uses deterministic development-only credentials and waits for the
+container healthcheck before the command exits.
+
+Use this connection URL for local checks:
+
+```sh
+export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
+```

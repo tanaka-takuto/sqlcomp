@@ -29,6 +29,20 @@ cargo fmt --version
 cargo clippy --version
 ```
 
+## Start local MySQL
+
+The MVP uses MySQL 8.x for metadata checks. Start the development service with:
+
+```sh
+docker compose up -d --wait mysql
+```
+
+The Compose service uses deterministic development-only credentials:
+
+```sh
+export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
+```
+
 ## Set up Git hooks
 
 Run these commands once after cloning the repository:
