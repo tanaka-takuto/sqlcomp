@@ -12,6 +12,6 @@ impl TargetGenerator for TypeScriptTargetGenerator {
         &self,
         _queries: &[core::CompiledQuery],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
-        Ok(core::GeneratedFiles)
+        Ok(core::GeneratedFiles::new(Vec::new()))
     }
 }
