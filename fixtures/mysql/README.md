@@ -14,9 +14,9 @@ These fixtures support MySQL 8.x metadata integration work for the MVP.
   application reads while keeping the schema small: summaries, profile lookups,
   left joins, line totals, and case expressions.
 
-Reset the local database volume before reloading the init fixture:
+From the repository root, reset the local database volume before reloading the init
+fixture:
 
 ```sh
-docker compose down --volumes
-docker compose up -d --wait mysql
+script/mysql-reset.sh
 ```

@@ -34,7 +34,7 @@ cargo clippy --version
 The MVP uses MySQL 8.x for metadata checks. Start the development service with:
 
 ```sh
-docker compose up -d --wait mysql
+script/mysql-up.sh
 ```
 
 The Compose service uses deterministic development-only credentials:
@@ -48,8 +48,21 @@ image runs those files when a fresh database volume is created. To rebuild the
 local fixture database from scratch:
 
 ```sh
-docker compose down --volumes
-docker compose up -d --wait mysql
+script/mysql-reset.sh
+```
+
+Stop the service without removing the database volume:
+
+```sh
+script/mysql-down.sh
+```
+
+## Run local checks
+
+Run the baseline repository checks before opening a pull request:
+
+```sh
+script/check-all.sh
 ```
 
 ## Set up Git hooks
@@ -156,6 +169,9 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features
 cargo test --locked --workspace --all-targets --all-features
 ```
+
+`script/check-all.sh` combines the format and Rust checks into one local baseline
+command.
 
 Rust lint policy is defined in `Cargo.toml`. The default is intentionally strict:
 Rust warnings are denied, unsafe code is forbidden, and Clippy `all`, `pedantic`,
