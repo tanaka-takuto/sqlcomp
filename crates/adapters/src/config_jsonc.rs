@@ -551,7 +551,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{CONFIG_FILE_NAME, JsoncConfigLoader};
-    use sqlcomp_app::ConfigLoader;
+    use sqlcomp_app::{CompilationPlanner, ConfigLoader};
     use sqlcomp_core as core;
 
     const VALID_CONFIG: &str = r#"
@@ -737,6 +737,49 @@ mod tests {
             .expect("valid discovered config should load");
 
         assert_eq!(config.config_dir(), config_dir);
+
+        fs::remove_dir_all(config_dir).expect("temp config dir should be removed");
+    }
+
+    #[test]
+    fn nested_discovery_plans_paths_from_config_directory() {
+        let config_dir = unique_temp_dir("sqlcomp-config-plan-nested");
+        let child_dir = config_dir.join("packages").join("api").join("src");
+        fs::create_dir_all(&child_dir).expect("temp child dir should be created");
+        fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
+            .expect("temp config should be written");
+
+        let planner = sqlcomp_app::DefaultCompilationPlanner;
+        let root_config = JsoncConfigLoader::discover_from(&config_dir)
+            .load()
+            .expect("config should load from root");
+        let nested_config = JsoncConfigLoader::discover_from(&child_dir)
+            .load()
+            .expect("config should load from nested child");
+        let root_plan = planner
+            .plan(&root_config)
+            .expect("root config should produce a plan");
+        let nested_plan = planner
+            .plan(&nested_config)
+            .expect("nested config should produce a plan");
+
+        assert_eq!(root_plan, nested_plan);
+        assert_eq!(
+            nested_plan.source_include(),
+            [config_dir.join("sql/**/*.sql")]
+        );
+        assert_eq!(
+            nested_plan.source_exclude(),
+            [config_dir.join("sql/private/**/*.sql")]
+        );
+        assert_eq!(
+            nested_plan.output_dir(),
+            config_dir.join("src/generated/sqlcomp")
+        );
+        assert_eq!(
+            nested_plan.source_relative_path(config_dir.join("sql/nested/users/list.sql")),
+            Some(PathBuf::from("sql/nested/users/list.sql"))
+        );
 
         fs::remove_dir_all(config_dir).expect("temp config dir should be removed");
     }

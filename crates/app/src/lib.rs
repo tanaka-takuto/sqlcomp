@@ -5,6 +5,8 @@
 
 use sqlcomp_core as core;
 
+use std::path::{Path, PathBuf};
+
 /// Port for loading project configuration.
 pub trait ConfigLoader {
     /// Load and validate project configuration.
@@ -136,9 +138,29 @@ pub trait CompileUseCasePorts {
 pub struct DefaultCompilationPlanner;
 
 impl CompilationPlanner for DefaultCompilationPlanner {
-    fn plan(&self, _config: &core::ProjectConfig) -> core::DiagnosticResult<core::CompilationPlan> {
-        Ok(core::CompilationPlan)
+    fn plan(&self, config: &core::ProjectConfig) -> core::DiagnosticResult<core::CompilationPlan> {
+        let config_dir = config.config_dir().to_path_buf();
+
+        Ok(core::CompilationPlan::new(
+            config_dir.clone(),
+            resolve_paths(&config_dir, config.source().include()),
+            resolve_paths(&config_dir, config.source().exclude()),
+            resolve_path(&config_dir, config.output().dir()),
+            config.database().clone(),
+            config.target().clone(),
+        ))
     }
+}
+
+fn resolve_paths(config_dir: &Path, paths: &[String]) -> Vec<PathBuf> {
+    paths
+        .iter()
+        .map(|path| resolve_path(config_dir, path))
+        .collect()
+}
+
+fn resolve_path(config_dir: &Path, path: impl AsRef<Path>) -> PathBuf {
+    config_dir.join(path)
 }
 
 /// Default application-owned query compiler.
@@ -153,5 +175,74 @@ impl QueryCompiler for DefaultQueryCompiler {
         _metadata: &core::DbQueryMetadata,
     ) -> core::DiagnosticResult<core::CompiledQuery> {
         Ok(core::CompiledQuery)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::{CompilationPlanner, DefaultCompilationPlanner};
+    use sqlcomp_core as core;
+
+    #[test]
+    fn planner_resolves_config_paths_from_config_directory() {
+        let config_dir = PathBuf::from("/tmp/sqlcomp-project/packages/api");
+        let config = project_config(config_dir.clone());
+
+        let plan = DefaultCompilationPlanner
+            .plan(&config)
+            .expect("valid config should produce a plan");
+
+        assert_eq!(plan.config_dir(), config_dir);
+        assert_eq!(plan.source_include(), [config_dir.join("sql/**/*.sql")]);
+        assert_eq!(
+            plan.source_exclude(),
+            [config_dir.join("sql/private/**/*.sql")]
+        );
+        assert_eq!(plan.output_dir(), config_dir.join("src/generated/sqlcomp"));
+        assert_eq!(plan.database(), config.database());
+        assert_eq!(plan.target(), config.target());
+    }
+
+    #[test]
+    fn source_relative_path_uses_config_directory() {
+        let config_dir = PathBuf::from("/tmp/sqlcomp-project");
+        let config = project_config(config_dir.clone());
+        let plan = DefaultCompilationPlanner
+            .plan(&config)
+            .expect("valid config should produce a plan");
+
+        let relative_path = plan
+            .source_relative_path(config_dir.join("packages/api/sql/users/list.sql"))
+            .expect("source path should be inside config dir");
+
+        assert_eq!(relative_path, Path::new("packages/api/sql/users/list.sql"));
+    }
+
+    #[test]
+    fn source_relative_path_rejects_paths_outside_config_directory() {
+        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+        let plan = DefaultCompilationPlanner
+            .plan(&config)
+            .expect("valid config should produce a plan");
+
+        assert_eq!(
+            plan.source_relative_path("/tmp/other-project/sql/users.sql"),
+            None
+        );
+    }
+
+    fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
+        core::ProjectConfig::new(
+            config_dir,
+            core::SourceConfig::new(
+                vec!["sql/**/*.sql".to_owned()],
+                vec!["sql/private/**/*.sql".to_owned()],
+            ),
+            core::OutputConfig::new("src/generated/sqlcomp".to_owned()),
+            core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
+            core::TargetConfig::new(core::TargetLanguage::TypeScript),
+        )
     }
 }
