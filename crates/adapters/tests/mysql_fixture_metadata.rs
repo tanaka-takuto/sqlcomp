@@ -1,3 +1,6 @@
+use sqlcomp_adapters::metadata_mysql_sqlx::map_mysql_result_column_metadata;
+use sqlcomp_core as core;
+use sqlx::TypeInfo;
 use sqlx::{Column, Connection, Executor, MySqlConnection, SqlSafeStr};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
@@ -24,6 +27,7 @@ async fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn
     }
 
     let mut query_count = 0;
+    let mut mapped_columns = Vec::new();
     for fixture in QUERY_FIXTURES {
         for sql in extract_sqlcomp_queries(fixture) {
             query_count += 1;
@@ -40,6 +44,16 @@ async fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn
                     "query should expose non-empty column names: {sql}"
                 );
             }
+
+            mapped_columns.extend(description.columns().iter().enumerate().map(
+                |(index, column)| {
+                    map_mysql_result_column_metadata(
+                        column.name(),
+                        column.type_info().name(),
+                        description.nullable(index),
+                    )
+                },
+            ));
         }
     }
 
@@ -47,8 +61,34 @@ async fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn
         query_count > 0,
         "query fixtures should contain @sqlcomp blocks"
     );
+    assert_fixture_core_type_matrix(&mapped_columns);
 
     Ok(())
+}
+
+fn assert_fixture_core_type_matrix(columns: &[core::DbResultColumn]) {
+    assert_mapped_type(columns, "userId", core::CoreType::Int64);
+    assert_mapped_type(columns, "displayName", core::CoreType::String);
+    assert_mapped_type(columns, "accountBalance", core::CoreType::Decimal);
+    assert_mapped_type(columns, "ratioFloat", core::CoreType::Float64);
+    assert_mapped_type(columns, "scoreDouble", core::CoreType::Float64);
+    assert_mapped_type(columns, "avatarBytes", core::CoreType::Bytes);
+    assert_mapped_type(columns, "profileBlob", core::CoreType::Bytes);
+    assert_mapped_type(columns, "birthDate", core::CoreType::Date);
+    assert_mapped_type(columns, "createdAt", core::CoreType::DateTime);
+    assert_mapped_type(columns, "lastSeenAt", core::CoreType::DateTime);
+    assert_mapped_type(columns, "deliveryWindow", core::CoreType::Time);
+    assert_mapped_type(columns, "active", core::CoreType::Bool);
+    assert_mapped_type(columns, "settings", core::CoreType::Json);
+}
+
+fn assert_mapped_type(columns: &[core::DbResultColumn], name: &str, expected_type: core::CoreType) {
+    let column = columns
+        .iter()
+        .find(|column| column.name() == name)
+        .unwrap_or_else(|| panic!("fixture should expose column `{name}`"));
+
+    assert_eq!(column.ty(), expected_type, "{name} should map to core type");
 }
 
 async fn execute_fixture_statements(

@@ -665,6 +665,8 @@ pub enum CoreType {
     Bytes,
     /// Date value.
     Date,
+    /// Time value.
+    Time,
     /// Date-time value.
     DateTime,
     /// JSON value.
@@ -731,6 +733,17 @@ mod tests {
         let analysis = AnalyzedQuery::new(Cardinality::Many);
 
         assert_eq!(analysis.cardinality(), Cardinality::Many);
+    }
+
+    #[test]
+    fn db_query_metadata_preserves_result_column_metadata() {
+        let columns = vec![
+            DbResultColumn::new("userId".to_owned(), CoreType::Int64, Some(false)),
+            DbResultColumn::new("nickname".to_owned(), CoreType::String, Some(true)),
+        ];
+        let metadata = DbQueryMetadata::new(columns.clone());
+
+        assert_eq!(metadata.columns(), columns);
     }
 
     #[test]

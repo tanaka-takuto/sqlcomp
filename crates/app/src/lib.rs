@@ -427,6 +427,31 @@ mod tests {
         assert_eq!(compiled.cardinality(), core::Cardinality::Many);
     }
 
+    #[test]
+    fn query_compiler_copies_database_columns_to_result_row() {
+        let query = core::RawQuery::new(
+            core::QueryMetadata::new("listUsers".to_owned(), None),
+            "SELECT id, nickname FROM users;".to_owned(),
+        );
+        let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+        let metadata = core::DbQueryMetadata::new(vec![
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+            core::DbResultColumn::new("nickname".to_owned(), core::CoreType::String, Some(true)),
+        ]);
+
+        let compiled = DefaultQueryCompiler
+            .compile(&query, &analysis, &metadata)
+            .expect("query compiler should preserve result row metadata");
+
+        assert_eq!(
+            compiled.row(),
+            [
+                core::ResultColumn::new("id".to_owned(), core::CoreType::Int64, false),
+                core::ResultColumn::new("nickname".to_owned(), core::CoreType::String, true),
+            ]
+        );
+    }
+
     fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
         core::ProjectConfig::new(
             config_dir,
