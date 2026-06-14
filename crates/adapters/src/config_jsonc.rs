@@ -7,23 +7,55 @@ use serde::Deserialize;
 use sqlcomp_app::ConfigLoader;
 use sqlcomp_core as core;
 
+const CONFIG_FILE_NAME: &str = "sqlcomp.config.json";
+
 /// JSONC-backed config loader.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JsoncConfigLoader {
-    path: PathBuf,
+    source: ConfigSource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ConfigSource {
+    ExplicitPath(PathBuf),
+    DiscoverFromCurrentDir,
+    DiscoverFrom(PathBuf),
 }
 
 impl JsoncConfigLoader {
     /// Build a loader for an explicit config file path.
     #[must_use]
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            source: ConfigSource::ExplicitPath(path.into()),
+        }
     }
 
-    /// Return the path this loader reads.
+    /// Build a loader that discovers `sqlcomp.config.json` from the process
+    /// current directory upward.
     #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub const fn discover_from_current_dir() -> Self {
+        Self {
+            source: ConfigSource::DiscoverFromCurrentDir,
+        }
+    }
+
+    /// Build a loader that discovers `sqlcomp.config.json` from a directory
+    /// upward.
+    #[must_use]
+    pub fn discover_from(start_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            source: ConfigSource::DiscoverFrom(start_dir.into()),
+        }
+    }
+
+    /// Return the explicit path this loader reads when one was configured.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        match &self.source {
+            ConfigSource::ExplicitPath(path) => Some(path),
+            ConfigSource::DiscoverFromCurrentDir | ConfigSource::DiscoverFrom(_) => None,
+        }
     }
 
     /// Parse and validate JSONC configuration content.
@@ -53,23 +85,42 @@ impl JsoncConfigLoader {
 
 impl Default for JsoncConfigLoader {
     fn default() -> Self {
-        Self::new("sqlcomp.config.json")
+        Self::discover_from_current_dir()
     }
 }
 
 impl ConfigLoader for JsoncConfigLoader {
     fn load(&self) -> core::DiagnosticResult<core::ProjectConfig> {
-        let source = fs::read_to_string(&self.path).map_err(|error| {
+        let path = self.resolve_path()?;
+        let source = fs::read_to_string(&path).map_err(|error| {
             single_error_report(
-                format!(
-                    "failed to read config file `{}`: {error}",
-                    self.path.display()
-                ),
-                Some(core::SourceLocation::for_path(self.path.clone())),
+                format!("failed to read config file `{}`: {error}", path.display()),
+                Some(core::SourceLocation::for_path(path.clone())),
             )
         })?;
 
-        parse_config(&source, Some(&self.path), config_dir_from_path(&self.path))
+        parse_config(&source, Some(&path), config_dir_from_path(&path))
+    }
+}
+
+impl JsoncConfigLoader {
+    fn resolve_path(&self) -> core::DiagnosticResult<PathBuf> {
+        match &self.source {
+            ConfigSource::ExplicitPath(path) => Ok(path.clone()),
+            ConfigSource::DiscoverFromCurrentDir => {
+                let start_dir = std::env::current_dir().map_err(|error| {
+                    single_error_report(
+                        format!(
+                            "failed to determine current directory while searching for `{CONFIG_FILE_NAME}`: {error}"
+                        ),
+                        None,
+                    )
+                })?;
+
+                discover_config_path(&start_dir)
+            }
+            ConfigSource::DiscoverFrom(start_dir) => discover_config_path(start_dir),
+        }
     }
 }
 
@@ -164,6 +215,29 @@ fn config_dir_from_path(path: &Path) -> PathBuf {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf()
+}
+
+fn discover_config_path(start_dir: &Path) -> core::DiagnosticResult<PathBuf> {
+    let mut current = start_dir.to_path_buf();
+
+    loop {
+        let candidate = current.join(CONFIG_FILE_NAME);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+
+        if !current.pop() {
+            break;
+        }
+    }
+
+    Err(single_error_report(
+        format!(
+            "failed to find `{CONFIG_FILE_NAME}` from `{}` or any parent directory",
+            start_dir.display()
+        ),
+        None,
+    ))
 }
 
 fn validate_source(
@@ -474,9 +548,9 @@ fn next_significant_char(chars: &[char], start: usize) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::JsoncConfigLoader;
+    use super::{CONFIG_FILE_NAME, JsoncConfigLoader};
     use sqlcomp_app::ConfigLoader;
     use sqlcomp_core as core;
 
@@ -627,6 +701,95 @@ mod tests {
     }
 
     #[test]
+    fn default_uses_current_directory_discovery() {
+        assert_eq!(
+            JsoncConfigLoader::default(),
+            JsoncConfigLoader::discover_from_current_dir()
+        );
+    }
+
+    #[test]
+    fn discovers_config_from_config_directory() {
+        let config_dir = unique_temp_dir("sqlcomp-config-discovery-root");
+        fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+        fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
+            .expect("temp config should be written");
+
+        let config = JsoncConfigLoader::discover_from(&config_dir)
+            .load()
+            .expect("valid discovered config should load");
+
+        assert_eq!(config.config_dir(), config_dir);
+
+        fs::remove_dir_all(config_dir).expect("temp config dir should be removed");
+    }
+
+    #[test]
+    fn discovers_config_from_nested_child_directory() {
+        let config_dir = unique_temp_dir("sqlcomp-config-discovery-nested");
+        let child_dir = config_dir.join("packages").join("api").join("sql");
+        fs::create_dir_all(&child_dir).expect("temp child dir should be created");
+        fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
+            .expect("temp config should be written");
+
+        let config = JsoncConfigLoader::discover_from(child_dir)
+            .load()
+            .expect("valid discovered config should load");
+
+        assert_eq!(config.config_dir(), config_dir);
+
+        fs::remove_dir_all(config_dir).expect("temp config dir should be removed");
+    }
+
+    #[test]
+    fn reports_when_discovery_does_not_find_config() {
+        let start_dir = unique_temp_dir("sqlcomp-config-discovery-missing")
+            .join("packages")
+            .join("api");
+        fs::create_dir_all(&start_dir).expect("temp child dir should be created");
+
+        let report = JsoncConfigLoader::discover_from(&start_dir)
+            .load()
+            .expect_err("missing discovered config should be rejected");
+        let messages = diagnostic_messages(&report);
+
+        assert!(messages.contains(&format!(
+            "failed to find `{CONFIG_FILE_NAME}` from `{}` or any parent directory",
+            start_dir.display()
+        )));
+
+        fs::remove_dir_all(
+            start_dir
+                .parent()
+                .and_then(Path::parent)
+                .expect("temp root should exist"),
+        )
+        .expect("temp config tree should be removed");
+    }
+
+    #[test]
+    fn explicit_path_bypasses_upward_discovery() {
+        let config_dir = unique_temp_dir("sqlcomp-config-explicit-bypass");
+        let child_dir = config_dir.join("packages").join("api");
+        let explicit_path = child_dir.join(CONFIG_FILE_NAME);
+        fs::create_dir_all(&child_dir).expect("temp child dir should be created");
+        fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
+            .expect("parent config should be written");
+
+        let report = JsoncConfigLoader::new(&explicit_path)
+            .load()
+            .expect_err("explicit missing config should be rejected");
+        let messages = diagnostic_messages(&report);
+
+        assert!(messages.contains(&format!(
+            "failed to read config file `{}`",
+            explicit_path.display()
+        )));
+
+        fs::remove_dir_all(config_dir).expect("temp config dir should be removed");
+    }
+
+    #[test]
     fn rejects_unknown_fields() {
         let report = JsoncConfigLoader::parse_str(
             r#"
@@ -659,19 +822,19 @@ mod tests {
             .join("\n")
     }
 
-    fn unique_temp_config_path() -> std::path::PathBuf {
+    fn unique_temp_config_path() -> PathBuf {
+        unique_temp_dir("sqlcomp-config-jsonc")
+            .join("packages")
+            .join("api")
+            .join(CONFIG_FILE_NAME)
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after Unix epoch")
             .as_nanos();
 
-        std::env::temp_dir()
-            .join(format!(
-                "sqlcomp-config-jsonc-{}-{unique}",
-                std::process::id()
-            ))
-            .join("packages")
-            .join("api")
-            .join("sqlcomp.config.json")
+        std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
     }
 }
