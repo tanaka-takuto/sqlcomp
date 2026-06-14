@@ -159,7 +159,7 @@ Blank issues are disabled so that reports include enough context to act on them.
 Before opening a pull request:
 
 - Keep the change focused on one problem.
-- Link the related issue when one exists.
+- Use a GitHub closing keyword such as `Closes #123` when the pull request should close an issue.
 - Update documentation when behavior or setup changes.
 - Run the relevant checks for the area you changed.
 - Fill in the pull request template with the tests you ran and any reviewer notes.
