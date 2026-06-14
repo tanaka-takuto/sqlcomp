@@ -39,3 +39,12 @@ Use this connection URL for local checks:
 ```sh
 export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
 ```
+
+The local MySQL service loads fixture DDL and seed data from
+`fixtures/mysql/init/` when the database volume is first created. Reset the fixture
+state with:
+
+```sh
+docker compose down --volumes
+docker compose up -d --wait mysql
+```

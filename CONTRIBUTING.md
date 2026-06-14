@@ -43,6 +43,15 @@ The Compose service uses deterministic development-only credentials:
 export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
 ```
 
+MySQL fixture DDL and seed data live in `fixtures/mysql/init/`. The official MySQL
+image runs those files when a fresh database volume is created. To rebuild the
+local fixture database from scratch:
+
+```sh
+docker compose down --volumes
+docker compose up -d --wait mysql
+```
+
 ## Set up Git hooks
 
 Run these commands once after cloning the repository:
