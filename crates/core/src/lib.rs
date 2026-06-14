@@ -326,7 +326,7 @@ pub struct RawQuery {
 }
 
 impl RawQuery {
-    /// Build a raw query from parsed metadata and SQL body text.
+    /// Build a raw query from parsed metadata and SQL text.
     #[must_use]
     pub const fn new(metadata: QueryMetadata, sql: String) -> Self {
         Self {
@@ -343,13 +343,13 @@ impl RawQuery {
         self
     }
 
-    /// Parsed query metadata from the preceding `@sqlcomp` block.
+    /// Query metadata parsed from the source annotation.
     #[must_use]
     pub const fn metadata(&self) -> &QueryMetadata {
         &self.metadata
     }
 
-    /// Raw SQL body text for this query block, excluding sqlcomp metadata.
+    /// Raw SQL body for this query.
     #[must_use]
     pub fn sql(&self) -> &str {
         &self.sql
@@ -450,7 +450,11 @@ pub enum CoreType {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{CompilationPlan, DatabaseConfig, DatabaseDialect, TargetConfig, TargetLanguage};
+    use super::{
+        AnalyzedQuery, Cardinality, CompilationPlan, DatabaseConfig, DatabaseDialect,
+        QueryMetadata, RawQuery, SourceLocation, SourcePosition, SourceRange, TargetConfig,
+        TargetLanguage,
+    };
 
     #[test]
     fn source_relative_path_returns_config_relative_path() {
@@ -473,6 +477,33 @@ mod tests {
             plan.source_relative_path(config_dir.join("../shared/users.sql")),
             None
         );
+    }
+
+    #[test]
+    fn raw_query_preserves_metadata_sql_and_optional_source_location() {
+        let location = SourceLocation::at_range(
+            "sql/users.sql",
+            SourceRange::point(
+                SourcePosition::one_based(8, 1).expect("test position should be valid"),
+            ),
+        );
+        let query = RawQuery::new(
+            QueryMetadata::new("listUsers".to_owned(), Some(Cardinality::One)),
+            "SELECT id FROM users;".to_owned(),
+        )
+        .with_source_location(location.clone());
+
+        assert_eq!(query.metadata().id(), "listUsers");
+        assert_eq!(query.metadata().cardinality(), Some(Cardinality::One));
+        assert_eq!(query.sql(), "SELECT id FROM users;");
+        assert_eq!(query.source_location(), Some(&location));
+    }
+
+    #[test]
+    fn analyzed_query_exposes_inferred_cardinality() {
+        let analysis = AnalyzedQuery::new(Cardinality::Many);
+
+        assert_eq!(analysis.cardinality(), Cardinality::Many);
     }
 
     fn compilation_plan(config_dir: PathBuf) -> CompilationPlan {

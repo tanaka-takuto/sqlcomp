@@ -127,9 +127,33 @@ mod tests {
     }
 
     #[test]
+    fn accepts_mysql_dialect_syntax() {
+        let analysis = analyze_sql("SELECT `id` FROM `users` LIMIT 10, 20;")
+            .expect("MySQL-specific SELECT should be accepted");
+
+        assert_eq!(analysis.cardinality(), core::Cardinality::Many);
+    }
+
+    #[test]
+    fn accepts_select_set_operations() {
+        let analysis = analyze_sql("SELECT id FROM users UNION SELECT id FROM archived_users;")
+            .expect("SELECT set operations should be accepted");
+
+        assert_eq!(analysis.cardinality(), core::Cardinality::Many);
+    }
+
+    #[test]
     fn infers_one_for_top_level_limit_one() {
         let analysis = analyze_sql("SELECT id FROM users ORDER BY id DESC LIMIT 1;")
             .expect("LIMIT 1 SELECT should be accepted");
+
+        assert_eq!(analysis.cardinality(), core::Cardinality::One);
+    }
+
+    #[test]
+    fn infers_one_for_mysql_offset_comma_limit_one() {
+        let analysis = analyze_sql("SELECT id FROM users ORDER BY id DESC LIMIT 20, 1;")
+            .expect("MySQL offset-comma LIMIT 1 SELECT should be accepted");
 
         assert_eq!(analysis.cardinality(), core::Cardinality::One);
     }
@@ -145,6 +169,52 @@ mod tests {
     }
 
     #[test]
+    fn rejects_sql_that_mysql_parser_cannot_parse() {
+        let location = core::SourceLocation::at_position(
+            "sql/users.sql",
+            core::SourcePosition::one_based(12, 3).expect("test position should be valid"),
+        );
+        let query = raw_query("SELECT FROM;").with_source_location(location.clone());
+        let report = MysqlDialectAnalyzer
+            .analyze(&query)
+            .expect_err("invalid SQL should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("parser failure should produce a diagnostic");
+
+        assert!(
+            diagnostic
+                .message()
+                .starts_with("failed to parse MySQL SQL:"),
+            "message: {}",
+            diagnostic.message()
+        );
+        assert_eq!(diagnostic.location(), Some(&location));
+    }
+
+    #[test]
+    fn rejects_multiple_sql_statements() {
+        let report = analyze_sql("SELECT 1; SELECT 2;")
+            .expect_err("multi-statement query blocks should be rejected");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "expected exactly one SQL statement per query block; found 2"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_query_block() {
+        let report = analyze_sql("").expect_err("empty query blocks should be rejected");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "expected exactly one SQL statement per query block; found 0"
+        );
+    }
+
+    #[test]
     fn rejects_non_select_statement() {
         let report = analyze_sql("UPDATE users SET name = 'Ada';")
             .expect_err("non-SELECT statements should be rejected");
@@ -152,6 +222,17 @@ mod tests {
         assert_eq!(
             report.diagnostics()[0].message(),
             "unsupported SQL statement `UPDATE`; MVP only supports SELECT queries"
+        );
+    }
+
+    #[test]
+    fn rejects_values_query_expression() {
+        let report =
+            analyze_sql("VALUES ROW(1);").expect_err("VALUES query expressions are not SELECT");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "unsupported SQL statement `VALUES`; MVP only supports SELECT queries"
         );
     }
 

@@ -778,7 +778,8 @@ mod tests {
         FileSystemSourceReader, SqlcompBlock, parse_sqlcomp_query_metadata, scan_sqlcomp_blocks,
         split_sqlcomp_query_blocks,
     };
-    use sqlcomp_app::SourceReader;
+    use crate::dialect_mysql::MysqlDialectAnalyzer;
+    use sqlcomp_app::{DialectAnalyzer, SourceReader};
     use sqlcomp_core as core;
 
     #[test]
@@ -978,6 +979,32 @@ SELECT id FROM users;
     }
 
     #[test]
+    fn split_query_blocks_attach_sql_body_source_range() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source).expect("query block should split");
+        let location = queries[0]
+            .source_location()
+            .expect("query should include source location");
+        let range = location
+            .range()
+            .expect("query should include SQL body range");
+
+        assert_eq!(location.path(), None);
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
+    }
+
+    #[test]
     fn splits_multiple_query_blocks_in_source_order() {
         let source = r"
 /* @sqlcomp
@@ -1073,6 +1100,106 @@ SELECT id FROM users WHERE id = 1;
         assert_eq!(queries[0].sql(), "\nSELECT id FROM users;\n");
         assert_eq!(queries[1].metadata().id(), "findUser");
         assert_eq!(queries[1].sql(), "\nSELECT id FROM users WHERE id = 1;\n");
+
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn filesystem_source_reader_attaches_file_path_to_query_locations() {
+        let project_dir = test_project_dir("attaches-query-locations");
+        let sql_dir = project_dir.join("sql");
+        let sql_path = sql_dir.join("users.sql");
+        fs::create_dir_all(&sql_dir).expect("test SQL directory should be created");
+        fs::write(
+            &sql_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+"
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline"),
+        )
+        .expect("test SQL file should be written");
+
+        let queries = FileSystemSourceReader
+            .read(&compilation_plan(
+                &project_dir,
+                vec![project_dir.join("sql/**/*.sql")],
+                Vec::new(),
+            ))
+            .expect("included SQL file should be read");
+        let location = queries[0]
+            .source_location()
+            .expect("query should include source location");
+        let range = location
+            .range()
+            .expect("query should include SQL body range");
+
+        assert_eq!(location.path(), Some(sql_path.as_path()));
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
+
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn source_reader_locations_feed_mysql_parser_diagnostics() {
+        let project_dir = test_project_dir("feeds-parser-diagnostics");
+        let sql_dir = project_dir.join("sql");
+        let sql_path = sql_dir.join("users.sql");
+        fs::create_dir_all(&sql_dir).expect("test SQL directory should be created");
+        fs::write(
+            &sql_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: brokenQuery
+}
+*/
+SELECT FROM;
+"
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline"),
+        )
+        .expect("test SQL file should be written");
+
+        let queries = FileSystemSourceReader
+            .read(&compilation_plan(
+                &project_dir,
+                vec![project_dir.join("sql/**/*.sql")],
+                Vec::new(),
+            ))
+            .expect("included SQL file should be read");
+        let report = MysqlDialectAnalyzer
+            .analyze(&queries[0])
+            .expect_err("invalid SQL should produce a parser diagnostic");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("parser diagnostic should be returned");
+        let location = diagnostic
+            .location()
+            .expect("parser diagnostic should include source location");
+        let range = location
+            .range()
+            .expect("parser diagnostic should include source range");
+
+        assert!(
+            diagnostic
+                .message()
+                .starts_with("failed to parse MySQL SQL:"),
+            "message: {}",
+            diagnostic.message()
+        );
+        assert_eq!(location.path(), Some(sql_path.as_path()));
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
 
         fs::remove_dir_all(project_dir).expect("test project directory should be removed");
     }
