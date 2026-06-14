@@ -452,6 +452,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn query_compiler_maps_unknown_nullability_to_nullable_result_row() {
+        let query = core::RawQuery::new(
+            core::QueryMetadata::new("inspectUsers".to_owned(), None),
+            "SELECT id, nickname, computed_name FROM users;".to_owned(),
+        );
+        let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+        let metadata = core::DbQueryMetadata::new(vec![
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+            core::DbResultColumn::new("nickname".to_owned(), core::CoreType::String, Some(true)),
+            core::DbResultColumn::new("computed_name".to_owned(), core::CoreType::String, None),
+        ]);
+
+        let compiled = DefaultQueryCompiler
+            .compile(&query, &analysis, &metadata)
+            .expect("query compiler should preserve conservative nullability");
+
+        assert_eq!(
+            compiled.row(),
+            [
+                core::ResultColumn::new("id".to_owned(), core::CoreType::Int64, false),
+                core::ResultColumn::new("nickname".to_owned(), core::CoreType::String, true),
+                core::ResultColumn::new("computed_name".to_owned(), core::CoreType::String, true),
+            ]
+        );
+    }
+
     fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
         core::ProjectConfig::new(
             config_dir,

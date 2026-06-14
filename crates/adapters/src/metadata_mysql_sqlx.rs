@@ -246,6 +246,28 @@ mod tests {
     }
 
     #[test]
+    fn preserves_mysql_nullability_metadata_for_core_ir() {
+        let nullable = map_mysql_result_column_metadata("nickname", "VARCHAR", Some(true));
+        let non_nullable = map_mysql_result_column_metadata("displayName", "VARCHAR", Some(false));
+
+        assert_eq!(
+            nullable,
+            core::DbResultColumn::new("nickname".to_owned(), core::CoreType::String, Some(true))
+        );
+        assert!(nullable.to_result_column().is_nullable());
+
+        assert_eq!(
+            non_nullable,
+            core::DbResultColumn::new(
+                "displayName".to_owned(),
+                core::CoreType::String,
+                Some(false),
+            )
+        );
+        assert!(!non_nullable.to_result_column().is_nullable());
+    }
+
+    #[test]
     fn preserves_unknown_nullability_for_core_ir() {
         let column = map_mysql_result_column_metadata("name", "VARCHAR", None);
 

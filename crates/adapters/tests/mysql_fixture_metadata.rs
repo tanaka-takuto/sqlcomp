@@ -64,6 +64,7 @@ fn sqlx_mysql_metadata_provider_returns_fixture_query_metadata()
         "query fixtures should contain @sqlcomp blocks"
     );
     assert_fixture_core_type_matrix(&mapped_columns);
+    assert_fixture_nullability_matrix(&mapped_columns);
 
     Ok(())
 }
@@ -188,6 +189,7 @@ fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::
         "query fixtures should contain @sqlcomp blocks"
     );
     assert_fixture_core_type_matrix(&mapped_columns);
+    assert_fixture_nullability_matrix(&mapped_columns);
 
     Ok(())
 }
@@ -208,6 +210,13 @@ fn assert_fixture_core_type_matrix(columns: &[core::DbResultColumn]) {
     assert_mapped_type(columns, "settings", core::CoreType::Json);
 }
 
+fn assert_fixture_nullability_matrix(columns: &[core::DbResultColumn]) {
+    assert_mapped_nullability(columns, "displayName", Some(false), false);
+    assert_mapped_nullability(columns, "nickname", Some(true), true);
+    assert_mapped_nullability(columns, "createdAt", Some(false), false);
+    assert_mapped_nullability(columns, "lastSeenAt", Some(true), true);
+}
+
 fn assert_mapped_type(columns: &[core::DbResultColumn], name: &str, expected_type: core::CoreType) {
     let column = columns
         .iter()
@@ -215,6 +224,29 @@ fn assert_mapped_type(columns: &[core::DbResultColumn], name: &str, expected_typ
         .unwrap_or_else(|| panic!("fixture should expose column `{name}`"));
 
     assert_eq!(column.ty(), expected_type, "{name} should map to core type");
+}
+
+fn assert_mapped_nullability(
+    columns: &[core::DbResultColumn],
+    name: &str,
+    expected_metadata: Option<bool>,
+    expected_output_nullable: bool,
+) {
+    let column = columns
+        .iter()
+        .find(|column| column.name() == name)
+        .unwrap_or_else(|| panic!("fixture should expose column `{name}`"));
+
+    assert_eq!(
+        column.nullable(),
+        expected_metadata,
+        "{name} should preserve MySQL nullability metadata",
+    );
+    assert_eq!(
+        column.to_result_column().is_nullable(),
+        expected_output_nullable,
+        "{name} should map to conservative Core IR output nullability",
+    );
 }
 
 async fn execute_fixture_statements(
