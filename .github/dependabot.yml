@@ -24,7 +24,9 @@ updates:
   - package-ecosystem: github-actions
     directories:
       - "/"
-      - "/.github/actions/*"
+      - "/.github/actions/setup-dprint"
+      - "/.github/actions/setup-node"
+      - "/.github/actions/setup-rust"
     schedule:
       interval: weekly
     labels:
