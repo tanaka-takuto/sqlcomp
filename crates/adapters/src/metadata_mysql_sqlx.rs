@@ -32,18 +32,44 @@ impl MetadataProvider for SqlxMysqlMetadataProvider {
         query: &core::RawQuery,
         _analysis: &core::AnalyzedQuery,
     ) -> core::DiagnosticResult<core::DbQueryMetadata> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                query_error(
-                    query,
-                    format!("failed to create MySQL metadata runtime: {error}"),
-                )
-            })?;
-
-        runtime.block_on(describe_query_metadata(self.database_url(), query))
+        if tokio::runtime::Handle::try_current().is_ok() {
+            describe_query_metadata_on_worker_thread(self.database_url().to_owned(), query.clone())
+        } else {
+            describe_query_metadata_blocking(self.database_url(), query)
+        }
     }
+}
+
+fn describe_query_metadata_on_worker_thread(
+    database_url: String,
+    query: core::RawQuery,
+) -> core::DiagnosticResult<core::DbQueryMetadata> {
+    let error_query = query.clone();
+    std::thread::spawn(move || describe_query_metadata_blocking(&database_url, &query))
+        .join()
+        .unwrap_or_else(|_| {
+            Err(query_error(
+                &error_query,
+                "MySQL metadata worker thread panicked",
+            ))
+        })
+}
+
+fn describe_query_metadata_blocking(
+    database_url: &str,
+    query: &core::RawQuery,
+) -> core::DiagnosticResult<core::DbQueryMetadata> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            query_error(
+                query,
+                format!("failed to create MySQL metadata runtime: {error}"),
+            )
+        })?;
+
+    runtime.block_on(describe_query_metadata(database_url, query))
 }
 
 async fn describe_query_metadata(

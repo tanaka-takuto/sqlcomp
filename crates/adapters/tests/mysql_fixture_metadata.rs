@@ -87,6 +87,25 @@ fn sqlx_mysql_metadata_provider_reports_connection_failures_as_diagnostics() {
     );
 }
 
+#[tokio::test]
+async fn sqlx_mysql_metadata_provider_reports_connection_failures_inside_tokio_runtime() {
+    let provider = SqlxMysqlMetadataProvider::new("not-a-mysql-url");
+    let query = raw_query("SELECT 1 AS value;");
+    let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+
+    let report = provider
+        .describe(&query, &analysis)
+        .expect_err("invalid database URL should fail without panicking inside Tokio");
+
+    assert!(
+        report.diagnostics()[0]
+            .message()
+            .starts_with("failed to connect to MySQL database:"),
+        "{}",
+        report.diagnostics()[0].message()
+    );
+}
+
 #[test]
 #[ignore = "requires a running MySQL service and DATABASE_URL"]
 fn sqlx_mysql_metadata_provider_reports_describe_failures_as_diagnostics()
