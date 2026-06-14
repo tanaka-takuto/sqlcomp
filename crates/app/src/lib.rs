@@ -271,11 +271,27 @@ pub struct DefaultQueryCompiler;
 impl QueryCompiler for DefaultQueryCompiler {
     fn compile(
         &self,
-        _query: &core::RawQuery,
-        _analysis: &core::AnalyzedQuery,
-        _metadata: &core::DbQueryMetadata,
+        query: &core::RawQuery,
+        analysis: &core::AnalyzedQuery,
+        metadata: &core::DbQueryMetadata,
     ) -> core::DiagnosticResult<core::CompiledQuery> {
-        Ok(core::CompiledQuery)
+        let cardinality = query
+            .metadata()
+            .cardinality()
+            .unwrap_or_else(|| analysis.cardinality());
+        let row = metadata
+            .columns()
+            .iter()
+            .map(core::DbResultColumn::to_result_column)
+            .collect();
+
+        Ok(core::CompiledQuery::new(
+            core::QueryId::new(query.metadata().id().to_owned()),
+            query.sql().to_owned(),
+            cardinality,
+            Vec::new(),
+            row,
+        ))
     }
 }
 
@@ -283,7 +299,10 @@ impl QueryCompiler for DefaultQueryCompiler {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{CompilationPlanner, DefaultCompilationPlanner, DefaultCompileUseCase};
+    use super::{
+        CompilationPlanner, DefaultCompilationPlanner, DefaultCompileUseCase, DefaultQueryCompiler,
+        QueryCompiler,
+    };
     use sqlcomp_core as core;
 
     #[test]
@@ -356,6 +375,51 @@ mod tests {
             diagnostic_messages(&report),
             "command `compile` loaded configuration, but the compile pipeline is not implemented yet"
         );
+    }
+
+    #[test]
+    fn query_compiler_builds_core_ir_with_empty_mvp_input_and_result_columns() {
+        let query = core::RawQuery::new(
+            core::QueryMetadata::new("listUsers".to_owned(), None),
+            "SELECT id, name FROM users;".to_owned(),
+        );
+        let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+        let metadata = core::DbQueryMetadata::new(vec![
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+            core::DbResultColumn::new("name".to_owned(), core::CoreType::String, Some(true)),
+        ]);
+
+        let compiled = DefaultQueryCompiler
+            .compile(&query, &analysis, &metadata)
+            .expect("query should compile into core IR");
+
+        assert_eq!(compiled.id().as_str(), "listUsers");
+        assert_eq!(compiled.sql(), "SELECT id, name FROM users;");
+        assert_eq!(compiled.cardinality(), core::Cardinality::Many);
+        assert!(compiled.input().is_empty());
+        assert_eq!(compiled.row().len(), 2);
+        assert_eq!(compiled.row()[0].name(), "id");
+        assert_eq!(compiled.row()[0].ty(), core::CoreType::Int64);
+        assert!(!compiled.row()[0].is_nullable());
+        assert_eq!(compiled.row()[1].name(), "name");
+        assert_eq!(compiled.row()[1].ty(), core::CoreType::String);
+        assert!(compiled.row()[1].is_nullable());
+    }
+
+    #[test]
+    fn query_compiler_uses_explicit_cardinality_override() {
+        let query = core::RawQuery::new(
+            core::QueryMetadata::new("findLatestUser".to_owned(), Some(core::Cardinality::One)),
+            "SELECT id FROM users;".to_owned(),
+        );
+        let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+        let metadata = core::DbQueryMetadata::new(Vec::new());
+
+        let compiled = DefaultQueryCompiler
+            .compile(&query, &analysis, &metadata)
+            .expect("query should compile into core IR");
+
+        assert_eq!(compiled.cardinality(), core::Cardinality::One);
     }
 
     fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
