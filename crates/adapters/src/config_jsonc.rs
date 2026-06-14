@@ -1,19 +1,22 @@
 //! JSONC configuration adapter.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use sqlcomp_app::ConfigLoader;
+use sqlcomp_app::{CONFIG_FILE_NAME, ConfigLoader, ConfigTemplateWriter};
 use sqlcomp_core as core;
-
-const CONFIG_FILE_NAME: &str = "sqlcomp.config.json";
 
 /// JSONC-backed config loader.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JsoncConfigLoader {
     source: ConfigSource,
 }
+
+/// Filesystem-backed starter config writer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct JsoncConfigTemplateWriter;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ConfigSource {
@@ -100,6 +103,38 @@ impl ConfigLoader for JsoncConfigLoader {
         })?;
 
         parse_config(&source, Some(&path), config_dir_from_path(&path))
+    }
+}
+
+impl ConfigTemplateWriter for JsoncConfigTemplateWriter {
+    fn write_new(&self, path: &Path, contents: &str) -> core::DiagnosticResult<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    single_error_report(
+                        format!(
+                            "refusing to overwrite existing config file `{}`",
+                            path.display()
+                        ),
+                        Some(core::SourceLocation::for_path(path)),
+                    )
+                } else {
+                    single_error_report(
+                        format!("failed to create config file `{}`: {error}", path.display()),
+                        Some(core::SourceLocation::for_path(path)),
+                    )
+                }
+            })?;
+
+        file.write_all(contents.as_bytes()).map_err(|error| {
+            single_error_report(
+                format!("failed to write config file `{}`: {error}", path.display()),
+                Some(core::SourceLocation::for_path(path)),
+            )
+        })
     }
 }
 

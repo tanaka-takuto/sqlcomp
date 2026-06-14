@@ -7,13 +7,16 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use sqlcomp_adapters::config_jsonc::JsoncConfigLoader;
+use sqlcomp_adapters::config_jsonc::{JsoncConfigLoader, JsoncConfigTemplateWriter};
 use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
 use sqlcomp_adapters::metadata_mysql_sqlx::SqlxMysqlMetadataProvider;
 use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlcomp_adapters::source_fs::FileSystemSourceReader;
 use sqlcomp_adapters::target_typescript::TypeScriptTargetGenerator;
-use sqlcomp_app::{self as app, ConfigLoader, DefaultCompilationPlanner, DefaultQueryCompiler};
+use sqlcomp_app::{
+    self as app, ConfigLoader, DefaultCompilationPlanner, DefaultProjectInitializer,
+    DefaultQueryCompiler,
+};
 use sqlcomp_core as core;
 
 /// Default CLI composition root.
@@ -40,7 +43,7 @@ pub fn run() -> ExitCode {
 fn run_with_args(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     match parse_args(args) {
         Ok(Command::Noop) => ExitCode::SUCCESS,
-        Ok(Command::Init) => fail(&single_cli_error("command `init` is not implemented yet")),
+        Ok(Command::Init) => run_init_command(),
         Ok(Command::Check { config }) => run_configured_command("check", config),
         Ok(Command::Compile { config, clean: _ }) => run_configured_command("compile", config),
         Err(report) => fail(&report),
@@ -93,6 +96,22 @@ fn run_configured_command(command: &str, config: Option<PathBuf>) -> ExitCode {
         Ok(_config) => fail(&single_cli_error(format!(
             "command `{command}` is not implemented yet"
         ))),
+        Err(report) => fail(&report),
+    }
+}
+
+fn run_init_command() -> ExitCode {
+    let current_dir = match std::env::current_dir() {
+        Ok(current_dir) => current_dir,
+        Err(error) => {
+            return fail(&single_cli_error(format!(
+                "failed to determine current directory while creating `sqlcomp.config.json`: {error}"
+            )));
+        }
+    };
+
+    match DefaultProjectInitializer::init(&current_dir, &JsoncConfigTemplateWriter) {
+        Ok(_path) => ExitCode::SUCCESS,
         Err(report) => fail(&report),
     }
 }
