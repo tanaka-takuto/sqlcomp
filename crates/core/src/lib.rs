@@ -336,6 +336,7 @@ impl QueryMetadata {
 pub struct RawQuery {
     metadata: QueryMetadata,
     sql: String,
+    source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
 
@@ -346,8 +347,16 @@ impl RawQuery {
         Self {
             metadata,
             sql,
+            source_path: None,
             source_location: None,
         }
+    }
+
+    /// Attach the source SQL path relative to the configuration directory.
+    #[must_use]
+    pub fn with_source_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.source_path = Some(path.into());
+        self
     }
 
     /// Attach source location context for diagnostics.
@@ -367,6 +376,12 @@ impl RawQuery {
     #[must_use]
     pub fn sql(&self) -> &str {
         &self.sql
+    }
+
+    /// Source SQL path relative to the configuration directory, when known.
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source_path.as_deref()
     }
 
     /// Optional source location for the SQL body.
@@ -468,6 +483,7 @@ pub struct CompiledQuery {
     id: QueryId,
     sql: String,
     cardinality: Cardinality,
+    source_path: Option<PathBuf>,
     input: Vec<InputField>,
     row: Vec<ResultColumn>,
 }
@@ -486,9 +502,17 @@ impl CompiledQuery {
             id,
             sql,
             cardinality,
+            source_path: None,
             input,
             row,
         }
+    }
+
+    /// Attach the source SQL path relative to the configuration directory.
+    #[must_use]
+    pub fn with_source_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.source_path = Some(path.into());
+        self
     }
 
     /// Query ID exactly as written in source metadata.
@@ -507,6 +531,12 @@ impl CompiledQuery {
     #[must_use]
     pub const fn cardinality(&self) -> Cardinality {
         self.cardinality
+    }
+
+    /// Source SQL path relative to the configuration directory, when known.
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source_path.as_deref()
     }
 
     /// Input fields for the query. MVP queries have an empty input list.
@@ -709,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_query_preserves_metadata_sql_and_optional_source_location() {
+    fn raw_query_preserves_metadata_sql_source_path_and_optional_source_location() {
         let location = SourceLocation::at_range(
             "sql/users.sql",
             SourceRange::point(
@@ -720,11 +750,13 @@ mod tests {
             QueryMetadata::new("listUsers".to_owned(), Some(Cardinality::One)),
             "SELECT id FROM users;".to_owned(),
         )
+        .with_source_path("sql/users.sql")
         .with_source_location(location.clone());
 
         assert_eq!(query.metadata().id(), "listUsers");
         assert_eq!(query.metadata().cardinality(), Some(Cardinality::One));
         assert_eq!(query.sql(), "SELECT id FROM users;");
+        assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
         assert_eq!(query.source_location(), Some(&location));
     }
 
@@ -762,6 +794,7 @@ mod tests {
         assert_eq!(query.id().as_str(), "listUsers");
         assert_eq!(query.sql(), "SELECT id, name FROM users;");
         assert_eq!(query.cardinality(), Cardinality::Many);
+        assert_eq!(query.source_path(), None);
         assert!(query.input().is_empty());
         assert_eq!(query.row().len(), 2);
         assert_eq!(query.row()[0].name(), "id");
@@ -770,6 +803,20 @@ mod tests {
         assert_eq!(query.row()[1].name(), "name");
         assert_eq!(query.row()[1].ty(), CoreType::String);
         assert!(query.row()[1].is_nullable());
+    }
+
+    #[test]
+    fn compiled_query_preserves_source_path_when_available() {
+        let query = CompiledQuery::new(
+            QueryId::new("listUsers".to_owned()),
+            "SELECT id FROM users;".to_owned(),
+            Cardinality::Many,
+            Vec::new(),
+            Vec::new(),
+        )
+        .with_source_path("sql/users.sql");
+
+        assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
     }
 
     #[test]

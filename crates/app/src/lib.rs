@@ -125,6 +125,7 @@ pub trait TargetGenerator {
     /// core IR.
     fn generate(
         &self,
+        plan: &core::CompilationPlan,
         queries: &[core::CompiledQuery],
     ) -> core::DiagnosticResult<core::GeneratedFiles>;
 }
@@ -285,13 +286,19 @@ impl QueryCompiler for DefaultQueryCompiler {
             .map(core::DbResultColumn::to_result_column)
             .collect();
 
-        Ok(core::CompiledQuery::new(
+        let mut compiled = core::CompiledQuery::new(
             core::QueryId::new(query.metadata().id().to_owned()),
             query.sql().to_owned(),
             cardinality,
             Vec::new(),
             row,
-        ))
+        );
+
+        if let Some(source_path) = query.source_path() {
+            compiled = compiled.with_source_path(source_path.to_path_buf());
+        }
+
+        Ok(compiled)
     }
 }
 
@@ -382,7 +389,8 @@ mod tests {
         let query = core::RawQuery::new(
             core::QueryMetadata::new("listUsers".to_owned(), None),
             "SELECT id, name FROM users;".to_owned(),
-        );
+        )
+        .with_source_path("sql/users.sql");
         let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
         let metadata = core::DbQueryMetadata::new(vec![
             core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
@@ -394,6 +402,7 @@ mod tests {
             .expect("query should compile into core IR");
 
         assert_eq!(compiled.id().as_str(), "listUsers");
+        assert_eq!(compiled.source_path(), Some(Path::new("sql/users.sql")));
         assert_eq!(compiled.sql(), "SELECT id, name FROM users;");
         assert_eq!(compiled.cardinality(), core::Cardinality::Many);
         assert!(compiled.input().is_empty());

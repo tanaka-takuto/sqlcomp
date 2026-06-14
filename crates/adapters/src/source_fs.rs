@@ -236,6 +236,16 @@ impl SourceReader for FileSystemSourceReader {
         let mut queries = Vec::new();
 
         for path in discover_source_files(plan)? {
+            let source_path = plan.source_relative_path(&path).ok_or_else(|| {
+                file_error(
+                    format!(
+                        "source file `{}` is outside the configuration directory `{}`",
+                        path.display(),
+                        plan.config_dir().display()
+                    ),
+                    &path,
+                )
+            })?;
             let source = fs::read_to_string(&path).map_err(|error| {
                 file_error(
                     format!(
@@ -249,7 +259,7 @@ impl SourceReader for FileSystemSourceReader {
                 split_sqlcomp_query_blocks(&source).map_err(|report| attach_path(report, &path))?;
             let file_queries = file_queries
                 .into_iter()
-                .map(|query| attach_query_path(query, &path))
+                .map(|query| attach_query_path(query, &path).with_source_path(source_path.clone()))
                 .collect::<Vec<_>>();
             reject_duplicate_query_ids(&file_queries, &mut seen_ids)?;
             queries.extend(file_queries);
@@ -1288,6 +1298,7 @@ SELECT id FROM users;
         assert_eq!(location.path(), Some(sql_path.as_path()));
         assert_eq!(range.start().line(), 7);
         assert_eq!(range.start().column(), 1);
+        assert_eq!(queries[0].source_path(), Some(Path::new("sql/users.sql")));
 
         fs::remove_dir_all(project_dir).expect("test project directory should be removed");
     }

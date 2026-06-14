@@ -1,6 +1,8 @@
 //! TypeScript target generation adapter.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::path::{Component, Path, PathBuf};
 
 use sqlcomp_app::TargetGenerator;
 use sqlcomp_core as core;
@@ -97,10 +99,19 @@ pub fn render_sql_property(query: &core::CompiledQuery) -> String {
 /// Render a full generated TypeScript file from compiled queries.
 #[must_use]
 pub fn render_generated_file_contents(queries: &[core::CompiledQuery]) -> String {
-    let mut contents = String::from(GENERATED_FILE_HEADER);
+    render_generated_file_contents_from_iter(queries.iter())
+}
 
-    for (index, query) in queries.iter().enumerate() {
-        if index > 0 {
+fn render_generated_file_contents_from_iter<'a>(
+    queries: impl IntoIterator<Item = &'a core::CompiledQuery>,
+) -> String {
+    let mut contents = String::from(GENERATED_FILE_HEADER);
+    let mut is_first_query = true;
+
+    for query in queries {
+        if is_first_query {
+            is_first_query = false;
+        } else {
             contents.push('\n');
         }
         contents.push_str(&render_query(query));
@@ -229,18 +240,74 @@ pub struct TypeScriptTargetGenerator;
 impl TargetGenerator for TypeScriptTargetGenerator {
     fn generate(
         &self,
-        _queries: &[core::CompiledQuery],
+        plan: &core::CompilationPlan,
+        queries: &[core::CompiledQuery],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
-        Ok(core::GeneratedFiles::new(Vec::new()))
+        let mut queries_by_source_path: BTreeMap<PathBuf, Vec<&core::CompiledQuery>> =
+            BTreeMap::new();
+
+        for query in queries {
+            let source_path = query_source_path(query)?;
+            queries_by_source_path
+                .entry(source_path.to_path_buf())
+                .or_default()
+                .push(query);
+        }
+
+        let mut files = Vec::with_capacity(queries_by_source_path.len());
+        for (source_path, source_queries) in queries_by_source_path {
+            let output_path = generated_typescript_path(plan.output_dir(), &source_path);
+            let contents = render_generated_file_contents_from_iter(source_queries);
+            files.push(core::GeneratedFile::new(output_path, contents));
+        }
+
+        Ok(core::GeneratedFiles::new(files))
     }
+}
+
+fn query_source_path(query: &core::CompiledQuery) -> core::DiagnosticResult<&Path> {
+    let Some(source_path) = query.source_path() else {
+        return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+            format!(
+                "compiled query `{}` does not include a source file path for output mapping",
+                query.id().as_str()
+            ),
+        )));
+    };
+
+    if !is_safe_relative_path(source_path) {
+        return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+            format!(
+                "compiled query `{}` has invalid source file path `{}`; expected a config-relative SQL path",
+                query.id().as_str(),
+                source_path.display()
+            ),
+        )));
+    }
+
+    Ok(source_path)
+}
+
+fn generated_typescript_path(output_dir: &Path, source_relative_path: &Path) -> PathBuf {
+    output_dir.join(source_relative_path).with_extension("ts")
+}
+
+fn is_safe_relative_path(path: &Path) -> bool {
+    path.file_name().is_some()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::CurDir | Component::Normal(_)))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::{
-        QuerySymbols, render_generated_file_contents, render_query, render_sql_property,
-        typescript_string_literal,
+        QuerySymbols, TypeScriptTargetGenerator, render_generated_file_contents, render_query,
+        render_sql_property, typescript_string_literal,
     };
+    use sqlcomp_app::TargetGenerator;
     use sqlcomp_core as core;
 
     #[test]
@@ -479,5 +546,86 @@ export function inspectTypes(
         assert!(
             contents.contains("export type findLatestUser_Output = findLatestUser_Row | null;")
         );
+    }
+
+    #[test]
+    fn generator_maps_nested_sql_paths_under_output_dir() {
+        let plan = compilation_plan();
+        let query = compiled_query("listAdmins", "SELECT id FROM admins;")
+            .with_source_path("sql/admin/users.sql");
+
+        let files = TypeScriptTargetGenerator
+            .generate(&plan, &[query])
+            .expect("generator should map SQL source path to TypeScript output path");
+
+        assert_eq!(files.files().len(), 1);
+        assert_eq!(
+            files.files()[0].path(),
+            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/admin/users.ts")
+        );
+        assert!(
+            files.files()[0]
+                .contents()
+                .contains("export function listAdmins(")
+        );
+    }
+
+    #[test]
+    fn generator_combines_queries_from_same_sql_file_into_one_module() {
+        let plan = compilation_plan();
+        let queries = [
+            compiled_query("listUsers", "SELECT id FROM users;").with_source_path("sql/users.sql"),
+            compiled_query("findLatestUser", "SELECT id FROM users LIMIT 1;")
+                .with_source_path("sql/users.sql"),
+            compiled_query("listRoles", "SELECT id FROM roles;")
+                .with_source_path("sql/admin/roles.sql"),
+        ];
+
+        let files = TypeScriptTargetGenerator
+            .generate(&plan, &queries)
+            .expect("generator should group queries by source SQL file");
+
+        assert_eq!(files.files().len(), 2);
+        let users_contents = file_contents(
+            &files,
+            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+        );
+        assert!(users_contents.contains("export function listUsers("));
+        assert!(users_contents.contains("export function findLatestUser("));
+        assert!(!users_contents.contains("export function listRoles("));
+    }
+
+    fn compilation_plan() -> core::CompilationPlan {
+        core::CompilationPlan::new(
+            PathBuf::from("/tmp/sqlcomp-project"),
+            vec![PathBuf::from("/tmp/sqlcomp-project/sql/**/*.sql")],
+            Vec::new(),
+            PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp"),
+            core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
+            core::TargetConfig::new(core::TargetLanguage::TypeScript),
+        )
+    }
+
+    fn compiled_query(id: &str, sql: &str) -> core::CompiledQuery {
+        core::CompiledQuery::new(
+            core::QueryId::new(id.to_owned()),
+            sql.to_owned(),
+            core::Cardinality::Many,
+            Vec::new(),
+            vec![core::ResultColumn::new(
+                "id".to_owned(),
+                core::CoreType::Int32,
+                false,
+            )],
+        )
+    }
+
+    fn file_contents<'a>(files: &'a core::GeneratedFiles, path: &Path) -> &'a str {
+        files
+            .files()
+            .iter()
+            .find(|file| file.path() == path)
+            .unwrap_or_else(|| panic!("expected generated file `{}`", path.display()))
+            .contents()
     }
 }
