@@ -195,19 +195,29 @@ where
 }
 
 impl DefaultCompileUseCase {
-    /// Run the `check` command skeleton.
+    /// Run the `check` command as a dry run of the full generation pipeline.
     ///
     /// # Errors
     ///
-    /// Returns diagnostics when planning fails or when the downstream compile
-    /// pipeline is not implemented yet.
-    pub fn check(
+    /// Returns diagnostics when planning, source intake, analysis, metadata
+    /// lookup, core compilation, or target generation fails.
+    pub fn check<P, S, D, M, Q, T, W>(
         config: &core::ProjectConfig,
-        planner: &impl CompilationPlanner,
-    ) -> core::DiagnosticResult<()> {
-        let plan = planner.plan(config)?;
+        pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
+    ) -> core::DiagnosticResult<()>
+    where
+        P: CompilationPlanner,
+        S: SourceReader,
+        D: DialectAnalyzer,
+        M: MetadataProvider,
+        Q: QueryCompiler,
+        T: TargetGenerator,
+        W: GeneratedFileWriter,
+    {
+        let plan = pipeline.planner.plan(config)?;
+        let _generated_files = generate_files(&plan, pipeline)?;
 
-        Err(compile_pipeline_pending("check", &plan))
+        Ok(())
     }
 
     /// Run the `compile` command.
@@ -236,32 +246,37 @@ impl DefaultCompileUseCase {
             return Err(compile_clean_pending());
         }
 
-        let raw_queries = pipeline.source_reader.read(&plan)?;
-        let mut compiled_queries = Vec::with_capacity(raw_queries.len());
-
-        for query in &raw_queries {
-            let analysis = pipeline.dialect_analyzer.analyze(query)?;
-            let metadata = pipeline.metadata_provider.describe(query, &analysis)?;
-            let compiled = pipeline
-                .query_compiler
-                .compile(query, &analysis, &metadata)?;
-            compiled_queries.push(compiled);
-        }
-
-        let generated_files = pipeline
-            .target_generator
-            .generate(&plan, &compiled_queries)?;
+        let generated_files = generate_files(&plan, pipeline)?;
         pipeline.generated_file_writer.write(&generated_files)
     }
 }
 
-fn compile_pipeline_pending(
-    command: &str,
-    _plan: &core::CompilationPlan,
-) -> core::DiagnosticReport {
-    core::DiagnosticReport::new(core::Diagnostic::error(format!(
-        "command `{command}` loaded configuration, but the compile pipeline is not implemented yet"
-    )))
+fn generate_files<P, S, D, M, Q, T, W>(
+    plan: &core::CompilationPlan,
+    pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
+) -> core::DiagnosticResult<core::GeneratedFiles>
+where
+    P: CompilationPlanner,
+    S: SourceReader,
+    D: DialectAnalyzer,
+    M: MetadataProvider,
+    Q: QueryCompiler,
+    T: TargetGenerator,
+    W: GeneratedFileWriter,
+{
+    let raw_queries = pipeline.source_reader.read(plan)?;
+    let mut compiled_queries = Vec::with_capacity(raw_queries.len());
+
+    for query in &raw_queries {
+        let analysis = pipeline.dialect_analyzer.analyze(query)?;
+        let metadata = pipeline.metadata_provider.describe(query, &analysis)?;
+        let compiled = pipeline
+            .query_compiler
+            .compile(query, &analysis, &metadata)?;
+        compiled_queries.push(compiled);
+    }
+
+    pipeline.target_generator.generate(plan, &compiled_queries)
 }
 
 fn compile_clean_pending() -> core::DiagnosticReport {
@@ -368,6 +383,7 @@ impl QueryCompiler for DefaultQueryCompiler {
 mod tests {
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
+    use std::rc::Rc;
 
     use super::{
         CompilationPlanner, CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase,
@@ -425,59 +441,143 @@ mod tests {
     }
 
     #[test]
-    fn check_command_reaches_compile_pipeline_skeleton_after_planning() {
+    fn check_runs_full_generation_pipeline_without_writing_files() {
+        let temp_dir = unique_temp_dir("sqlcomp-app-check-dry-run");
+        std::fs::create_dir_all(&temp_dir).expect("temp project dir should be created");
         let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
-        let report = DefaultCompileUseCase::check(&config, &DefaultCompilationPlanner)
-            .expect_err("pipeline skeleton should report that deeper compile is pending");
+        let generated_path = temp_dir.join("src/generated/sqlcomp/sql/users.ts");
+        let calls = CallLog::default();
+        let source_reader = FakeSourceReader::new(calls.clone());
+        let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+        let metadata_provider = FakeMetadataProvider::new(calls.clone());
+        let query_compiler = LoggingQueryCompiler::new(calls.clone());
+        let target_generator = FakeTargetGenerator::new(
+            calls.clone(),
+            core::GeneratedFiles::new(vec![core::GeneratedFile::new(
+                generated_path.clone(),
+                "generated".to_owned(),
+            )]),
+        );
+        let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+        let pipeline = CompilePipeline {
+            planner: &DefaultCompilationPlanner,
+            source_reader: &source_reader,
+            dialect_analyzer: &dialect_analyzer,
+            metadata_provider: &metadata_provider,
+            query_compiler: &query_compiler,
+            target_generator: &target_generator,
+            generated_file_writer: &generated_file_writer,
+        };
+
+        DefaultCompileUseCase::check(&config, &pipeline)
+            .expect("check should dry-run generation successfully");
 
         assert_eq!(
-            diagnostic_messages(&report),
-            "command `check` loaded configuration, but the compile pipeline is not implemented yet"
+            calls.entries(),
+            ["read", "analyze", "describe", "compile", "generate"]
+        );
+        assert!(
+            !generated_path.exists(),
+            "check must not write generated files"
+        );
+
+        std::fs::remove_dir_all(temp_dir).expect("temp project dir should be removed");
+    }
+
+    #[test]
+    fn compile_writes_generated_files_from_the_shared_pipeline() {
+        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+        let generated_files = core::GeneratedFiles::new(vec![core::GeneratedFile::new(
+            PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+            "generated".to_owned(),
+        )]);
+        let calls = CallLog::default();
+        let source_reader = FakeSourceReader::new(calls.clone());
+        let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+        let metadata_provider = FakeMetadataProvider::new(calls.clone());
+        let query_compiler = LoggingQueryCompiler::new(calls.clone());
+        let target_generator = FakeTargetGenerator::new(calls.clone(), generated_files.clone());
+        let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+        let pipeline = CompilePipeline {
+            planner: &DefaultCompilationPlanner,
+            source_reader: &source_reader,
+            dialect_analyzer: &dialect_analyzer,
+            metadata_provider: &metadata_provider,
+            query_compiler: &query_compiler,
+            target_generator: &target_generator,
+            generated_file_writer: &generated_file_writer,
+        };
+
+        DefaultCompileUseCase::compile(&config, &pipeline, false)
+            .expect("compile should write generated files");
+
+        assert_eq!(
+            calls.entries(),
+            [
+                "read", "analyze", "describe", "compile", "generate", "write"
+            ]
+        );
+        assert_eq!(
+            generated_file_writer.written_files(),
+            generated_files.files()
         );
     }
 
     #[test]
-    fn compile_command_writes_generated_files_from_pipeline() {
-        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
-        let written = RefCell::new(None);
-        let writer = RecordingGeneratedFileWriter { written: &written };
-        let pipeline = CompilePipeline {
-            planner: &DefaultCompilationPlanner,
-            source_reader: &FakeSourceReader,
-            dialect_analyzer: &FakeDialectAnalyzer,
-            metadata_provider: &FakeMetadataProvider,
-            query_compiler: &DefaultQueryCompiler,
-            target_generator: &FakeTargetGenerator,
-            generated_file_writer: &writer,
-        };
+    fn check_reports_dialect_metadata_and_generation_errors_as_diagnostics() {
+        let cases = [
+            PipelineFailure::Dialect,
+            PipelineFailure::Metadata,
+            PipelineFailure::Generation,
+        ];
 
-        DefaultCompileUseCase::compile(&config, &pipeline, false)
-            .expect("compile should run the pipeline and write generated files");
+        for failure in cases {
+            let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+            let calls = CallLog::default();
+            let source_reader = FakeSourceReader::new(calls.clone());
+            let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone()).with_failure(failure);
+            let metadata_provider = FakeMetadataProvider::new(calls.clone()).with_failure(failure);
+            let query_compiler = LoggingQueryCompiler::new(calls.clone());
+            let target_generator =
+                FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()))
+                    .with_failure(failure);
+            let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+            let pipeline = CompilePipeline {
+                planner: &DefaultCompilationPlanner,
+                source_reader: &source_reader,
+                dialect_analyzer: &dialect_analyzer,
+                metadata_provider: &metadata_provider,
+                query_compiler: &query_compiler,
+                target_generator: &target_generator,
+                generated_file_writer: &generated_file_writer,
+            };
 
-        let files = written
-            .into_inner()
-            .expect("compile should pass generated files to the writer");
-        assert_eq!(files.files().len(), 1);
-        assert_eq!(
-            files.files()[0].path(),
-            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts")
-        );
-        assert_eq!(files.files()[0].contents(), "generated listUsers\n");
+            let report = DefaultCompileUseCase::check(&config, &pipeline)
+                .expect_err("pipeline failures should be returned as diagnostics");
+
+            assert_eq!(diagnostic_messages(&report), failure.message());
+        }
     }
 
     #[test]
     fn compile_clean_reports_pending_cleanup_without_writing_files() {
         let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
-        let written = RefCell::new(None);
-        let writer = RecordingGeneratedFileWriter { written: &written };
+        let calls = CallLog::default();
+        let source_reader = FakeSourceReader::new(calls.clone());
+        let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+        let metadata_provider = FakeMetadataProvider::new(calls.clone());
+        let query_compiler = LoggingQueryCompiler::new(calls.clone());
+        let target_generator =
+            FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+        let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
         let pipeline = CompilePipeline {
             planner: &DefaultCompilationPlanner,
-            source_reader: &FakeSourceReader,
-            dialect_analyzer: &FakeDialectAnalyzer,
-            metadata_provider: &FakeMetadataProvider,
-            query_compiler: &DefaultQueryCompiler,
-            target_generator: &FakeTargetGenerator,
-            generated_file_writer: &writer,
+            source_reader: &source_reader,
+            dialect_analyzer: &dialect_analyzer,
+            metadata_provider: &metadata_provider,
+            query_compiler: &query_compiler,
+            target_generator: &target_generator,
+            generated_file_writer: &generated_file_writer,
         };
         let report = DefaultCompileUseCase::compile(&config, &pipeline, true)
             .expect_err("compile --clean is tracked separately");
@@ -487,7 +587,7 @@ mod tests {
             "command `compile --clean` is not implemented yet"
         );
         assert!(
-            written.into_inner().is_none(),
+            generated_file_writer.written_files().is_empty(),
             "compile --clean should not write files until cleanup is implemented"
         );
     }
@@ -633,86 +733,249 @@ mod tests {
             .join("\n")
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct FakeSourceReader;
+    fn raw_query() -> core::RawQuery {
+        core::RawQuery::new(
+            core::QueryMetadata::new("listUsers".to_owned(), None),
+            "SELECT id FROM users;".to_owned(),
+        )
+        .with_source_path("sql/users.sql")
+    }
+
+    fn metadata() -> core::DbQueryMetadata {
+        core::DbQueryMetadata::new(vec![core::DbResultColumn::new(
+            "id".to_owned(),
+            core::CoreType::Int64,
+            Some(false),
+        )])
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after Unix epoch")
+            .as_nanos();
+
+        std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
+    }
+
+    #[derive(Clone, Debug, Default)]
+    struct CallLog(Rc<RefCell<Vec<&'static str>>>);
+
+    impl CallLog {
+        fn push(&self, call: &'static str) {
+            self.0.borrow_mut().push(call);
+        }
+
+        fn entries(&self) -> Vec<&'static str> {
+            self.0.borrow().clone()
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum PipelineFailure {
+        Dialect,
+        Metadata,
+        Generation,
+    }
+
+    impl PipelineFailure {
+        const fn message(self) -> &'static str {
+            match self {
+                Self::Dialect => "dialect failed",
+                Self::Metadata => "metadata failed",
+                Self::Generation => "generation failed",
+            }
+        }
+
+        fn report(self) -> core::DiagnosticReport {
+            core::DiagnosticReport::new(core::Diagnostic::error(self.message()))
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct FakeSourceReader {
+        calls: CallLog,
+    }
+
+    impl FakeSourceReader {
+        const fn new(calls: CallLog) -> Self {
+            Self { calls }
+        }
+    }
 
     impl SourceReader for FakeSourceReader {
         fn read(
             &self,
             _plan: &core::CompilationPlan,
         ) -> core::DiagnosticResult<Vec<core::RawQuery>> {
-            Ok(vec![
-                core::RawQuery::new(
-                    core::QueryMetadata::new("listUsers".to_owned(), None),
-                    "SELECT id FROM users;".to_owned(),
-                )
-                .with_source_path("sql/users.sql"),
-            ])
+            self.calls.push("read");
+
+            Ok(vec![raw_query()])
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct FakeDialectAnalyzer;
+    #[derive(Clone, Debug)]
+    struct FakeDialectAnalyzer {
+        calls: CallLog,
+        failure: Option<PipelineFailure>,
+    }
+
+    impl FakeDialectAnalyzer {
+        const fn new(calls: CallLog) -> Self {
+            Self {
+                calls,
+                failure: None,
+            }
+        }
+
+        const fn with_failure(mut self, failure: PipelineFailure) -> Self {
+            if matches!(failure, PipelineFailure::Dialect) {
+                self.failure = Some(failure);
+            }
+
+            self
+        }
+    }
 
     impl DialectAnalyzer for FakeDialectAnalyzer {
-        fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
-            assert_eq!(query.metadata().id(), "listUsers");
+        fn analyze(&self, _query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
+            self.calls.push("analyze");
+
+            if let Some(failure) = self.failure {
+                return Err(failure.report());
+            }
 
             Ok(core::AnalyzedQuery::new(core::Cardinality::Many))
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct FakeMetadataProvider;
+    #[derive(Clone, Debug)]
+    struct FakeMetadataProvider {
+        calls: CallLog,
+        failure: Option<PipelineFailure>,
+    }
+
+    impl FakeMetadataProvider {
+        const fn new(calls: CallLog) -> Self {
+            Self {
+                calls,
+                failure: None,
+            }
+        }
+
+        const fn with_failure(mut self, failure: PipelineFailure) -> Self {
+            if matches!(failure, PipelineFailure::Metadata) {
+                self.failure = Some(failure);
+            }
+
+            self
+        }
+    }
 
     impl MetadataProvider for FakeMetadataProvider {
         fn describe(
             &self,
-            query: &core::RawQuery,
-            analysis: &core::AnalyzedQuery,
+            _query: &core::RawQuery,
+            _analysis: &core::AnalyzedQuery,
         ) -> core::DiagnosticResult<core::DbQueryMetadata> {
-            assert_eq!(query.metadata().id(), "listUsers");
-            assert_eq!(analysis.cardinality(), core::Cardinality::Many);
+            self.calls.push("describe");
 
-            Ok(core::DbQueryMetadata::new(vec![core::DbResultColumn::new(
-                "id".to_owned(),
-                core::CoreType::Int64,
-                Some(false),
-            )]))
+            if let Some(failure) = self.failure {
+                return Err(failure.report());
+            }
+
+            Ok(metadata())
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
-    struct FakeTargetGenerator;
+    #[derive(Clone, Debug)]
+    struct LoggingQueryCompiler {
+        calls: CallLog,
+    }
+
+    impl LoggingQueryCompiler {
+        const fn new(calls: CallLog) -> Self {
+            Self { calls }
+        }
+    }
+
+    impl QueryCompiler for LoggingQueryCompiler {
+        fn compile(
+            &self,
+            query: &core::RawQuery,
+            analysis: &core::AnalyzedQuery,
+            metadata: &core::DbQueryMetadata,
+        ) -> core::DiagnosticResult<core::CompiledQuery> {
+            self.calls.push("compile");
+
+            DefaultQueryCompiler.compile(query, analysis, metadata)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct FakeTargetGenerator {
+        calls: CallLog,
+        files: core::GeneratedFiles,
+        failure: Option<PipelineFailure>,
+    }
+
+    impl FakeTargetGenerator {
+        const fn new(calls: CallLog, files: core::GeneratedFiles) -> Self {
+            Self {
+                calls,
+                files,
+                failure: None,
+            }
+        }
+
+        const fn with_failure(mut self, failure: PipelineFailure) -> Self {
+            if matches!(failure, PipelineFailure::Generation) {
+                self.failure = Some(failure);
+            }
+
+            self
+        }
+    }
 
     impl TargetGenerator for FakeTargetGenerator {
         fn generate(
             &self,
-            plan: &core::CompilationPlan,
-            queries: &[core::CompiledQuery],
+            _plan: &core::CompilationPlan,
+            _queries: &[core::CompiledQuery],
         ) -> core::DiagnosticResult<core::GeneratedFiles> {
-            let [query] = queries else {
-                panic!("expected exactly one compiled query");
-            };
-            assert_eq!(query.id().as_str(), "listUsers");
-            assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
-            assert_eq!(query.row()[0].ty(), core::CoreType::Int64);
+            self.calls.push("generate");
 
-            Ok(core::GeneratedFiles::new(vec![core::GeneratedFile::new(
-                plan.output_dir().join("sql/users.ts"),
-                format!("generated {}\n", query.id().as_str()),
-            )]))
+            if let Some(failure) = self.failure {
+                return Err(failure.report());
+            }
+
+            Ok(self.files.clone())
         }
     }
 
-    #[derive(Debug)]
-    struct RecordingGeneratedFileWriter<'a> {
-        written: &'a RefCell<Option<core::GeneratedFiles>>,
+    #[derive(Clone, Debug)]
+    struct RecordingGeneratedFileWriter {
+        calls: CallLog,
+        files: Rc<RefCell<Vec<core::GeneratedFile>>>,
     }
 
-    impl GeneratedFileWriter for RecordingGeneratedFileWriter<'_> {
+    impl RecordingGeneratedFileWriter {
+        fn new(calls: CallLog) -> Self {
+            Self {
+                calls,
+                files: Rc::new(RefCell::new(Vec::new())),
+            }
+        }
+
+        fn written_files(&self) -> Vec<core::GeneratedFile> {
+            self.files.borrow().clone()
+        }
+    }
+
+    impl GeneratedFileWriter for RecordingGeneratedFileWriter {
         fn write(&self, files: &core::GeneratedFiles) -> core::DiagnosticResult<()> {
-            *self.written.borrow_mut() = Some(files.clone());
+            self.calls.push("write");
+            self.files.borrow_mut().extend_from_slice(files.files());
 
             Ok(())
         }

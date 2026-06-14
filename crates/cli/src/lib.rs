@@ -3,6 +3,7 @@
 //! The CLI is the composition root. It wires application ports to concrete
 //! adapters and is the only crate that should depend on all adapter crates.
 
+use std::env::VarError;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -135,32 +136,36 @@ fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -
         JsoncConfigLoader::new,
     );
 
-    match loader.load().and_then(|config| match command {
-        ConfiguredCommand::Check => {
-            DefaultCompileUseCase::check(&config, &DefaultCompilationPlanner)
-        }
-        ConfiguredCommand::Compile { clean } => run_compile_command(&config, clean),
-    }) {
+    let planner = DefaultCompilationPlanner;
+
+    match loader
+        .load()
+        .and_then(|config| run_configured_use_case(command, &config, &planner))
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(report) => fail(&report),
     }
 }
 
-fn run_compile_command(config: &core::ProjectConfig, clean: bool) -> core::DiagnosticResult<()> {
-    let planner = DefaultCompilationPlanner;
+fn run_configured_use_case(
+    command: ConfiguredCommand,
+    config: &core::ProjectConfig,
+    planner: &impl app::CompilationPlanner,
+) -> core::DiagnosticResult<()> {
     let source_reader = FileSystemSourceReader;
     let dialect_analyzer = MysqlDialectAnalyzer;
-    let database_url = if clean {
-        String::new()
-    } else {
-        database_url_from_env(config)?
+    let database_url = match command {
+        ConfiguredCommand::Compile { clean: true } => String::new(),
+        ConfiguredCommand::Check | ConfiguredCommand::Compile { clean: false } => {
+            database_url_from_env(config.database())?
+        }
     };
     let metadata_provider = SqlxMysqlMetadataProvider::new(database_url);
     let query_compiler = DefaultQueryCompiler;
     let target_generator = TypeScriptTargetGenerator;
     let generated_file_writer = FileSystemGeneratedFileWriter;
     let pipeline = CompilePipeline {
-        planner: &planner,
+        planner,
         source_reader: &source_reader,
         dialect_analyzer: &dialect_analyzer,
         metadata_provider: &metadata_provider,
@@ -169,17 +174,29 @@ fn run_compile_command(config: &core::ProjectConfig, clean: bool) -> core::Diagn
         generated_file_writer: &generated_file_writer,
     };
 
-    DefaultCompileUseCase::compile(config, &pipeline, clean)
+    match command {
+        ConfiguredCommand::Check => DefaultCompileUseCase::check(config, &pipeline),
+        ConfiguredCommand::Compile { clean } => {
+            DefaultCompileUseCase::compile(config, &pipeline, clean)
+        }
+    }
 }
 
-fn database_url_from_env(config: &core::ProjectConfig) -> core::DiagnosticResult<String> {
-    let env_name = config.database().url_env();
+fn database_url_from_env(database: &core::DatabaseConfig) -> core::DiagnosticResult<String> {
+    let env_name = database.url_env();
 
-    std::env::var(env_name).map_err(|error| {
-        single_cli_error(format!(
-            "failed to read database URL from environment variable `{env_name}`: {error}"
-        ))
-    })
+    match std::env::var(env_name) {
+        Ok(value) if value.is_empty() => Err(single_cli_error(format!(
+            "environment variable `{env_name}` configured by `database.urlEnv` is empty"
+        ))),
+        Ok(value) => Ok(value),
+        Err(VarError::NotPresent) => Err(single_cli_error(format!(
+            "environment variable `{env_name}` configured by `database.urlEnv` is not set"
+        ))),
+        Err(VarError::NotUnicode(_)) => Err(single_cli_error(format!(
+            "environment variable `{env_name}` configured by `database.urlEnv` is not valid Unicode"
+        ))),
+    }
 }
 
 fn run_init_command() -> ExitCode {

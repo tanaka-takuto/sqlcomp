@@ -2,8 +2,13 @@ use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
 use sqlcomp_adapters::metadata_mysql_sqlx::{
     SqlxMysqlMetadataProvider, map_mysql_result_column_metadata,
 };
-use sqlcomp_adapters::source_fs::split_sqlcomp_query_blocks;
-use sqlcomp_app::{DialectAnalyzer, MetadataProvider};
+use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
+use sqlcomp_adapters::source_fs::{FileSystemSourceReader, split_sqlcomp_query_blocks};
+use sqlcomp_adapters::target_typescript::TypeScriptTargetGenerator;
+use sqlcomp_app::{
+    CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase, DefaultQueryCompiler,
+    DialectAnalyzer, MetadataProvider,
+};
 use sqlcomp_core as core;
 use sqlx::TypeInfo;
 use sqlx::{Column, Connection, Executor, MySqlConnection, SqlSafeStr};
@@ -65,6 +70,52 @@ fn sqlx_mysql_metadata_provider_returns_fixture_query_metadata()
     );
     assert_fixture_core_type_matrix(&mapped_columns);
     assert_fixture_nullability_matrix(&mapped_columns);
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn check_command_dry_runs_fixture_sql_without_writing_generated_files()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    let project_dir = unique_temp_dir("sqlcomp-check-mysql-fixture");
+    let sql_dir = project_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir)?;
+    std::fs::write(sql_dir.join("metadata.sql"), QUERY_FIXTURES[0])?;
+    std::fs::write(sql_dir.join("business.sql"), QUERY_FIXTURES[1])?;
+
+    let config = project_config(project_dir.clone());
+    let metadata_provider = SqlxMysqlMetadataProvider::new(database_url);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &FileSystemSourceReader,
+        dialect_analyzer: &MysqlDialectAnalyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &DefaultQueryCompiler,
+        target_generator: &TypeScriptTargetGenerator,
+        generated_file_writer: &FileSystemGeneratedFileWriter,
+    };
+    DefaultCompileUseCase::check(&config, &pipeline)?;
+
+    assert!(
+        !project_dir.join("src/generated").exists(),
+        "check must not create the configured output directory"
+    );
+
+    std::fs::remove_dir_all(project_dir)?;
 
     Ok(())
 }
@@ -274,6 +325,25 @@ fn raw_query(sql: &str) -> core::RawQuery {
         core::QueryMetadata::new("testQuery".to_owned(), None),
         sql.to_owned(),
     )
+}
+
+fn project_config(config_dir: std::path::PathBuf) -> core::ProjectConfig {
+    core::ProjectConfig::new(
+        config_dir,
+        core::SourceConfig::new(vec!["sql/**/*.sql".to_owned()], Vec::new()),
+        core::OutputConfig::new("src/generated/sqlcomp".to_owned()),
+        core::DatabaseConfig::new(core::DatabaseDialect::MySql, DATABASE_URL_ENV.to_owned()),
+        core::TargetConfig::new(core::TargetLanguage::TypeScript),
+    )
+}
+
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should be after Unix epoch")
+        .as_nanos();
+
+    std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
 }
 
 fn extract_sqlcomp_queries(fixture: &'static str) -> Vec<&'static str> {
