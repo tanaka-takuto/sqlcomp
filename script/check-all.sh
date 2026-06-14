@@ -24,9 +24,11 @@ EOF
 }
 
 require_command "dprint" "brew install dprint"
+require_command "npm" "install Node.js from https://nodejs.org/"
 require_command "cargo" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
 
 dprint check
+script/typescript-generated-check.sh
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features
 cargo test --locked --workspace --all-targets --all-features

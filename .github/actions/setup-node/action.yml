@@ -1,0 +1,27 @@
+name: Setup Node
+description: Install Node.js and npm dependencies.
+
+inputs:
+  node-version:
+    description: Node.js version used by CI.
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+
+    - name: Install npm dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Show Node versions
+      shell: bash
+      run: |
+        node --version
+        npm --version

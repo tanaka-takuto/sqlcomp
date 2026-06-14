@@ -1,0 +1,21 @@
+name: "[typescript] Generated Check (Reusable Workflow)"
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: Generated TypeScript type check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Type-check generated fixtures
+        run: npm run typecheck:generated

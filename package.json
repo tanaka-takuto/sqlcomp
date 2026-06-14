@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "typecheck:generated": "tsc --noEmit --project fixtures/typescript/tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.8.2"
+  }
+}

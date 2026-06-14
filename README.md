@@ -59,7 +59,14 @@ script/mysql-down.sh
 Run the same non-database baseline checks used by CI with:
 
 ```sh
+npm ci
 script/check-all.sh
+```
+
+Type-check the generated TypeScript fixture directly with:
+
+```sh
+npm run typecheck:generated
 ```
 
 Run the MySQL-backed integration checks against a running MySQL service with:

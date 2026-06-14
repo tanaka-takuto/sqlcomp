@@ -20,6 +20,12 @@ source "$HOME/.cargo/env"
 rustup component add rustfmt clippy
 ```
 
+Install Node.js and the pinned TypeScript dependency used by generated-code checks:
+
+```sh
+npm ci
+```
+
 Verify the local toolchain:
 
 ```sh
@@ -63,6 +69,12 @@ Run the non-database baseline repository checks before opening a pull request:
 
 ```sh
 script/check-all.sh
+```
+
+Run only the generated TypeScript type check with:
+
+```sh
+npm run typecheck:generated
 ```
 
 Run the MySQL-backed integration checks against a running MySQL service:
@@ -189,6 +201,20 @@ The MySQL integration workflow starts a MySQL 8.4 service, loads
 
 ```sh
 script/mysql-integration.sh
+```
+
+Generated TypeScript CI follows the same trigger and reusable workflow split:
+
+- Trigger layer:
+  `.github/workflows/on_pull_request_typescript-generated-check.yml` and
+  `.github/workflows/on_push_typescript-generated-check.yml`
+- Reusable Workflow layer: `.github/workflows/_typescript-generated-check.yml`
+- Composite Action layer: `.github/actions/setup-node/action.yml`
+
+The generated TypeScript workflow installs npm dependencies from `package-lock.json` and runs:
+
+```sh
+npm run typecheck:generated
 ```
 
 Rust lint policy is defined in `Cargo.toml`. The default is intentionally strict:

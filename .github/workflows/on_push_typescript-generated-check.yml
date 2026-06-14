@@ -1,0 +1,14 @@
+name: "[typescript] Push"
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: Call generated TypeScript check
+    uses: ./.github/workflows/_typescript-generated-check.yml
