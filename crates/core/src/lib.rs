@@ -290,6 +290,33 @@ fn is_safe_relative_path(path: &Path) -> bool {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryId;
 
+/// Metadata parsed from an MVP `type: query` annotation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueryMetadata {
+    id: String,
+    cardinality: Option<Cardinality>,
+}
+
+impl QueryMetadata {
+    /// Build parsed query metadata.
+    #[must_use]
+    pub const fn new(id: String, cardinality: Option<Cardinality>) -> Self {
+        Self { id, cardinality }
+    }
+
+    /// Query ID exactly as written in source metadata.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Optional cardinality override from source metadata.
+    #[must_use]
+    pub const fn cardinality(&self) -> Option<Cardinality> {
+        self.cardinality
+    }
+}
+
 /// Dummy raw query extracted from SQL source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawQuery;

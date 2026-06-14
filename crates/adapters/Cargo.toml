@@ -11,6 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
+deser-hjson = "2.2.6"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sqlcomp-app = { path = "../app" }

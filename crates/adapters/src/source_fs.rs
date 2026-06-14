@@ -1,5 +1,6 @@
 //! Filesystem source intake adapter.
 
+use serde::Deserialize;
 use sqlcomp_app::SourceReader;
 use sqlcomp_core as core;
 
@@ -86,6 +87,48 @@ pub fn scan_sqlcomp_blocks(source: &str) -> core::DiagnosticResult<SqlcompBlockS
     Scanner::new(source).scan()
 }
 
+/// Parse one discovered `@sqlcomp` block as MVP query metadata.
+///
+/// # Errors
+///
+/// Returns diagnostics when the payload is malformed Hjson or declares an
+/// annotation type outside the MVP query-only scope.
+pub fn parse_sqlcomp_query_metadata(
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<core::QueryMetadata> {
+    let raw = deser_hjson::from_str::<RawSqlcompMetadata>(block.payload()).map_err(|error| {
+        metadata_error(
+            format!("failed to parse `@sqlcomp` metadata as Hjson: {error}"),
+            block.payload_range(),
+        )
+    })?;
+
+    if raw.annotation_type != "query" {
+        return Err(metadata_error(
+            format!(
+                "unsupported `@sqlcomp` annotation type `{}`; MVP only supports `query`",
+                raw.annotation_type
+            ),
+            block.payload_range(),
+        ));
+    }
+
+    if !is_valid_query_id(&raw.id) {
+        return Err(metadata_error(
+            format!(
+                "invalid query id `{}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
+                raw.id
+            ),
+            block.payload_range(),
+        ));
+    }
+
+    Ok(core::QueryMetadata::new(
+        raw.id,
+        raw.cardinality.map(core::Cardinality::from),
+    ))
+}
+
 /// Dummy filesystem-backed source reader.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FileSystemSourceReader;
@@ -93,6 +136,31 @@ pub struct FileSystemSourceReader;
 impl SourceReader for FileSystemSourceReader {
     fn read(&self, _plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>> {
         Ok(Vec::new())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSqlcompMetadata {
+    #[serde(rename = "type")]
+    annotation_type: String,
+    id: String,
+    cardinality: Option<RawCardinality>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum RawCardinality {
+    One,
+    Many,
+}
+
+impl From<RawCardinality> for core::Cardinality {
+    fn from(value: RawCardinality) -> Self {
+        match value {
+            RawCardinality::One => Self::One,
+            RawCardinality::Many => Self::Many,
+        }
     }
 }
 
@@ -341,9 +409,33 @@ fn source_position_at_byte(source: &str, target: usize) -> core::SourcePosition 
     position.into_source_position()
 }
 
+fn metadata_error(message: impl Into<String>, range: core::SourceRange) -> core::DiagnosticReport {
+    core::DiagnosticReport::new(
+        core::Diagnostic::error(message).with_location(core::SourceLocation::from_range(range)),
+    )
+}
+
+fn is_valid_query_id(id: &str) -> bool {
+    let mut bytes = id.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+
+    is_query_id_start(first) && bytes.all(is_query_id_continue)
+}
+
+const fn is_query_id_start(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+const fn is_query_id_continue(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphanumeric()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::scan_sqlcomp_blocks;
+    use super::{parse_sqlcomp_query_metadata, scan_sqlcomp_blocks};
+    use sqlcomp_core as core;
 
     #[test]
     fn returns_empty_scan_when_no_annotation_exists() {
@@ -387,6 +479,87 @@ mod tests {
             scan.sql_without_sqlcomp_blocks().matches("SELECT").count(),
             2
         );
+    }
+
+    #[test]
+    fn parses_query_metadata_from_hjson_payload() {
+        let source = "/* @sqlcomp\n{\n  type: query\n  id: listUsers\n  cardinality: one\n}\n*/\nSELECT id FROM users;\n";
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let metadata =
+            parse_sqlcomp_query_metadata(&scan.blocks()[0]).expect("query metadata should parse");
+
+        assert_eq!(metadata.id(), "listUsers");
+        assert_eq!(metadata.cardinality(), Some(core::Cardinality::One));
+    }
+
+    #[test]
+    fn parses_query_metadata_without_optional_cardinality() {
+        let source =
+            "/* @sqlcomp\n{\n  type: query\n  id: listUsers\n}\n*/\nSELECT id FROM users;\n";
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let metadata =
+            parse_sqlcomp_query_metadata(&scan.blocks()[0]).expect("query metadata should parse");
+
+        assert_eq!(metadata.id(), "listUsers");
+        assert_eq!(metadata.cardinality(), None);
+    }
+
+    #[test]
+    fn rejects_malformed_hjson_metadata() {
+        let source = "/* @sqlcomp\n{\n  type query\n}\n*/\nSELECT id FROM users;\n";
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("malformed Hjson should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert!(
+            diagnostic
+                .message()
+                .starts_with("failed to parse `@sqlcomp` metadata as Hjson:")
+        );
+        assert!(diagnostic.location().is_some());
+    }
+
+    #[test]
+    fn rejects_unsupported_annotation_types() {
+        let source = "/* @sqlcomp\n{\n  type: param\n  id: userId\n}\n*/\nSELECT id FROM users;\n";
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("unsupported annotation type should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert_eq!(
+            diagnostic.message(),
+            "unsupported `@sqlcomp` annotation type `param`; MVP only supports `query`"
+        );
+        assert!(diagnostic.location().is_some());
+    }
+
+    #[test]
+    fn rejects_invalid_query_ids() {
+        for id in ["1bad", "list-users", "\"\""] {
+            let source = format!("/* @sqlcomp\n{{\n  type: query\n  id: {id}\n}}\n*/\nSELECT 1;\n");
+            let scan = scan_sqlcomp_blocks(&source).expect("annotated SQL should scan");
+            let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+                .expect_err("invalid query id should be rejected");
+            let diagnostic = report
+                .diagnostics()
+                .first()
+                .expect("a diagnostic should be returned");
+            let displayed_id = id.trim_matches('"');
+
+            assert_eq!(
+                diagnostic.message(),
+                format!("invalid query id `{displayed_id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`")
+            );
+            assert!(diagnostic.location().is_some());
+        }
     }
 
     #[test]
