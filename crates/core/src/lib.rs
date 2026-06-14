@@ -317,9 +317,32 @@ impl QueryMetadata {
     }
 }
 
-/// Dummy raw query extracted from SQL source.
+/// Raw query extracted from SQL source.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RawQuery;
+pub struct RawQuery {
+    metadata: QueryMetadata,
+    sql: String,
+}
+
+impl RawQuery {
+    /// Build a raw query from parsed metadata and SQL body text.
+    #[must_use]
+    pub const fn new(metadata: QueryMetadata, sql: String) -> Self {
+        Self { metadata, sql }
+    }
+
+    /// Parsed query metadata from the preceding `@sqlcomp` block.
+    #[must_use]
+    pub const fn metadata(&self) -> &QueryMetadata {
+        &self.metadata
+    }
+
+    /// Raw SQL body text for this query block, excluding sqlcomp metadata.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+}
 
 /// Dummy dialect analysis result.
 #[derive(Clone, Debug, Eq, PartialEq)]
