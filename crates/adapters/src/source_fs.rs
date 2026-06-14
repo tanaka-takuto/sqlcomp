@@ -216,8 +216,11 @@ pub fn split_sqlcomp_query_blocks(source: &str) -> core::DiagnosticResult<Vec<co
             .get(index + 1)
             .map_or(source.len(), SqlcompBlock::comment_start_index);
         let sql = source[body_start..body_end].to_owned();
+        let location = core::SourceLocation::from_range(source_range_for_sql_body(
+            source, body_start, body_end,
+        ));
 
-        queries.push(core::RawQuery::new(metadata, sql));
+        queries.push(core::RawQuery::new(metadata, sql).with_source_location(location));
     }
 
     Ok(queries)
@@ -244,11 +247,27 @@ impl SourceReader for FileSystemSourceReader {
             })?;
             let file_queries =
                 split_sqlcomp_query_blocks(&source).map_err(|report| attach_path(report, &path))?;
-            reject_duplicate_query_ids(&path, &file_queries, &mut seen_ids)?;
+            let file_queries = file_queries
+                .into_iter()
+                .map(|query| attach_query_path(query, &path))
+                .collect::<Vec<_>>();
+            reject_duplicate_query_ids(&file_queries, &mut seen_ids)?;
             queries.extend(file_queries);
         }
 
         Ok(queries)
+    }
+}
+
+fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
+    let range = query
+        .source_location()
+        .and_then(core::SourceLocation::range);
+
+    if let Some(range) = range {
+        query.with_source_location(core::SourceLocation::at_range(path, range))
+    } else {
+        query.with_source_location(core::SourceLocation::for_path(path))
     }
 }
 
@@ -482,19 +501,18 @@ struct RawSqlcompMetadata {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct QueryDeclaration {
-    path: PathBuf,
+    location: Option<core::SourceLocation>,
 }
 
 type SeenQueryIds = HashMap<String, QueryDeclaration>;
 
 fn reject_duplicate_query_ids(
-    source_path: &Path,
     queries: &[core::RawQuery],
     seen_ids: &mut SeenQueryIds,
 ) -> core::DiagnosticResult<()> {
     for query in queries {
         let declaration = QueryDeclaration {
-            path: source_path.to_path_buf(),
+            location: query.source_location().cloned(),
         };
 
         if let Some(first_declaration) =
@@ -505,9 +523,17 @@ fn reject_duplicate_query_ids(
                     "duplicate query id `{}`; query IDs must be unique across the full compile run",
                     query.metadata().id()
                 ))
-                .with_location(core::SourceLocation::for_path(source_path)),
-                core::Diagnostic::note("first declared here")
-                    .with_location(core::SourceLocation::for_path(first_declaration.path)),
+                .with_location(
+                    query
+                        .source_location()
+                        .cloned()
+                        .unwrap_or_else(core::SourceLocation::unknown),
+                ),
+                core::Diagnostic::note("first declared here").with_location(
+                    first_declaration
+                        .location
+                        .unwrap_or_else(core::SourceLocation::unknown),
+                ),
             ]));
         }
     }
@@ -751,6 +777,19 @@ fn source_range_for_span(source: &str, start: usize, end: usize) -> core::Source
     )
 }
 
+fn source_range_for_sql_body(source: &str, start: usize, end: usize) -> core::SourceRange {
+    let sql = &source[start..end];
+
+    if sql.trim().is_empty() {
+        return source_range_for_span(source, start, end);
+    }
+
+    let trimmed_start = start + sql.len() - sql.trim_start().len();
+    let trimmed_end = start + sql.trim_end().len();
+
+    source_range_for_span(source, trimmed_start, trimmed_end)
+}
+
 fn source_position_at_byte(source: &str, target: usize) -> core::SourcePosition {
     debug_assert!(source.is_char_boundary(target));
 
@@ -797,7 +836,8 @@ mod tests {
         FileSystemSourceReader, SqlcompBlock, parse_sqlcomp_query_metadata, scan_sqlcomp_blocks,
         split_sqlcomp_query_blocks,
     };
-    use sqlcomp_app::SourceReader;
+    use crate::dialect_mysql::MysqlDialectAnalyzer;
+    use sqlcomp_app::{DialectAnalyzer, SourceReader};
     use sqlcomp_core as core;
 
     #[test]
@@ -1078,6 +1118,32 @@ SELECT id FROM users;
     }
 
     #[test]
+    fn split_query_blocks_attach_sql_body_source_range() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source).expect("query block should split");
+        let location = queries[0]
+            .source_location()
+            .expect("query should include source location");
+        let range = location
+            .range()
+            .expect("query should include SQL body range");
+
+        assert_eq!(location.path(), None);
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
+    }
+
+    #[test]
     fn splits_multiple_query_blocks_in_source_order() {
         let source = r"
 /* @sqlcomp
@@ -1179,6 +1245,106 @@ SELECT id FROM users WHERE id = 1;
             Some(core::Cardinality::One)
         );
         assert_eq!(queries[1].sql(), "\nSELECT id FROM users WHERE id = 1;\n");
+
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn filesystem_source_reader_attaches_file_path_to_query_locations() {
+        let project_dir = test_project_dir("attaches-query-locations");
+        let sql_dir = project_dir.join("sql");
+        let sql_path = sql_dir.join("users.sql");
+        fs::create_dir_all(&sql_dir).expect("test SQL directory should be created");
+        fs::write(
+            &sql_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+"
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline"),
+        )
+        .expect("test SQL file should be written");
+
+        let queries = FileSystemSourceReader
+            .read(&compilation_plan(
+                &project_dir,
+                vec![project_dir.join("sql/**/*.sql")],
+                Vec::new(),
+            ))
+            .expect("included SQL file should be read");
+        let location = queries[0]
+            .source_location()
+            .expect("query should include source location");
+        let range = location
+            .range()
+            .expect("query should include SQL body range");
+
+        assert_eq!(location.path(), Some(sql_path.as_path()));
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
+
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn source_reader_locations_feed_mysql_parser_diagnostics() {
+        let project_dir = test_project_dir("feeds-parser-diagnostics");
+        let sql_dir = project_dir.join("sql");
+        let sql_path = sql_dir.join("users.sql");
+        fs::create_dir_all(&sql_dir).expect("test SQL directory should be created");
+        fs::write(
+            &sql_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: brokenQuery
+}
+*/
+SELECT FROM;
+"
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline"),
+        )
+        .expect("test SQL file should be written");
+
+        let queries = FileSystemSourceReader
+            .read(&compilation_plan(
+                &project_dir,
+                vec![project_dir.join("sql/**/*.sql")],
+                Vec::new(),
+            ))
+            .expect("included SQL file should be read");
+        let report = MysqlDialectAnalyzer
+            .analyze(&queries[0])
+            .expect_err("invalid SQL should produce a parser diagnostic");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("parser diagnostic should be returned");
+        let location = diagnostic
+            .location()
+            .expect("parser diagnostic should include source location");
+        let range = location
+            .range()
+            .expect("parser diagnostic should include source range");
+
+        assert!(
+            diagnostic
+                .message()
+                .starts_with("failed to parse MySQL SQL:"),
+            "message: {}",
+            diagnostic.message()
+        );
+        assert_eq!(location.path(), Some(sql_path.as_path()));
+        assert_eq!(range.start().line(), 7);
+        assert_eq!(range.start().column(), 1);
 
         fs::remove_dir_all(project_dir).expect("test project directory should be removed");
     }
