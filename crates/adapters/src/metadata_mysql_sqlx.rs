@@ -2,19 +2,93 @@
 
 use sqlcomp_app::MetadataProvider;
 use sqlcomp_core as core;
+use sqlx::{AssertSqlSafe, Column, Connection, Executor, MySqlConnection, SqlSafeStr, TypeInfo};
 
-/// Dummy sqlx-backed `MySQL` metadata provider.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SqlxMysqlMetadataProvider;
+/// sqlx-backed `MySQL` metadata provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SqlxMysqlMetadataProvider {
+    database_url: String,
+}
+
+impl SqlxMysqlMetadataProvider {
+    /// Build a provider for the configured `MySQL` database URL.
+    #[must_use]
+    pub fn new(database_url: impl Into<String>) -> Self {
+        Self {
+            database_url: database_url.into(),
+        }
+    }
+
+    /// Configured database URL.
+    #[must_use]
+    pub fn database_url(&self) -> &str {
+        &self.database_url
+    }
+}
 
 impl MetadataProvider for SqlxMysqlMetadataProvider {
     fn describe(
         &self,
-        _query: &core::RawQuery,
+        query: &core::RawQuery,
         _analysis: &core::AnalyzedQuery,
     ) -> core::DiagnosticResult<core::DbQueryMetadata> {
-        Ok(core::DbQueryMetadata::new(Vec::new()))
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                query_error(
+                    query,
+                    format!("failed to create MySQL metadata runtime: {error}"),
+                )
+            })?;
+
+        runtime.block_on(describe_query_metadata(self.database_url(), query))
     }
+}
+
+async fn describe_query_metadata(
+    database_url: &str,
+    query: &core::RawQuery,
+) -> core::DiagnosticResult<core::DbQueryMetadata> {
+    let mut connection = MySqlConnection::connect(database_url)
+        .await
+        .map_err(|error| {
+            query_error(
+                query,
+                format!("failed to connect to MySQL database: {error}"),
+            )
+        })?;
+
+    // The dialect analyzer has already accepted this query as the MVP's single
+    // SELECT statement shape. sqlx requires the assertion for dynamic SQL text.
+    let description = connection
+        .describe(AssertSqlSafe(query.sql().to_owned()).into_sql_str())
+        .await
+        .map_err(|error| query_error(query, format!("failed to describe MySQL query: {error}")))?;
+
+    Ok(core::DbQueryMetadata::new(
+        description
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                map_mysql_result_column_metadata(
+                    column.name(),
+                    column.type_info().name(),
+                    description.nullable(index),
+                )
+            })
+            .collect(),
+    ))
+}
+
+fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {
+    let mut diagnostic = core::Diagnostic::error(message);
+    if let Some(location) = query.source_location() {
+        diagnostic = diagnostic.with_location(location.clone());
+    }
+
+    core::DiagnosticReport::new(diagnostic)
 }
 
 /// Map one `MySQL` result column description into core metadata.
