@@ -14,7 +14,7 @@ The planned MVP workflow is:
 
 ```sh
 sqlcomp init
-docker compose up -d --wait mysql
+script/mysql-up.sh
 DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' sqlcomp check
 DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' sqlcomp compile
 ```
@@ -28,7 +28,7 @@ files.
 The repository includes a Docker Compose service for local MySQL 8.x development:
 
 ```sh
-docker compose up -d --wait mysql
+script/mysql-up.sh
 ```
 
 The service uses deterministic development-only credentials and waits for the
@@ -45,6 +45,19 @@ The local MySQL service loads fixture DDL and seed data from
 state with:
 
 ```sh
-docker compose down --volumes
-docker compose up -d --wait mysql
+script/mysql-reset.sh
+```
+
+Stop the service without removing the database volume with:
+
+```sh
+script/mysql-down.sh
+```
+
+## Local Checks
+
+Run the same baseline checks used by CI with:
+
+```sh
+script/check-all.sh
 ```
