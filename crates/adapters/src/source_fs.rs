@@ -1,5 +1,9 @@
 //! Filesystem source intake adapter.
 
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+
 use serde::Deserialize;
 use sqlcomp_app::SourceReader;
 use sqlcomp_core as core;
@@ -42,6 +46,8 @@ pub struct SqlcompBlock {
     payload: String,
     comment_range: core::SourceRange,
     payload_range: core::SourceRange,
+    comment_start_byte: usize,
+    comment_end_byte: usize,
 }
 
 impl SqlcompBlock {
@@ -51,11 +57,15 @@ impl SqlcompBlock {
         payload: String,
         comment_range: core::SourceRange,
         payload_range: core::SourceRange,
+        comment_start_byte: usize,
+        comment_end_byte: usize,
     ) -> Self {
         Self {
             payload,
             comment_range,
             payload_range,
+            comment_start_byte,
+            comment_end_byte,
         }
     }
 
@@ -75,6 +85,14 @@ impl SqlcompBlock {
     #[must_use]
     pub const fn payload_range(&self) -> core::SourceRange {
         self.payload_range
+    }
+
+    const fn comment_start_byte(&self) -> usize {
+        self.comment_start_byte
+    }
+
+    const fn comment_end_byte(&self) -> usize {
+        self.comment_end_byte
     }
 }
 
@@ -102,31 +120,64 @@ pub fn parse_sqlcomp_query_metadata(
             block.payload_range(),
         )
     })?;
+    let Some(annotation_type) = raw.annotation_type else {
+        return Err(metadata_error(
+            "missing required `@sqlcomp` metadata field `type`",
+            block.payload_range(),
+        ));
+    };
 
-    if raw.annotation_type != "query" {
+    if annotation_type != "query" {
         return Err(metadata_error(
             format!(
-                "unsupported `@sqlcomp` annotation type `{}`; MVP only supports `query`",
-                raw.annotation_type
+                "unsupported `@sqlcomp` annotation type `{annotation_type}`; MVP only supports `query`"
             ),
             block.payload_range(),
         ));
     }
 
-    if !is_valid_query_id(&raw.id) {
+    let Some(id) = raw.id else {
         return Err(metadata_error(
-            format!(
-                "invalid query id `{}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
-                raw.id
-            ),
+            "missing required `@sqlcomp` metadata field `id`",
+            block.payload_range(),
+        ));
+    };
+
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid query id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
             block.payload_range(),
         ));
     }
 
     Ok(core::QueryMetadata::new(
-        raw.id,
-        raw.cardinality.map(core::Cardinality::from),
+        id,
+        parse_cardinality(raw.cardinality, block)?,
     ))
+}
+
+fn parse_cardinality(
+    raw_cardinality: Option<String>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<Option<core::Cardinality>> {
+    let Some(raw_cardinality) = raw_cardinality else {
+        return Ok(None);
+    };
+
+    match raw_cardinality.as_str() {
+        "one" => Ok(Some(core::Cardinality::One)),
+        "many" => Ok(Some(core::Cardinality::Many)),
+        "exec" => Err(metadata_error(
+            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP",
+            block.payload_range(),
+        )),
+        _ => Err(metadata_error(
+            format!(
+                "unsupported query cardinality `{raw_cardinality}`; supported MVP values are `one` and `many`"
+            ),
+            block.payload_range(),
+        )),
+    }
 }
 
 /// Dummy filesystem-backed source reader.
@@ -134,8 +185,29 @@ pub fn parse_sqlcomp_query_metadata(
 pub struct FileSystemSourceReader;
 
 impl SourceReader for FileSystemSourceReader {
-    fn read(&self, _plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>> {
-        Ok(Vec::new())
+    fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+        let source_paths = discover_source_files(plan)?;
+        let mut seen_ids = HashMap::new();
+        let mut queries = Vec::new();
+
+        for source_path in source_paths {
+            let source = fs::read_to_string(&source_path).map_err(|error| {
+                core::DiagnosticReport::new(
+                    core::Diagnostic::error(format!(
+                        "failed to read SQL source file `{}`: {error}",
+                        source_path.display()
+                    ))
+                    .with_location(core::SourceLocation::for_path(source_path.clone())),
+                )
+            })?;
+            queries.extend(read_queries_from_source(
+                &source_path,
+                &source,
+                &mut seen_ids,
+            )?);
+        }
+
+        Ok(queries)
     }
 }
 
@@ -143,25 +215,171 @@ impl SourceReader for FileSystemSourceReader {
 #[serde(deny_unknown_fields)]
 struct RawSqlcompMetadata {
     #[serde(rename = "type")]
-    annotation_type: String,
-    id: String,
-    cardinality: Option<RawCardinality>,
+    annotation_type: Option<String>,
+    id: Option<String>,
+    cardinality: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-enum RawCardinality {
-    One,
-    Many,
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct QueryDeclaration {
+    path: PathBuf,
+    range: core::SourceRange,
 }
 
-impl From<RawCardinality> for core::Cardinality {
-    fn from(value: RawCardinality) -> Self {
-        match value {
-            RawCardinality::One => Self::One,
-            RawCardinality::Many => Self::Many,
+type SeenQueryIds = HashMap<String, QueryDeclaration>;
+
+fn discover_source_files(plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<PathBuf>> {
+    let mut source_paths = Vec::new();
+
+    for include in plan.source_include() {
+        source_paths.extend(discover_include_pattern(include)?);
+    }
+
+    source_paths.sort();
+    source_paths.dedup();
+    source_paths.retain(|path| {
+        !plan
+            .source_exclude()
+            .iter()
+            .any(|exclude| path_matches_pattern(path, exclude))
+    });
+
+    Ok(source_paths)
+}
+
+fn discover_include_pattern(pattern: &Path) -> core::DiagnosticResult<Vec<PathBuf>> {
+    if !path_contains_glob(pattern) {
+        return Ok(if pattern.is_file() {
+            vec![pattern.to_path_buf()]
+        } else {
+            Vec::new()
+        });
+    }
+
+    let base_dir = glob_base_dir(pattern);
+    if !base_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    collect_matching_files(&base_dir, pattern, &mut paths)?;
+    Ok(paths)
+}
+
+fn collect_matching_files(
+    directory: &Path,
+    pattern: &Path,
+    paths: &mut Vec<PathBuf>,
+) -> core::DiagnosticResult<()> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        core::DiagnosticReport::new(
+            core::Diagnostic::error(format!(
+                "failed to read source directory `{}`: {error}",
+                directory.display()
+            ))
+            .with_location(core::SourceLocation::for_path(directory)),
+        )
+    })?;
+
+    for entry in entries {
+        let path = entry
+            .map_err(|error| {
+                core::DiagnosticReport::new(core::Diagnostic::error(format!(
+                    "failed to read source directory entry in `{}`: {error}",
+                    directory.display()
+                )))
+            })?
+            .path();
+
+        if path.is_dir() {
+            collect_matching_files(&path, pattern, paths)?;
+        } else if path.is_file() && path_matches_pattern(&path, pattern) {
+            paths.push(path);
         }
     }
+
+    Ok(())
+}
+
+fn read_queries_from_source(
+    source_path: &Path,
+    source: &str,
+    seen_ids: &mut SeenQueryIds,
+) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+    let scan = scan_sqlcomp_blocks(source).map_err(|report| report_with_path(&report, source_path));
+    let scan = scan?;
+    let mut queries = Vec::new();
+
+    for (index, block) in scan.blocks().iter().enumerate() {
+        let metadata = parse_sqlcomp_query_metadata(block)
+            .map_err(|report| report_with_path(&report, source_path))?;
+        reject_duplicate_query_id(source_path, block, &metadata, seen_ids)?;
+
+        let sql_start = block.comment_end_byte();
+        let sql_end = scan
+            .blocks()
+            .get(index + 1)
+            .map_or(source.len(), SqlcompBlock::comment_start_byte);
+        queries.push(core::RawQuery::new(
+            source_path.to_path_buf(),
+            source_range_for_span(source, sql_start, sql_end),
+            metadata,
+            source[sql_start..sql_end].to_owned(),
+        ));
+    }
+
+    Ok(queries)
+}
+
+fn reject_duplicate_query_id(
+    source_path: &Path,
+    block: &SqlcompBlock,
+    metadata: &core::QueryMetadata,
+    seen_ids: &mut SeenQueryIds,
+) -> core::DiagnosticResult<()> {
+    let declaration = QueryDeclaration {
+        path: source_path.to_path_buf(),
+        range: block.payload_range(),
+    };
+
+    if let Some(first_declaration) = seen_ids.insert(metadata.id().to_owned(), declaration) {
+        return Err(core::DiagnosticReport::from_diagnostics(vec![
+            core::Diagnostic::error(format!(
+                "duplicate query id `{}`; query IDs must be unique across the full compile run",
+                metadata.id()
+            ))
+            .with_location(core::SourceLocation::at_range(
+                source_path,
+                block.payload_range(),
+            )),
+            core::Diagnostic::note("first declared here").with_location(
+                core::SourceLocation::at_range(first_declaration.path, first_declaration.range),
+            ),
+        ]));
+    }
+
+    Ok(())
+}
+
+fn report_with_path(report: &core::DiagnosticReport, path: &Path) -> core::DiagnosticReport {
+    core::DiagnosticReport::from_diagnostics(
+        report
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic_with_path(diagnostic, path))
+            .collect(),
+    )
+}
+
+fn diagnostic_with_path(diagnostic: &core::Diagnostic, path: &Path) -> core::Diagnostic {
+    let mut next = core::Diagnostic::new(diagnostic.severity(), diagnostic.message().to_owned());
+    if let Some(range) = diagnostic.location().and_then(core::SourceLocation::range) {
+        next = next.with_location(core::SourceLocation::at_range(path, range));
+    } else {
+        next = next.with_location(core::SourceLocation::for_path(path));
+    }
+
+    next
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,8 +495,13 @@ impl<'a> Scanner<'a> {
             let payload_range =
                 source_range_for_span(self.source, payload_start_index, body_end_index);
 
-            self.blocks
-                .push(SqlcompBlock::new(payload, comment_range, payload_range));
+            self.blocks.push(SqlcompBlock::new(
+                payload,
+                comment_range,
+                payload_range,
+                comment_start_index,
+                comment_end_index,
+            ));
             self.sql_without_sqlcomp_blocks.push_str(&blank_comment(
                 &self.source[comment_start_index..comment_end_index],
             ));
@@ -415,6 +638,110 @@ fn metadata_error(message: impl Into<String>, range: core::SourceRange) -> core:
     )
 }
 
+fn path_contains_glob(path: &Path) -> bool {
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .chars()
+            .any(|char| matches!(char, '*' | '?'))
+    })
+}
+
+fn glob_base_dir(pattern: &Path) -> PathBuf {
+    let mut base_dir = PathBuf::new();
+
+    for component in pattern.components() {
+        if component_contains_glob(component) {
+            break;
+        }
+
+        base_dir.push(component.as_os_str());
+    }
+
+    if base_dir.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        base_dir
+    }
+}
+
+fn component_contains_glob(component: Component<'_>) -> bool {
+    component
+        .as_os_str()
+        .to_string_lossy()
+        .chars()
+        .any(|char| matches!(char, '*' | '?'))
+}
+
+fn path_matches_pattern(path: &Path, pattern: &Path) -> bool {
+    let path_segments = path_match_segments(path);
+    let pattern_segments = path_match_segments(pattern);
+
+    match_segments(&path_segments, &pattern_segments)
+}
+
+fn path_match_segments(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Prefix(prefix) => Some(prefix.as_os_str().to_string_lossy().into_owned()),
+            Component::RootDir => Some(String::from("/")),
+            Component::CurDir => None,
+            Component::ParentDir => Some(String::from("..")),
+            Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
+        })
+        .collect()
+}
+
+fn match_segments(path_segments: &[String], pattern_segments: &[String]) -> bool {
+    if let Some((pattern_segment, remaining_pattern)) = pattern_segments.split_first() {
+        if pattern_segment == "**" {
+            return match_segments(path_segments, remaining_pattern)
+                || path_segments
+                    .split_first()
+                    .is_some_and(|(_, remaining_path)| {
+                        match_segments(remaining_path, pattern_segments)
+                    });
+        }
+
+        return path_segments
+            .split_first()
+            .is_some_and(|(path_segment, remaining_path)| {
+                segment_matches(path_segment, pattern_segment)
+                    && match_segments(remaining_path, remaining_pattern)
+            });
+    }
+
+    path_segments.is_empty()
+}
+
+fn segment_matches(text: &str, pattern: &str) -> bool {
+    let text_chars = text.chars().collect::<Vec<_>>();
+    let pattern_chars = pattern.chars().collect::<Vec<_>>();
+    let mut matches = vec![false; text_chars.len() + 1];
+    matches[0] = true;
+
+    for pattern_char in pattern_chars {
+        let mut next = vec![false; text_chars.len() + 1];
+
+        if pattern_char == '*' {
+            next[0] = matches[0];
+            for index in 1..=text_chars.len() {
+                next[index] = matches[index] || next[index - 1];
+            }
+        } else {
+            for (index, text_char) in text_chars.iter().enumerate() {
+                next[index + 1] =
+                    matches[index] && (pattern_char == '?' || pattern_char == *text_char);
+            }
+        }
+
+        matches = next;
+    }
+
+    matches[text_chars.len()]
+}
+
 fn is_valid_query_id(id: &str) -> bool {
     let mut bytes = id.bytes();
     let Some(first) = bytes.next() else {
@@ -434,7 +761,10 @@ const fn is_query_id_continue(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sqlcomp_query_metadata, scan_sqlcomp_blocks};
+    use std::path::{Path, PathBuf};
+
+    use super::{FileSystemSourceReader, parse_sqlcomp_query_metadata, scan_sqlcomp_blocks};
+    use sqlcomp_app::SourceReader;
     use sqlcomp_core as core;
 
     #[test]
@@ -540,6 +870,135 @@ SELECT id FROM users;
 
         assert_eq!(metadata.id(), "listUsers");
         assert_eq!(metadata.cardinality(), None);
+    }
+
+    #[test]
+    fn accepts_supported_cardinality_values() {
+        for (raw_cardinality, cardinality) in [
+            ("one", core::Cardinality::One),
+            ("many", core::Cardinality::Many),
+        ] {
+            let source = format!(
+                r"
+/* @sqlcomp
+{{
+  type: query
+  id: listUsers
+  cardinality: {raw_cardinality}
+}}
+*/
+SELECT id FROM users;
+"
+            );
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+            let metadata = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+                .expect("query metadata should parse");
+
+            assert_eq!(metadata.cardinality(), Some(cardinality));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_required_query_metadata_fields() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+",
+                "missing required `@sqlcomp` metadata field `type`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+}
+*/
+SELECT id FROM users;
+",
+                "missing required `@sqlcomp` metadata field `id`",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+            let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+                .expect_err("missing required metadata should be rejected");
+            let diagnostic = report
+                .diagnostics()
+                .first()
+                .expect("a diagnostic should be returned");
+
+            assert_eq!(diagnostic.message(), expected_message);
+            assert!(diagnostic.location().is_some());
+        }
+    }
+
+    #[test]
+    fn rejects_exec_cardinality_reserved_for_future_mvp_work() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+  cardinality: exec
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("exec cardinality should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert_eq!(
+            diagnostic.message(),
+            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP"
+        );
+        assert!(diagnostic.location().is_some());
+    }
+
+    #[test]
+    fn rejects_unsupported_cardinality_values() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+  cardinality: maybe
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("unsupported cardinality should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert_eq!(
+            diagnostic.message(),
+            "unsupported query cardinality `maybe`; supported MVP values are `one` and `many`"
+        );
+        assert!(diagnostic.location().is_some());
     }
 
     #[test]
@@ -687,5 +1146,183 @@ SELECT 1;
         assert_eq!(diagnostic.message(), "unterminated SQL block comment");
         assert_eq!(range.start().line(), 2);
         assert_eq!(range.start().column(), 1);
+    }
+
+    #[test]
+    fn source_reader_extracts_multiple_query_blocks_from_included_files() {
+        let project_dir = unique_temp_dir("sqlcomp-source-reader-multiple");
+        let source_path = project_dir.join("sql").join("users.sql");
+        write_sql(
+            &source_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+
+/* @sqlcomp
+{
+  type: query
+  id: findUser
+  cardinality: one
+}
+*/
+SELECT id FROM users WHERE id = 1;
+",
+        );
+        let plan = compilation_plan(project_dir.clone(), vec![source_path.clone()], Vec::new());
+
+        let queries = FileSystemSourceReader
+            .read(&plan)
+            .expect("valid source files should be read");
+
+        assert_eq!(queries.len(), 2);
+        assert_eq!(queries[0].metadata().id(), "listUsers");
+        assert_eq!(queries[0].metadata().cardinality(), None);
+        assert_eq!(queries[0].sql().trim(), "SELECT id FROM users;");
+        assert_eq!(queries[0].source_path(), source_path.as_path());
+        assert_eq!(queries[1].metadata().id(), "findUser");
+        assert_eq!(
+            queries[1].metadata().cardinality(),
+            Some(core::Cardinality::One)
+        );
+        assert_eq!(
+            queries[1].sql().trim(),
+            "SELECT id FROM users WHERE id = 1;"
+        );
+
+        remove_temp_dir(project_dir);
+    }
+
+    #[test]
+    fn source_reader_rejects_duplicate_query_ids_in_the_same_file() {
+        let project_dir = unique_temp_dir("sqlcomp-source-reader-duplicate-same-file");
+        let source_path = project_dir.join("sql").join("users.sql");
+        write_sql(
+            &source_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM archived_users;
+",
+        );
+        let plan = compilation_plan(project_dir.clone(), vec![source_path.clone()], Vec::new());
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("duplicate query ids should be rejected");
+
+        assert_duplicate_query_report(&report, &source_path);
+        remove_temp_dir(project_dir);
+    }
+
+    #[test]
+    fn source_reader_rejects_duplicate_query_ids_across_files() {
+        let project_dir = unique_temp_dir("sqlcomp-source-reader-duplicate-across-files");
+        let active_path = project_dir.join("sql").join("active.sql");
+        let archived_path = project_dir.join("sql").join("archived.sql");
+        write_sql(
+            &active_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+",
+        );
+        write_sql(
+            &archived_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM archived_users;
+",
+        );
+        let plan = compilation_plan(
+            project_dir.clone(),
+            vec![active_path, archived_path.clone()],
+            Vec::new(),
+        );
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("duplicate query ids should be rejected");
+
+        assert_duplicate_query_report(&report, &archived_path);
+        remove_temp_dir(project_dir);
+    }
+
+    fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path: &Path) {
+        assert_eq!(report.diagnostics().len(), 2);
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "duplicate query id `listUsers`; query IDs must be unique across the full compile run"
+        );
+        assert_eq!(
+            report.diagnostics()[0]
+                .location()
+                .and_then(core::SourceLocation::path),
+            Some(duplicate_path)
+        );
+        assert_eq!(report.diagnostics()[1].message(), "first declared here");
+    }
+
+    fn compilation_plan(
+        config_dir: PathBuf,
+        source_include: Vec<PathBuf>,
+        source_exclude: Vec<PathBuf>,
+    ) -> core::CompilationPlan {
+        core::CompilationPlan::new(
+            config_dir,
+            source_include,
+            source_exclude,
+            PathBuf::from("generated"),
+            core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
+            core::TargetConfig::new(core::TargetLanguage::TypeScript),
+        )
+    }
+
+    fn write_sql(path: &Path, contents: &str) {
+        let contents = contents
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline");
+        let parent = path.parent().expect("test path should include a parent");
+        std::fs::create_dir_all(parent).expect("temp source dir should be created");
+        std::fs::write(path, contents).expect("temp SQL file should be written");
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after Unix epoch")
+            .as_nanos();
+
+        std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
+    }
+
+    fn remove_temp_dir(path: PathBuf) {
+        std::fs::remove_dir_all(path).expect("temp source tree should be removed");
     }
 }

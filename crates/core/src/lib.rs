@@ -317,9 +317,56 @@ impl QueryMetadata {
     }
 }
 
-/// Dummy raw query extracted from SQL source.
+/// Raw query block extracted from SQL source.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RawQuery;
+pub struct RawQuery {
+    source_path: PathBuf,
+    source_range: SourceRange,
+    metadata: QueryMetadata,
+    sql: String,
+}
+
+impl RawQuery {
+    /// Build a raw query block from source intake.
+    #[must_use]
+    pub const fn new(
+        source_path: PathBuf,
+        source_range: SourceRange,
+        metadata: QueryMetadata,
+        sql: String,
+    ) -> Self {
+        Self {
+            source_path,
+            source_range,
+            metadata,
+            sql,
+        }
+    }
+
+    /// Source file path that contained this query block.
+    #[must_use]
+    pub fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    /// Source range for this query block's SQL body.
+    #[must_use]
+    pub const fn source_range(&self) -> SourceRange {
+        self.source_range
+    }
+
+    /// Parsed query metadata.
+    #[must_use]
+    pub const fn metadata(&self) -> &QueryMetadata {
+        &self.metadata
+    }
+
+    /// Raw SQL body associated with this query metadata.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+}
 
 /// Dummy dialect analysis result.
 #[derive(Clone, Debug, Eq, PartialEq)]
