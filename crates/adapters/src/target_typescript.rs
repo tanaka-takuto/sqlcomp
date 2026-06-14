@@ -1,5 +1,7 @@
 //! TypeScript target generation adapter.
 
+use std::fmt::Write as _;
+
 use sqlcomp_app::TargetGenerator;
 use sqlcomp_core as core;
 
@@ -55,6 +57,41 @@ impl QuerySymbols {
     }
 }
 
+/// Render text as a TypeScript double-quoted string literal.
+#[must_use]
+pub fn typescript_string_literal(value: &str) -> String {
+    let mut literal = String::with_capacity(value.len() + 2);
+    literal.push('"');
+
+    for ch in value.chars() {
+        match ch {
+            '"' => literal.push_str("\\\""),
+            '\\' => literal.push_str("\\\\"),
+            '\n' => literal.push_str("\\n"),
+            '\r' => literal.push_str("\\r"),
+            '\t' => literal.push_str("\\t"),
+            '\u{0008}' => literal.push_str("\\b"),
+            '\u{000c}' => literal.push_str("\\f"),
+            '\u{2028}' => literal.push_str("\\u2028"),
+            '\u{2029}' => literal.push_str("\\u2029"),
+            control if control.is_control() => {
+                let code_point = u32::from(control);
+                write!(&mut literal, "\\u{code_point:04X}").expect("writing to String cannot fail");
+            }
+            other => literal.push(other),
+        }
+    }
+
+    literal.push('"');
+    literal
+}
+
+/// Render a generated query builder `sql` property.
+#[must_use]
+pub fn render_sql_property(query: &core::CompiledQuery) -> String {
+    format!("    sql: {},", typescript_string_literal(query.sql()))
+}
+
 /// Dummy TypeScript target generator.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TypeScriptTargetGenerator;
@@ -70,7 +107,7 @@ impl TargetGenerator for TypeScriptTargetGenerator {
 
 #[cfg(test)]
 mod tests {
-    use super::QuerySymbols;
+    use super::{QuerySymbols, render_sql_property, typescript_string_literal};
     use sqlcomp_core as core;
 
     #[test]
@@ -101,5 +138,51 @@ mod tests {
         assert_eq!(symbols.input_type_name(), "list_users_Input");
         assert_eq!(symbols.row_type_name(), "list_users_Row");
         assert_eq!(symbols.output_type_name(), "list_users_Output");
+    }
+
+    #[test]
+    fn sql_literal_uses_double_quotes_for_template_literal_hazards() {
+        let sql = "SELECT `id`, '${literal}' FROM `users` WHERE note = '${not_param}';";
+
+        assert_eq!(
+            typescript_string_literal(sql),
+            r#""SELECT `id`, '${literal}' FROM `users` WHERE note = '${not_param}';""#
+        );
+    }
+
+    #[test]
+    fn sql_literal_escapes_quotes_backslashes_and_line_breaks() {
+        let sql = "SELECT \"quoted\", 'single', C:\\tmp\\users\nFROM users\r\nWHERE tab = '\t';";
+
+        assert_eq!(
+            typescript_string_literal(sql),
+            r#""SELECT \"quoted\", 'single', C:\\tmp\\users\nFROM users\r\nWHERE tab = '\t';""#
+        );
+    }
+
+    #[test]
+    fn sql_literal_escapes_javascript_line_separators_and_other_controls() {
+        let sql = "SELECT '\u{0001}\u{2028}\u{2029}';";
+
+        assert_eq!(
+            typescript_string_literal(sql),
+            r#""SELECT '\u0001\u2028\u2029';""#
+        );
+    }
+
+    #[test]
+    fn rendered_sql_property_uses_safe_literal() {
+        let query = core::CompiledQuery::new(
+            core::QueryId::new("findNotes".to_owned()),
+            "SELECT `body`, '${not_param}'\nFROM notes;".to_owned(),
+            core::Cardinality::Many,
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(
+            render_sql_property(&query),
+            r#"    sql: "SELECT `body`, '${not_param}'\nFROM notes;","#
+        );
     }
 }
