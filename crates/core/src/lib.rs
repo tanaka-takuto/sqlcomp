@@ -286,9 +286,23 @@ fn is_safe_relative_path(path: &Path) -> bool {
         .all(|component| matches!(component, Component::CurDir | Component::Normal(_)))
 }
 
-/// Dummy query identifier.
+/// Query identifier exactly as written in source metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QueryId;
+pub struct QueryId(String);
+
+impl QueryId {
+    /// Build a query identifier.
+    #[must_use]
+    pub const fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    /// Query ID text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 /// Metadata parsed from an MVP `type: query` annotation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -382,61 +396,167 @@ impl AnalyzedQuery {
     }
 }
 
-/// Database metadata for one query after database-specific details are mapped to core vocabulary.
+/// Database metadata description normalized for compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbQueryMetadata {
     columns: Vec<DbResultColumn>,
 }
 
 impl DbQueryMetadata {
-    /// Build database metadata for one query.
+    /// Build database query metadata.
     #[must_use]
     pub const fn new(columns: Vec<DbResultColumn>) -> Self {
         Self { columns }
     }
 
-    /// Result columns returned by the database metadata lookup.
+    /// Result columns described by the database metadata provider.
     #[must_use]
     pub fn columns(&self) -> &[DbResultColumn] {
         &self.columns
     }
 }
 
-/// Result column metadata returned by a database adapter.
+/// Result column metadata from a database provider before final IR emission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbResultColumn {
     name: String,
     ty: CoreType,
-    nullable: bool,
+    nullable: Option<bool>,
 }
 
 impl DbResultColumn {
-    /// Build database result column metadata.
+    /// Build a database result column metadata value.
     #[must_use]
-    pub const fn new(name: String, ty: CoreType, nullable: bool) -> Self {
+    pub const fn new(name: String, ty: CoreType, nullable: Option<bool>) -> Self {
         Self { name, ty, nullable }
     }
 
-    /// Result column name exactly as reported by the database.
+    /// Column name exactly as reported by the database metadata provider.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Language-neutral core type mapped from database-native metadata.
+    /// Language-neutral column type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
         self.ty
     }
 
-    /// Whether the database result column may be null.
+    /// Database nullability metadata, when the provider can determine it.
     #[must_use]
-    pub const fn nullable(&self) -> bool {
+    pub const fn nullable(&self) -> Option<bool> {
+        self.nullable
+    }
+
+    /// Conservative nullability for generated output.
+    #[must_use]
+    pub fn is_nullable_for_output(&self) -> bool {
+        self.nullable.unwrap_or(true)
+    }
+
+    /// Convert database metadata into a compiled result column.
+    #[must_use]
+    pub fn to_result_column(&self) -> ResultColumn {
+        ResultColumn::new(self.name.clone(), self.ty, self.is_nullable_for_output())
+    }
+}
+
+/// Language-neutral compiled query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledQuery {
+    id: QueryId,
+    sql: String,
+    cardinality: Cardinality,
+    input: Vec<InputField>,
+    row: Vec<ResultColumn>,
+}
+
+impl CompiledQuery {
+    /// Build a compiled query Core IR value.
+    #[must_use]
+    pub const fn new(
+        id: QueryId,
+        sql: String,
+        cardinality: Cardinality,
+        input: Vec<InputField>,
+        row: Vec<ResultColumn>,
+    ) -> Self {
+        Self {
+            id,
+            sql,
+            cardinality,
+            input,
+            row,
+        }
+    }
+
+    /// Query ID exactly as written in source metadata.
+    #[must_use]
+    pub const fn id(&self) -> &QueryId {
+        &self.id
+    }
+
+    /// SQL text for the compiled query.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    /// Query result cardinality independent from any target-language syntax.
+    #[must_use]
+    pub const fn cardinality(&self) -> Cardinality {
+        self.cardinality
+    }
+
+    /// Input fields for the query. MVP queries have an empty input list.
+    #[must_use]
+    pub fn input(&self) -> &[InputField] {
+        &self.input
+    }
+
+    /// Result row columns for the query.
+    #[must_use]
+    pub fn row(&self) -> &[ResultColumn] {
+        &self.row
+    }
+}
+
+/// Query input field in Core IR.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InputField {
+    name: String,
+    ty: CoreType,
+    nullable: bool,
+}
+
+impl InputField {
+    /// Build a query input field.
+    #[must_use]
+    pub const fn new(name: String, ty: CoreType, nullable: bool) -> Self {
+        Self { name, ty, nullable }
+    }
+
+    /// Input field name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Language-neutral input type.
+    #[must_use]
+    pub const fn ty(&self) -> CoreType {
+        self.ty
+    }
+
+    /// Whether the input field accepts null.
+    #[must_use]
+    pub const fn is_nullable(&self) -> bool {
         self.nullable
     }
 }
 
-/// Language-neutral result row column in compiled query IR.
+/// Result row column in Core IR.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResultColumn {
     name: String,
@@ -445,13 +565,13 @@ pub struct ResultColumn {
 }
 
 impl ResultColumn {
-    /// Build compiled result row column metadata.
+    /// Build a result row column.
     #[must_use]
     pub const fn new(name: String, ty: CoreType, nullable: bool) -> Self {
         Self { name, ty, nullable }
     }
 
-    /// Result column name exposed to target generators.
+    /// Result column name exactly as reported by database metadata.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
@@ -463,49 +583,59 @@ impl ResultColumn {
         self.ty
     }
 
-    /// Whether the result column may be null.
+    /// Whether generated output should treat this column as nullable.
     #[must_use]
-    pub const fn nullable(&self) -> bool {
+    pub const fn is_nullable(&self) -> bool {
         self.nullable
     }
 }
 
-impl From<&DbResultColumn> for ResultColumn {
-    fn from(column: &DbResultColumn) -> Self {
-        Self::new(column.name().to_owned(), column.ty(), column.nullable())
-    }
-}
-
-/// Language-neutral compiled query facts available before full row IR exists.
+/// Generated target-language file set.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledQuery {
-    cardinality: Cardinality,
-    row: Vec<ResultColumn>,
+pub struct GeneratedFiles {
+    files: Vec<GeneratedFile>,
 }
 
-impl CompiledQuery {
-    /// Build a compiled query with resolved cardinality.
+impl GeneratedFiles {
+    /// Build generated files.
     #[must_use]
-    pub const fn new(cardinality: Cardinality, row: Vec<ResultColumn>) -> Self {
-        Self { cardinality, row }
+    pub const fn new(files: Vec<GeneratedFile>) -> Self {
+        Self { files }
     }
 
-    /// Cardinality after explicit metadata overrides have been applied.
+    /// Files produced by a target generator.
     #[must_use]
-    pub const fn cardinality(&self) -> Cardinality {
-        self.cardinality
-    }
-
-    /// Result row columns exposed to target generators.
-    #[must_use]
-    pub fn row(&self) -> &[ResultColumn] {
-        &self.row
+    pub fn files(&self) -> &[GeneratedFile] {
+        &self.files
     }
 }
 
-/// Dummy generated file set.
+/// One generated target-language file.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GeneratedFiles;
+pub struct GeneratedFile {
+    path: PathBuf,
+    contents: String,
+}
+
+impl GeneratedFile {
+    /// Build a generated file.
+    #[must_use]
+    pub const fn new(path: PathBuf, contents: String) -> Self {
+        Self { path, contents }
+    }
+
+    /// Generated file path.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Generated file contents.
+    #[must_use]
+    pub fn contents(&self) -> &str {
+        &self.contents
+    }
+}
 
 /// Query cardinality in generated output.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -548,9 +678,9 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        AnalyzedQuery, Cardinality, CompilationPlan, CoreType, DatabaseConfig, DatabaseDialect,
-        DbQueryMetadata, DbResultColumn, QueryMetadata, RawQuery, ResultColumn, SourceLocation,
-        SourcePosition, SourceRange, TargetConfig, TargetLanguage,
+        AnalyzedQuery, Cardinality, CompilationPlan, CompiledQuery, CoreType, DatabaseConfig,
+        DatabaseDialect, DbQueryMetadata, DbResultColumn, QueryId, QueryMetadata, RawQuery,
+        ResultColumn, SourceLocation, SourcePosition, SourceRange, TargetConfig, TargetLanguage,
     };
 
     #[test]
@@ -606,8 +736,8 @@ mod tests {
     #[test]
     fn db_query_metadata_preserves_result_column_metadata() {
         let columns = vec![
-            DbResultColumn::new("userId".to_owned(), CoreType::Int64, false),
-            DbResultColumn::new("nickname".to_owned(), CoreType::String, true),
+            DbResultColumn::new("userId".to_owned(), CoreType::Int64, Some(false)),
+            DbResultColumn::new("nickname".to_owned(), CoreType::String, Some(true)),
         ];
         let metadata = DbQueryMetadata::new(columns.clone());
 
@@ -615,15 +745,43 @@ mod tests {
     }
 
     #[test]
-    fn compiled_query_preserves_result_row_columns() {
-        let row = vec![
-            ResultColumn::new("userId".to_owned(), CoreType::Int64, false),
-            ResultColumn::new("nickname".to_owned(), CoreType::String, true),
-        ];
-        let query = super::CompiledQuery::new(Cardinality::Many, row.clone());
+    fn compiled_query_represents_empty_mvp_input_and_result_columns() {
+        let query = CompiledQuery::new(
+            QueryId::new("listUsers".to_owned()),
+            "SELECT id, name FROM users;".to_owned(),
+            Cardinality::Many,
+            Vec::new(),
+            vec![
+                ResultColumn::new("id".to_owned(), CoreType::Int64, false),
+                ResultColumn::new("name".to_owned(), CoreType::String, true),
+            ],
+        );
 
+        assert_eq!(query.id().as_str(), "listUsers");
+        assert_eq!(query.sql(), "SELECT id, name FROM users;");
         assert_eq!(query.cardinality(), Cardinality::Many);
-        assert_eq!(query.row(), row);
+        assert!(query.input().is_empty());
+        assert_eq!(query.row().len(), 2);
+        assert_eq!(query.row()[0].name(), "id");
+        assert_eq!(query.row()[0].ty(), CoreType::Int64);
+        assert!(!query.row()[0].is_nullable());
+        assert_eq!(query.row()[1].name(), "name");
+        assert_eq!(query.row()[1].ty(), CoreType::String);
+        assert!(query.row()[1].is_nullable());
+    }
+
+    #[test]
+    fn database_metadata_conservatively_treats_unknown_nullability_as_nullable() {
+        let metadata = DbQueryMetadata::new(vec![DbResultColumn::new(
+            "mystery".to_owned(),
+            CoreType::Unknown,
+            None,
+        )]);
+        let column = metadata.columns()[0].to_result_column();
+
+        assert_eq!(column.name(), "mystery");
+        assert_eq!(column.ty(), CoreType::Unknown);
+        assert!(column.is_nullable());
     }
 
     fn compilation_plan(config_dir: PathBuf) -> CompilationPlan {

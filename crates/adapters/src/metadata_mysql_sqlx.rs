@@ -27,7 +27,7 @@ pub fn map_mysql_result_column_metadata(
     core::DbResultColumn::new(
         name.to_owned(),
         mysql_type_name_to_core_type(type_name),
-        nullable.unwrap_or(true),
+        nullable,
     )
 }
 
@@ -127,7 +127,7 @@ mod tests {
 
             assert_eq!(
                 column,
-                core::DbResultColumn::new("value".to_owned(), expected_type, false),
+                core::DbResultColumn::new("value".to_owned(), expected_type, Some(false)),
                 "{type_name} should map to {expected_type:?}"
             );
         }
@@ -139,18 +139,19 @@ mod tests {
 
         assert_eq!(
             column,
-            core::DbResultColumn::new("shape".to_owned(), core::CoreType::Unknown, false)
+            core::DbResultColumn::new("shape".to_owned(), core::CoreType::Unknown, Some(false))
         );
     }
 
     #[test]
-    fn maps_unknown_nullability_to_nullable() {
+    fn preserves_unknown_nullability_for_core_ir() {
         let column = map_mysql_result_column_metadata("name", "VARCHAR", None);
 
         assert_eq!(
             column,
-            core::DbResultColumn::new("name".to_owned(), core::CoreType::String, true)
+            core::DbResultColumn::new("name".to_owned(), core::CoreType::String, None)
         );
+        assert!(column.to_result_column().is_nullable());
     }
 
     #[test]
@@ -159,21 +160,21 @@ mod tests {
 
         assert_eq!(
             column,
-            core::DbResultColumn::new("amount".to_owned(), core::CoreType::Decimal, false)
+            core::DbResultColumn::new("amount".to_owned(), core::CoreType::Decimal, Some(false))
         );
 
         let widened = map_mysql_result_column_metadata("count", "int(10) unsigned", Some(false));
 
         assert_eq!(
             widened,
-            core::DbResultColumn::new("count".to_owned(), core::CoreType::Int64, false)
+            core::DbResultColumn::new("count".to_owned(), core::CoreType::Int64, Some(false))
         );
 
         let unknown = map_mysql_result_column_metadata("id", "BIGINT UNSIGNED", Some(false));
 
         assert_eq!(
             unknown,
-            core::DbResultColumn::new("id".to_owned(), core::CoreType::Unknown, false)
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Unknown, Some(false))
         );
     }
 }

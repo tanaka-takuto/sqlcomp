@@ -275,12 +275,22 @@ impl QueryCompiler for DefaultQueryCompiler {
         analysis: &core::AnalyzedQuery,
         metadata: &core::DbQueryMetadata,
     ) -> core::DiagnosticResult<core::CompiledQuery> {
+        let cardinality = query
+            .metadata()
+            .cardinality()
+            .unwrap_or_else(|| analysis.cardinality());
+        let row = metadata
+            .columns()
+            .iter()
+            .map(core::DbResultColumn::to_result_column)
+            .collect();
+
         Ok(core::CompiledQuery::new(
-            query
-                .metadata()
-                .cardinality()
-                .unwrap_or_else(|| analysis.cardinality()),
-            metadata.columns().iter().map(Into::into).collect(),
+            core::QueryId::new(query.metadata().id().to_owned()),
+            query.sql().to_owned(),
+            cardinality,
+            Vec::new(),
+            row,
         ))
     }
 }
@@ -368,6 +378,35 @@ mod tests {
     }
 
     #[test]
+    fn query_compiler_builds_core_ir_with_empty_mvp_input_and_result_columns() {
+        let query = core::RawQuery::new(
+            core::QueryMetadata::new("listUsers".to_owned(), None),
+            "SELECT id, name FROM users;".to_owned(),
+        );
+        let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+        let metadata = core::DbQueryMetadata::new(vec![
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+            core::DbResultColumn::new("name".to_owned(), core::CoreType::String, Some(true)),
+        ]);
+
+        let compiled = DefaultQueryCompiler
+            .compile(&query, &analysis, &metadata)
+            .expect("query should compile into core IR");
+
+        assert_eq!(compiled.id().as_str(), "listUsers");
+        assert_eq!(compiled.sql(), "SELECT id, name FROM users;");
+        assert_eq!(compiled.cardinality(), core::Cardinality::Many);
+        assert!(compiled.input().is_empty());
+        assert_eq!(compiled.row().len(), 2);
+        assert_eq!(compiled.row()[0].name(), "id");
+        assert_eq!(compiled.row()[0].ty(), core::CoreType::Int64);
+        assert!(!compiled.row()[0].is_nullable());
+        assert_eq!(compiled.row()[1].name(), "name");
+        assert_eq!(compiled.row()[1].ty(), core::CoreType::String);
+        assert!(compiled.row()[1].is_nullable());
+    }
+
+    #[test]
     fn query_compiler_uses_inferred_cardinality_when_metadata_has_no_override() {
         let compiled = compile_query(None, core::Cardinality::Many);
 
@@ -396,8 +435,8 @@ mod tests {
         );
         let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
         let metadata = core::DbQueryMetadata::new(vec![
-            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, false),
-            core::DbResultColumn::new("nickname".to_owned(), core::CoreType::String, true),
+            core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+            core::DbResultColumn::new("nickname".to_owned(), core::CoreType::String, Some(true)),
         ]);
 
         let compiled = DefaultQueryCompiler
