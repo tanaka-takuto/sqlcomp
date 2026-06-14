@@ -18,6 +18,29 @@ const VALID_CONFIG: &str = r#"
 }
 "#;
 
+const UNSUPPORTED_CONFIG: &str = r#"
+{
+  "source": {
+    "include": ["sql/**/*.sql"]
+  },
+  "output": {
+    "dir": "src/generated/sqlcomp"
+  },
+  "database": {
+    "dialect": "postgres",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "go"
+  }
+}
+"#;
+
+const CHECK_PIPELINE_PENDING: &str =
+    "command `check` loaded configuration, but the compile pipeline is not implemented yet";
+const COMPILE_PIPELINE_PENDING: &str =
+    "command `compile` loaded configuration, but the compile pipeline is not implemented yet";
+
 #[test]
 fn sqlcomp_binary_exits_successfully() {
     let status = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
@@ -25,6 +48,44 @@ fn sqlcomp_binary_exits_successfully() {
         .expect("sqlcomp binary should run");
 
     assert!(status.success());
+}
+
+#[test]
+fn help_lists_mvp_commands() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+        .arg("--help")
+        .output()
+        .expect("sqlcomp help should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
+}
+
+#[test]
+fn help_is_allowed_after_mvp_commands() {
+    for command in ["init", "check", "compile"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+            .args([command, "--help"])
+            .output()
+            .expect("sqlcomp command help should run");
+
+        assert!(
+            output.status.success(),
+            "command: {command}, stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
+        assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
+        assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
+    }
 }
 
 #[test]
@@ -42,7 +103,7 @@ fn check_discovers_config_from_current_directory() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("command `check` is not implemented yet"),
+        String::from_utf8_lossy(&output.stderr).contains(CHECK_PIPELINE_PENDING),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -66,7 +127,7 @@ fn check_discovers_config_from_nested_child_directory() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("command `check` is not implemented yet"),
+        String::from_utf8_lossy(&output.stderr).contains(CHECK_PIPELINE_PENDING),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -130,6 +191,38 @@ fn check_reports_when_config_is_not_found() {
 }
 
 #[test]
+fn check_reports_unsupported_config_before_pipeline_skeleton() {
+    let config_dir = unique_temp_dir("sqlcomp-cli-unsupported-config");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlcomp.config.json"), UNSUPPORTED_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+        .arg("check")
+        .current_dir(&config_dir)
+        .output()
+        .expect("sqlcomp check should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "unsupported config field `database.dialect` value `postgres`; supported MVP value is `mysql`"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "unsupported config field `target.language` value `go`; supported MVP value is `typescript`"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains(CHECK_PIPELINE_PENDING), "stderr: {stderr}");
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
 fn init_writes_starter_config_to_current_directory() {
     let config_dir = unique_temp_dir("sqlcomp-cli-init");
     std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
@@ -175,8 +268,7 @@ fn init_writes_starter_config_to_current_directory() {
 
     assert!(!check_output.status.success());
     assert!(
-        String::from_utf8_lossy(&check_output.stderr)
-            .contains("command `check` is not implemented yet"),
+        String::from_utf8_lossy(&check_output.stderr).contains(CHECK_PIPELINE_PENDING),
         "stderr: {}",
         String::from_utf8_lossy(&check_output.stderr)
     );
@@ -227,8 +319,7 @@ fn compile_clean_is_recognized_but_not_implemented_yet() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("command `compile` is not implemented yet"),
+        String::from_utf8_lossy(&output.stderr).contains(COMPILE_PIPELINE_PENDING),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );

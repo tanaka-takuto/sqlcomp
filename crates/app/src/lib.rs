@@ -161,6 +161,52 @@ impl DefaultProjectInitializer {
     }
 }
 
+/// Application service for compile-like CLI commands.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultCompileUseCase;
+
+impl DefaultCompileUseCase {
+    /// Run the `check` command skeleton.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when planning fails or when the downstream compile
+    /// pipeline is not implemented yet.
+    pub fn check(
+        config: &core::ProjectConfig,
+        planner: &impl CompilationPlanner,
+    ) -> core::DiagnosticResult<()> {
+        let plan = planner.plan(config)?;
+
+        Err(compile_pipeline_pending("check", &plan))
+    }
+
+    /// Run the `compile` command skeleton.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when planning fails or when the downstream compile
+    /// pipeline is not implemented yet.
+    pub fn compile(
+        config: &core::ProjectConfig,
+        planner: &impl CompilationPlanner,
+        _clean: bool,
+    ) -> core::DiagnosticResult<()> {
+        let plan = planner.plan(config)?;
+
+        Err(compile_pipeline_pending("compile", &plan))
+    }
+}
+
+fn compile_pipeline_pending(
+    command: &str,
+    _plan: &core::CompilationPlan,
+) -> core::DiagnosticReport {
+    core::DiagnosticReport::new(core::Diagnostic::error(format!(
+        "command `{command}` loaded configuration, but the compile pipeline is not implemented yet"
+    )))
+}
+
 /// Dummy port bundle showing dependencies required by compile-like use cases.
 pub trait CompileUseCasePorts {
     /// Configuration loader implementation.
@@ -237,7 +283,7 @@ impl QueryCompiler for DefaultQueryCompiler {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{CompilationPlanner, DefaultCompilationPlanner};
+    use super::{CompilationPlanner, DefaultCompilationPlanner, DefaultCompileUseCase};
     use sqlcomp_core as core;
 
     #[test]
@@ -288,6 +334,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn check_command_reaches_compile_pipeline_skeleton_after_planning() {
+        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+        let report = DefaultCompileUseCase::check(&config, &DefaultCompilationPlanner)
+            .expect_err("pipeline skeleton should report that deeper compile is pending");
+
+        assert_eq!(
+            diagnostic_messages(&report),
+            "command `check` loaded configuration, but the compile pipeline is not implemented yet"
+        );
+    }
+
+    #[test]
+    fn compile_command_reaches_compile_pipeline_skeleton_after_planning() {
+        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+        let report = DefaultCompileUseCase::compile(&config, &DefaultCompilationPlanner, false)
+            .expect_err("pipeline skeleton should report that deeper compile is pending");
+
+        assert_eq!(
+            diagnostic_messages(&report),
+            "command `compile` loaded configuration, but the compile pipeline is not implemented yet"
+        );
+    }
+
     fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
         core::ProjectConfig::new(
             config_dir,
@@ -299,5 +369,14 @@ mod tests {
             core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
             core::TargetConfig::new(core::TargetLanguage::TypeScript),
         )
+    }
+
+    fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
+        report
+            .diagnostics()
+            .iter()
+            .map(core::Diagnostic::message)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }

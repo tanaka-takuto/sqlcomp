@@ -14,10 +14,27 @@ use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlcomp_adapters::source_fs::FileSystemSourceReader;
 use sqlcomp_adapters::target_typescript::TypeScriptTargetGenerator;
 use sqlcomp_app::{
-    self as app, ConfigLoader, DefaultCompilationPlanner, DefaultProjectInitializer,
-    DefaultQueryCompiler,
+    self as app, ConfigLoader, DefaultCompilationPlanner, DefaultCompileUseCase,
+    DefaultProjectInitializer, DefaultQueryCompiler,
 };
 use sqlcomp_core as core;
+
+const HELP: &str = "\
+SQL Compose & Compile.
+
+Usage:
+  sqlcomp <command> [options]
+
+Commands:
+  sqlcomp init       Create a starter sqlcomp.config.json.
+  sqlcomp check      Load config and run the compile pipeline without writing generated files.
+  sqlcomp compile    Load config and write generated TypeScript files.
+
+Options:
+  -h, --help         Print this help.
+  --config <path>    Use an explicit config path for check or compile.
+  --clean            Remove stale generated files during compile.
+";
 
 /// Default CLI composition root.
 #[derive(Clone, Copy, Debug, Default)]
@@ -43,9 +60,15 @@ pub fn run() -> ExitCode {
 fn run_with_args(args: impl IntoIterator<Item = OsString>) -> ExitCode {
     match parse_args(args) {
         Ok(Command::Noop) => ExitCode::SUCCESS,
+        Ok(Command::Help) => {
+            print!("{HELP}");
+            ExitCode::SUCCESS
+        }
         Ok(Command::Init) => run_init_command(),
-        Ok(Command::Check { config }) => run_configured_command("check", config),
-        Ok(Command::Compile { config, clean: _ }) => run_configured_command("compile", config),
+        Ok(Command::Check { config }) => run_configured_command(ConfiguredCommand::Check, config),
+        Ok(Command::Compile { config, clean }) => {
+            run_configured_command(ConfiguredCommand::Compile { clean }, config)
+        }
         Err(report) => fail(&report),
     }
 }
@@ -53,6 +76,7 @@ fn run_with_args(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
     Noop,
+    Help,
     Init,
     Check {
         config: Option<PathBuf>,
@@ -71,31 +95,55 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticResul
     };
 
     match command.to_string_lossy().as_ref() {
-        "init" => parse_no_options(args).map(|()| Command::Init),
-        "check" => parse_options(args, CleanOption::Reject).map(|options| Command::Check {
-            config: options.config,
+        "--help" | "-h" | "help" => parse_no_options(args).map(|()| Command::Help),
+        "init" => parse_init_args(args),
+        "check" => parse_options(args, CleanOption::Reject).map(|options| {
+            if options.help {
+                Command::Help
+            } else {
+                Command::Check {
+                    config: options.config,
+                }
+            }
         }),
-        "compile" => parse_options(args, CleanOption::Allow).map(|options| Command::Compile {
-            config: options.config,
-            clean: options.clean,
+        "compile" => parse_options(args, CleanOption::Allow).map(|options| {
+            if options.help {
+                Command::Help
+            } else {
+                Command::Compile {
+                    config: options.config,
+                    clean: options.clean,
+                }
+            }
         }),
         _ => Err(single_cli_error(format!(
-            "unknown command `{}`; expected `init`, `check`, or `compile`",
+            "unknown command `{}`; expected `init`, `check`, `compile`, or `--help`",
             command.to_string_lossy()
         ))),
     }
 }
 
-fn run_configured_command(command: &str, config: Option<PathBuf>) -> ExitCode {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConfiguredCommand {
+    Check,
+    Compile { clean: bool },
+}
+
+fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -> ExitCode {
     let loader = config.map_or_else(
         JsoncConfigLoader::discover_from_current_dir,
         JsoncConfigLoader::new,
     );
 
-    match loader.load() {
-        Ok(_config) => fail(&single_cli_error(format!(
-            "command `{command}` is not implemented yet"
-        ))),
+    let planner = DefaultCompilationPlanner;
+
+    match loader.load().and_then(|config| match command {
+        ConfiguredCommand::Check => DefaultCompileUseCase::check(&config, &planner),
+        ConfiguredCommand::Compile { clean } => {
+            DefaultCompileUseCase::compile(&config, &planner, clean)
+        }
+    }) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(report) => fail(&report),
     }
 }
@@ -131,6 +179,20 @@ enum CleanOption {
 struct CommandOptions {
     config: Option<PathBuf>,
     clean: bool,
+    help: bool,
+}
+
+fn parse_init_args(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticResult<Command> {
+    let mut args = args.into_iter();
+    let Some(arg) = args.next() else {
+        return Ok(Command::Init);
+    };
+
+    if is_help_arg(&arg) {
+        parse_no_options(args).map(|()| Command::Help)
+    } else {
+        Err(unexpected_argument(&arg))
+    }
 }
 
 fn parse_no_options(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticResult<()> {
@@ -168,6 +230,8 @@ fn parse_options(
             }
 
             options.clean = true;
+        } else if is_help_arg(&arg) {
+            options.help = true;
         } else if let Some(path) = arg
             .to_str()
             .and_then(|arg| arg.strip_prefix("--config="))
@@ -182,6 +246,10 @@ fn parse_options(
     }
 
     Ok(options)
+}
+
+fn is_help_arg(arg: &OsString) -> bool {
+    arg == "--help" || arg == "-h"
 }
 
 fn unexpected_argument(arg: &OsString) -> core::DiagnosticReport {
@@ -205,6 +273,28 @@ mod tests {
             parse_args(["sqlcomp", "check"].map(OsString::from)).expect("args should parse"),
             Command::Check { config: None }
         );
+    }
+
+    #[test]
+    fn parses_help_flag() {
+        assert_eq!(
+            parse_args(["sqlcomp", "--help"].map(OsString::from)).expect("args should parse"),
+            Command::Help
+        );
+    }
+
+    #[test]
+    fn parses_command_help_flags() {
+        for args in [
+            ["sqlcomp", "init", "--help"],
+            ["sqlcomp", "check", "--help"],
+            ["sqlcomp", "compile", "--help"],
+        ] {
+            assert_eq!(
+                parse_args(args.map(OsString::from)).expect("args should parse"),
+                Command::Help
+            );
+        }
     }
 
     #[test]
