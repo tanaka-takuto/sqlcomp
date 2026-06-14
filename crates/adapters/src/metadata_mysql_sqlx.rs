@@ -52,6 +52,7 @@ fn mysql_type_name_to_core_type(type_name: &str) -> core::CoreType {
             core::CoreType::Bytes
         }
         "DATE" => core::CoreType::Date,
+        "TIME" => core::CoreType::Time,
         "DATETIME" | "TIMESTAMP" => core::CoreType::DateTime,
         "JSON" => core::CoreType::Json,
         _ => core::CoreType::Unknown,
@@ -117,6 +118,7 @@ mod tests {
             ("MEDIUMBLOB", core::CoreType::Bytes),
             ("LONGBLOB", core::CoreType::Bytes),
             ("DATE", core::CoreType::Date),
+            ("TIME", core::CoreType::Time),
             ("DATETIME", core::CoreType::DateTime),
             ("TIMESTAMP", core::CoreType::DateTime),
             ("JSON", core::CoreType::Json),

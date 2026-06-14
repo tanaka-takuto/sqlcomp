@@ -266,6 +266,7 @@ enum CoreType {
     String,
     Bytes,
     Date,
+    Time,
     DateTime,
     Json,
     Unknown,

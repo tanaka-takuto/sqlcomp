@@ -77,6 +77,7 @@ fn assert_fixture_core_type_matrix(columns: &[core::DbResultColumn]) {
     assert_mapped_type(columns, "birthDate", core::CoreType::Date);
     assert_mapped_type(columns, "createdAt", core::CoreType::DateTime);
     assert_mapped_type(columns, "lastSeenAt", core::CoreType::DateTime);
+    assert_mapped_type(columns, "deliveryWindow", core::CoreType::Time);
     assert_mapped_type(columns, "active", core::CoreType::Bool);
     assert_mapped_type(columns, "settings", core::CoreType::Json);
 }

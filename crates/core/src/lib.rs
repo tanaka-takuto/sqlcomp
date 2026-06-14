@@ -665,6 +665,8 @@ pub enum CoreType {
     Bytes,
     /// Date value.
     Date,
+    /// Time value.
+    Time,
     /// Date-time value.
     DateTime,
     /// JSON value.
