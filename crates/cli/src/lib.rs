@@ -150,11 +150,7 @@ fn run_compile_command(config: &core::ProjectConfig, clean: bool) -> core::Diagn
     let planner = DefaultCompilationPlanner;
     let source_reader = FileSystemSourceReader;
     let dialect_analyzer = MysqlDialectAnalyzer;
-    let database_url = if clean {
-        String::new()
-    } else {
-        database_url_from_env(config)?
-    };
+    let database_url = database_url_from_env(config)?;
     let metadata_provider = SqlxMysqlMetadataProvider::new(database_url);
     let query_compiler = DefaultQueryCompiler;
     let target_generator = TypeScriptTargetGenerator;
