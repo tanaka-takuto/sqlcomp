@@ -1,6 +1,6 @@
 //! Filesystem source intake adapter.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -138,31 +138,64 @@ pub fn parse_sqlcomp_query_metadata(
             block.payload_range(),
         )
     })?;
+    let Some(annotation_type) = raw.annotation_type else {
+        return Err(metadata_error(
+            "missing required `@sqlcomp` metadata field `type`",
+            block.payload_range(),
+        ));
+    };
 
-    if raw.annotation_type != "query" {
+    if annotation_type != "query" {
         return Err(metadata_error(
             format!(
-                "unsupported `@sqlcomp` annotation type `{}`; MVP only supports `query`",
-                raw.annotation_type
+                "unsupported `@sqlcomp` annotation type `{annotation_type}`; MVP only supports `query`"
             ),
             block.payload_range(),
         ));
     }
 
-    if !is_valid_query_id(&raw.id) {
+    let Some(id) = raw.id else {
         return Err(metadata_error(
-            format!(
-                "invalid query id `{}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
-                raw.id
-            ),
+            "missing required `@sqlcomp` metadata field `id`",
+            block.payload_range(),
+        ));
+    };
+
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid query id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
             block.payload_range(),
         ));
     }
 
     Ok(core::QueryMetadata::new(
-        raw.id,
-        raw.cardinality.map(core::Cardinality::from),
+        id,
+        parse_cardinality(raw.cardinality, block)?,
     ))
+}
+
+fn parse_cardinality(
+    raw_cardinality: Option<String>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<Option<core::Cardinality>> {
+    let Some(raw_cardinality) = raw_cardinality else {
+        return Ok(None);
+    };
+
+    match raw_cardinality.as_str() {
+        "one" => Ok(Some(core::Cardinality::One)),
+        "many" => Ok(Some(core::Cardinality::Many)),
+        "exec" => Err(metadata_error(
+            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP",
+            block.payload_range(),
+        )),
+        _ => Err(metadata_error(
+            format!(
+                "unsupported query cardinality `{raw_cardinality}`; supported MVP values are `one` and `many`"
+            ),
+            block.payload_range(),
+        )),
+    }
 }
 
 /// Split SQL source text into raw query blocks.
@@ -199,6 +232,7 @@ pub struct FileSystemSourceReader;
 
 impl SourceReader for FileSystemSourceReader {
     fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+        let mut seen_ids = HashMap::new();
         let mut queries = Vec::new();
 
         for path in discover_source_files(plan)? {
@@ -213,11 +247,12 @@ impl SourceReader for FileSystemSourceReader {
             })?;
             let file_queries =
                 split_sqlcomp_query_blocks(&source).map_err(|report| attach_path(report, &path))?;
-            queries.extend(
-                file_queries
-                    .into_iter()
-                    .map(|query| attach_query_path(query, &path)),
-            );
+            let file_queries = file_queries
+                .into_iter()
+                .map(|query| attach_query_path(query, &path))
+                .collect::<Vec<_>>();
+            reject_duplicate_query_ids(&file_queries, &mut seen_ids)?;
+            queries.extend(file_queries);
         }
 
         Ok(queries)
@@ -459,25 +494,51 @@ fn attach_path(report: core::DiagnosticReport, path: &Path) -> core::DiagnosticR
 #[serde(deny_unknown_fields)]
 struct RawSqlcompMetadata {
     #[serde(rename = "type")]
-    annotation_type: String,
-    id: String,
-    cardinality: Option<RawCardinality>,
+    annotation_type: Option<String>,
+    id: Option<String>,
+    cardinality: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-enum RawCardinality {
-    One,
-    Many,
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct QueryDeclaration {
+    location: Option<core::SourceLocation>,
 }
 
-impl From<RawCardinality> for core::Cardinality {
-    fn from(value: RawCardinality) -> Self {
-        match value {
-            RawCardinality::One => Self::One,
-            RawCardinality::Many => Self::Many,
+type SeenQueryIds = HashMap<String, QueryDeclaration>;
+
+fn reject_duplicate_query_ids(
+    queries: &[core::RawQuery],
+    seen_ids: &mut SeenQueryIds,
+) -> core::DiagnosticResult<()> {
+    for query in queries {
+        let declaration = QueryDeclaration {
+            location: query.source_location().cloned(),
+        };
+
+        if let Some(first_declaration) =
+            seen_ids.insert(query.metadata().id().to_owned(), declaration)
+        {
+            return Err(core::DiagnosticReport::from_diagnostics(vec![
+                core::Diagnostic::error(format!(
+                    "duplicate query id `{}`; query IDs must be unique across the full compile run",
+                    query.metadata().id()
+                ))
+                .with_location(
+                    query
+                        .source_location()
+                        .cloned()
+                        .unwrap_or_else(core::SourceLocation::unknown),
+                ),
+                core::Diagnostic::note("first declared here").with_location(
+                    first_declaration
+                        .location
+                        .unwrap_or_else(core::SourceLocation::unknown),
+                ),
+            ]));
         }
     }
+
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -907,6 +968,135 @@ SELECT id FROM users;
     }
 
     #[test]
+    fn accepts_supported_cardinality_values() {
+        for (raw_cardinality, cardinality) in [
+            ("one", core::Cardinality::One),
+            ("many", core::Cardinality::Many),
+        ] {
+            let source = format!(
+                r"
+/* @sqlcomp
+{{
+  type: query
+  id: listUsers
+  cardinality: {raw_cardinality}
+}}
+*/
+SELECT id FROM users;
+"
+            );
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+            let metadata = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+                .expect("query metadata should parse");
+
+            assert_eq!(metadata.cardinality(), Some(cardinality));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_required_query_metadata_fields() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+",
+                "missing required `@sqlcomp` metadata field `type`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+}
+*/
+SELECT id FROM users;
+",
+                "missing required `@sqlcomp` metadata field `id`",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+            let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+                .expect_err("missing required metadata should be rejected");
+            let diagnostic = report
+                .diagnostics()
+                .first()
+                .expect("a diagnostic should be returned");
+
+            assert_eq!(diagnostic.message(), expected_message);
+            assert!(diagnostic.location().is_some());
+        }
+    }
+
+    #[test]
+    fn rejects_exec_cardinality_reserved_for_future_mvp_work() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+  cardinality: exec
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("exec cardinality should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert_eq!(
+            diagnostic.message(),
+            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP"
+        );
+        assert!(diagnostic.location().is_some());
+    }
+
+    #[test]
+    fn rejects_unsupported_cardinality_values() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+  cardinality: maybe
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let report = parse_sqlcomp_query_metadata(&scan.blocks()[0])
+            .expect_err("unsupported cardinality should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+
+        assert_eq!(
+            diagnostic.message(),
+            "unsupported query cardinality `maybe`; supported MVP values are `one` and `many`"
+        );
+        assert!(diagnostic.location().is_some());
+    }
+
+    #[test]
     fn splits_one_query_block() {
         let source = r"
 /* @sqlcomp
@@ -1027,6 +1217,7 @@ SELECT id FROM users;
 {
   type: query
   id: findUser
+  cardinality: one
 }
 */
 SELECT id FROM users WHERE id = 1;
@@ -1046,8 +1237,13 @@ SELECT id FROM users WHERE id = 1;
 
         assert_eq!(queries.len(), 2);
         assert_eq!(queries[0].metadata().id(), "listUsers");
+        assert_eq!(queries[0].metadata().cardinality(), None);
         assert_eq!(queries[0].sql(), "\nSELECT id FROM users;\n");
         assert_eq!(queries[1].metadata().id(), "findUser");
+        assert_eq!(
+            queries[1].metadata().cardinality(),
+            Some(core::Cardinality::One)
+        );
         assert_eq!(queries[1].sql(), "\nSELECT id FROM users WHERE id = 1;\n");
 
         fs::remove_dir_all(project_dir).expect("test project directory should be removed");
@@ -1300,6 +1496,98 @@ SELECT 1;
         assert_eq!(range.start().column(), 1);
     }
 
+    #[test]
+    fn source_reader_rejects_duplicate_query_ids_in_the_same_file() {
+        let project_dir = test_project_dir("duplicate-same-file");
+        let source_path = project_dir.join("sql").join("users.sql");
+        write_sql(
+            &source_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM archived_users;
+",
+        );
+        let plan = compilation_plan(&project_dir, vec![source_path.clone()], Vec::new());
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("duplicate query ids should be rejected");
+
+        assert_duplicate_query_report(&report, &source_path);
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn source_reader_rejects_duplicate_query_ids_across_files() {
+        let project_dir = test_project_dir("duplicate-across-files");
+        let first_path = project_dir.join("sql").join("first.sql");
+        let second_path = project_dir.join("sql").join("second.sql");
+        write_sql(
+            &first_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+",
+        );
+        write_sql(
+            &second_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM archived_users;
+",
+        );
+        let plan = compilation_plan(
+            &project_dir,
+            vec![project_dir.join("sql/**/*.sql")],
+            Vec::new(),
+        );
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("duplicate query ids should be rejected");
+
+        assert_duplicate_query_report(&report, &second_path);
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path: &Path) {
+        assert_eq!(report.diagnostics().len(), 2);
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "duplicate query id `listUsers`; query IDs must be unique across the full compile run"
+        );
+        assert_eq!(
+            report.diagnostics()[0]
+                .location()
+                .and_then(core::SourceLocation::path),
+            Some(duplicate_path)
+        );
+        assert_eq!(report.diagnostics()[1].message(), "first declared here");
+    }
+
     fn compilation_plan(
         config_dir: &Path,
         source_include: Vec<PathBuf>,
@@ -1313,6 +1601,15 @@ SELECT 1;
             core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
             core::TargetConfig::new(core::TargetLanguage::TypeScript),
         )
+    }
+
+    fn write_sql(path: &Path, contents: &str) {
+        let contents = contents
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline");
+        let parent = path.parent().expect("test path should include a parent");
+        fs::create_dir_all(parent).expect("temp source dir should be created");
+        fs::write(path, contents).expect("temp SQL file should be written");
     }
 
     fn test_project_dir(name: &str) -> PathBuf {
