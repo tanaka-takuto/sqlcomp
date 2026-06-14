@@ -59,10 +59,16 @@ script/mysql-down.sh
 
 ## Run local checks
 
-Run the baseline repository checks before opening a pull request:
+Run the non-database baseline repository checks before opening a pull request:
 
 ```sh
 script/check-all.sh
+```
+
+Run the MySQL-backed integration checks against a running MySQL service:
+
+```sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/mysql-integration.sh
 ```
 
 ## Set up Git hooks
@@ -172,6 +178,18 @@ cargo test --locked --workspace --all-targets --all-features
 
 `script/check-all.sh` combines the format and Rust checks into one local baseline
 command.
+
+MySQL integration CI follows the same trigger and reusable workflow split:
+
+- Trigger layer: `.github/workflows/on_pull_request_mysql-integration.yml` and `.github/workflows/on_push_mysql-integration.yml`
+- Reusable Workflow layer: `.github/workflows/_mysql-integration.yml`
+
+The MySQL integration workflow starts a MySQL 8.4 service, loads
+`fixtures/mysql/init/`, and runs:
+
+```sh
+script/mysql-integration.sh
+```
 
 Rust lint policy is defined in `Cargo.toml`. The default is intentionally strict:
 Rust warnings are denied, unsafe code is forbidden, and Clippy `all`, `pedantic`,

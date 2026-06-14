@@ -56,8 +56,14 @@ script/mysql-down.sh
 
 ## Local Checks
 
-Run the same baseline checks used by CI with:
+Run the same non-database baseline checks used by CI with:
 
 ```sh
 script/check-all.sh
+```
+
+Run the MySQL-backed integration checks against a running MySQL service with:
+
+```sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/mysql-integration.sh
 ```
