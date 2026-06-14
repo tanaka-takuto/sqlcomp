@@ -13,3 +13,7 @@ workspace = true
 [dependencies]
 sqlcomp-app = { path = "../app" }
 sqlcomp-core = { path = "../core" }
+
+[dev-dependencies]
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "mysql", "tls-rustls", "macros"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
