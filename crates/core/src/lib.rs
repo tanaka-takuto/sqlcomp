@@ -16,8 +16,8 @@ pub use config::{
     TargetLanguage,
 };
 pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
-pub use ir::{CompiledQuery, CoreType, InputField, ResultColumn};
-pub use metadata::{DbQueryMetadata, DbResultColumn};
+pub use ir::{CompiledQuery, CoreType, InputField, ParamBinding, ResultColumn};
+pub use metadata::{DbParamUsage, DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
 pub use query::{AnalyzedQuery, Cardinality, ParamUsage, QueryId, QueryMetadata, RawQuery};
 pub use reporting::{

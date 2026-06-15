@@ -269,27 +269,129 @@ fn query_compiler_builds_core_ir_with_empty_mvp_input_and_result_columns() {
 }
 
 #[test]
-fn query_compiler_rejects_param_queries_until_param_output_generation_exists() {
+fn query_compiler_builds_input_fields_and_param_bindings_from_resolved_param_metadata() {
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUser".to_owned(), None),
-        "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;".to_owned(),
+        "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email nullable: true } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */ AND id = /* @sqlcomp { type: param id: userId } */ 1 /* @sqlcomp { type: paramEnd } */ OR email = /* @sqlcomp { type: param id: email nullable: true } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */;".to_owned(),
     )
-    .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
-    .with_param_usages(vec![core::ParamUsage::new(
-        "email".to_owned(),
-        Some(core::CoreType::String),
-        false,
-        core::SourceLocation::unknown(),
-    )]);
+    .with_analysis_sql("SELECT id FROM users WHERE email = ? AND id = ? OR email = ?;".to_owned())
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "email".to_owned(),
+            None,
+            true,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "userId".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "email".to_owned(),
+            None,
+            true,
+            core::SourceLocation::unknown(),
+        ),
+    ]);
     let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+        core::DbParamUsage::new("userId".to_owned(), core::CoreType::Int64),
+        core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+    ]);
+
+    let compiled = DefaultQueryCompiler
+        .compile(&query, &analysis, &metadata)
+        .expect("resolved Param query should compile into Core IR");
+
+    assert_eq!(
+        compiled.input(),
+        [
+            core::InputField::new("email".to_owned(), core::CoreType::String, true),
+            core::InputField::new("userId".to_owned(), core::CoreType::Int64, false),
+        ]
+    );
+    assert_eq!(
+        compiled.params(),
+        [
+            core::ParamBinding::new("email".to_owned(), core::CoreType::String, true),
+            core::ParamBinding::new("userId".to_owned(), core::CoreType::Int64, false),
+            core::ParamBinding::new("email".to_owned(), core::CoreType::String, true),
+        ]
+    );
+}
+
+#[test]
+fn query_compiler_rejects_repeated_param_ids_with_conflicting_semantics() {
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUser".to_owned(), None),
+        "SELECT id FROM users WHERE id = ? OR id = ?;".to_owned(),
+    )
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "userId".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "userId".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+    ]);
+    let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new("userId".to_owned(), core::CoreType::Int64),
+        core::DbParamUsage::new("userId".to_owned(), core::CoreType::String),
+    ]);
 
     let report = DefaultQueryCompiler
-        .compile(&query, &analysis, &core::DbQueryMetadata::new(Vec::new()))
-        .expect_err("Param query generation should remain blocked until output support exists");
+        .compile(&query, &analysis, &metadata)
+        .expect_err("conflicting repeated Param IDs should be rejected");
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Param queries are not supported by generated output yet"
+        "conflicting Param `userId` types: first occurrence resolved to Int64 but later occurrence resolved to String"
+    );
+}
+
+#[test]
+fn query_compiler_rejects_repeated_param_ids_with_conflicting_nullability() {
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUser".to_owned(), None),
+        "SELECT id FROM users WHERE email = ? OR email = ?;".to_owned(),
+    )
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "email".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "email".to_owned(),
+            None,
+            true,
+            core::SourceLocation::unknown(),
+        ),
+    ]);
+    let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+        core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+    ]);
+
+    let report = DefaultQueryCompiler
+        .compile(&query, &analysis, &metadata)
+        .expect_err("conflicting repeated Param nullability should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Param `email` nullability: first occurrence is nullable false but later occurrence is nullable true"
     );
 }
 

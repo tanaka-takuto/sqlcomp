@@ -218,6 +218,9 @@ Responsibilities:
 - connect to the configured database.
 - describe a query without fetching user data.
 - return database-native column names, database types, and nullability metadata.
+- for post-MVP SELECT `Param` support, read current-database
+  `information_schema.columns` metadata used for direct column-context input type
+  inference.
 
 See also:
 
@@ -255,11 +258,18 @@ struct CompiledQuery {
     sql: String,
     cardinality: Cardinality,
     input: Vec<InputField>,
+    params: Vec<ParamBinding>,
     row: Vec<ResultColumn>,
 }
 
 struct ResultColumn {
     name: String,
+    ty: CoreType,
+    nullable: bool,
+}
+
+struct ParamBinding {
+    input_name: String,
     ty: CoreType,
     nullable: bool,
 }

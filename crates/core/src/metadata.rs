@@ -4,19 +4,36 @@ use crate::{CoreType, ResultColumn};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbQueryMetadata {
     columns: Vec<DbResultColumn>,
+    param_usages: Vec<DbParamUsage>,
 }
 
 impl DbQueryMetadata {
     /// Build database query metadata.
     #[must_use]
     pub const fn new(columns: Vec<DbResultColumn>) -> Self {
-        Self { columns }
+        Self {
+            columns,
+            param_usages: Vec::new(),
+        }
+    }
+
+    /// Attach resolved Param usage metadata in source occurrence order.
+    #[must_use]
+    pub fn with_param_usages(mut self, param_usages: Vec<DbParamUsage>) -> Self {
+        self.param_usages = param_usages;
+        self
     }
 
     /// Result columns described by the database metadata provider.
     #[must_use]
     pub fn columns(&self) -> &[DbResultColumn] {
         &self.columns
+    }
+
+    /// Resolved Param usage metadata in source occurrence order.
+    #[must_use]
+    pub fn param_usages(&self) -> &[DbParamUsage] {
+        &self.param_usages
     }
 }
 
@@ -66,9 +83,36 @@ impl DbResultColumn {
     }
 }
 
+/// Database-backed type metadata for one Param occurrence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DbParamUsage {
+    id: String,
+    ty: CoreType,
+}
+
+impl DbParamUsage {
+    /// Build resolved Param usage metadata.
+    #[must_use]
+    pub const fn new(id: String, ty: CoreType) -> Self {
+        Self { id, ty }
+    }
+
+    /// Param ID exactly as written in source metadata.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Language-neutral Param type.
+    #[must_use]
+    pub const fn ty(&self) -> CoreType {
+        self.ty
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{CoreType, DbQueryMetadata, DbResultColumn};
+    use crate::{CoreType, DbParamUsage, DbQueryMetadata, DbResultColumn};
 
     #[test]
     fn db_query_metadata_preserves_result_column_metadata() {
@@ -79,6 +123,23 @@ mod tests {
         let metadata = DbQueryMetadata::new(columns.clone());
 
         assert_eq!(metadata.columns(), columns);
+        assert!(metadata.param_usages().is_empty());
+    }
+
+    #[test]
+    fn db_query_metadata_preserves_resolved_param_usage_metadata() {
+        let metadata = DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+            DbParamUsage::new("email".to_owned(), CoreType::String),
+            DbParamUsage::new("userId".to_owned(), CoreType::Int64),
+        ]);
+
+        assert_eq!(
+            metadata.param_usages(),
+            [
+                DbParamUsage::new("email".to_owned(), CoreType::String),
+                DbParamUsage::new("userId".to_owned(), CoreType::Int64),
+            ]
+        );
     }
 
     #[test]

@@ -246,6 +246,7 @@ impl TargetGenerator for TypeScriptTargetGenerator {
             BTreeMap::new();
 
         for query in queries {
+            reject_param_query(query)?;
             let source_path = query_source_path(query)?;
             queries_by_source_path
                 .entry(source_path.to_path_buf())
@@ -262,6 +263,19 @@ impl TargetGenerator for TypeScriptTargetGenerator {
 
         Ok(core::GeneratedFiles::new(files))
     }
+}
+
+fn reject_param_query(query: &core::CompiledQuery) -> core::DiagnosticResult<()> {
+    if query.input().is_empty() && query.params().is_empty() {
+        return Ok(());
+    }
+
+    Err(core::DiagnosticReport::new(core::Diagnostic::error(
+        format!(
+            "TypeScript generation for Param query `{}` is not supported yet",
+            query.id().as_str()
+        ),
+    )))
 }
 
 fn query_source_path(query: &core::CompiledQuery) -> core::DiagnosticResult<&Path> {
@@ -566,6 +580,41 @@ export function inspectTypes(
             files.files()[0]
                 .contents()
                 .contains("export function listAdmins(")
+        );
+    }
+
+    #[test]
+    fn generator_rejects_param_queries_until_typescript_param_output_exists() {
+        let plan = compilation_plan();
+        let query = core::CompiledQuery::new(
+            core::QueryId::new("findUser".to_owned()),
+            "SELECT id FROM users WHERE email = ?;".to_owned(),
+            core::Cardinality::Many,
+            vec![core::InputField::new(
+                "email".to_owned(),
+                core::CoreType::String,
+                false,
+            )],
+            vec![core::ResultColumn::new(
+                "id".to_owned(),
+                core::CoreType::Int64,
+                false,
+            )],
+        )
+        .with_params(vec![core::ParamBinding::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false,
+        )])
+        .with_source_path("sql/users.sql");
+
+        let report = TypeScriptTargetGenerator
+            .generate(&plan, &[query])
+            .expect_err("Param TypeScript generation should remain out of scope");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "TypeScript generation for Param query `findUser` is not supported yet"
         );
     }
 
