@@ -33,6 +33,27 @@ fn mysql_fixture_check_typechecks_temporary_generated_project() {
     );
 }
 
+#[test]
+fn fake_npm_rejects_committed_tsconfig_paths() {
+    let fixture = ScriptFixture::new("sqlcomp-check-scripts");
+
+    let example_output =
+        fixture.run_fake_npm_with_project(repo_root().join("examples/bookstore/tsconfig.json"));
+    assert!(
+        !example_output.status.success(),
+        "fake npm should reject committed example tsconfig, stderr: {}",
+        String::from_utf8_lossy(&example_output.stderr)
+    );
+
+    let fixture_output =
+        fixture.run_fake_npm_with_project(repo_root().join("fixtures/sql/tsconfig.json"));
+    assert!(
+        !fixture_output.status.success(),
+        "fake npm should reject committed fixture tsconfig, stderr: {}",
+        String::from_utf8_lossy(&fixture_output.stderr)
+    );
+}
+
 struct ScriptFixture {
     root: PathBuf,
     fake_bin: PathBuf,
@@ -74,6 +95,15 @@ impl ScriptFixture {
             .env("TMPDIR", &self.root)
             .output()
             .expect("check script should run")
+    }
+
+    fn run_fake_npm_with_project(&self, project: PathBuf) -> std::process::Output {
+        Command::new(self.fake_bin.join("npm"))
+            .env("TMPDIR", &self.root)
+            .args(["exec", "--", "tsc", "--noEmit", "--project"])
+            .arg(project)
+            .output()
+            .expect("fake npm should run")
     }
 
     fn write_fake_cargo(&self) {
@@ -136,9 +166,19 @@ cat >/dev/null
             r#"#!/bin/sh
 set -eu
 
-case "$*" in
-  exec\ --\ tsc\ --noEmit\ --project\ */bookstore/tsconfig.json) ;;
-  exec\ --\ tsc\ --noEmit\ --project\ */sql/tsconfig.json) ;;
+if [ "$#" -ne 6 ] \
+  || [ "$1" != "exec" ] \
+  || [ "$2" != "--" ] \
+  || [ "$3" != "tsc" ] \
+  || [ "$4" != "--noEmit" ] \
+  || [ "$5" != "--project" ]; then
+  echo "expected npm to typecheck a temporary generated project, got: $*" >&2
+  exit 64
+fi
+
+case "$6" in
+  "$TMPDIR"/sqlcomp-examples.*/bookstore/tsconfig.json) ;;
+  "$TMPDIR"/sqlcomp-mysql-fixtures.*/sql/tsconfig.json) ;;
   *)
     echo "expected npm to typecheck a temporary generated project, got: $*" >&2
     exit 64
