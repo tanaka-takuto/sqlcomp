@@ -4,7 +4,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
+use serde_json::{Map, Value};
 use sqlcomp_app::{SourceRead, SourceReader};
 use sqlcomp_core as core;
 
@@ -123,22 +124,17 @@ pub fn scan_sqlcomp_blocks(source: &str) -> core::DiagnosticResult<SqlcompBlockS
     Scanner::new(source).scan()
 }
 
-/// Parse one discovered `@sqlcomp` block as MVP query metadata.
+/// Parse one discovered `@sqlcomp` block as query metadata.
 ///
 /// # Errors
 ///
-/// Returns diagnostics when the payload is malformed Hjson or declares an
-/// annotation type outside the MVP query-only scope.
+/// Returns diagnostics when the payload is malformed Hjson, does not declare a
+/// query annotation, or contains invalid query metadata.
 pub fn parse_sqlcomp_query_metadata(
     block: &SqlcompBlock,
 ) -> core::DiagnosticResult<core::QueryMetadata> {
-    let raw = deser_hjson::from_str::<RawSqlcompMetadata>(block.payload()).map_err(|error| {
-        metadata_error(
-            format!("failed to parse `@sqlcomp` metadata as Hjson: {error}"),
-            block.payload_range(),
-        )
-    })?;
-    let Some(annotation_type) = raw.annotation_type else {
+    let raw = deserialize_sqlcomp_metadata::<RawSqlcompQueryMetadata>(block)?;
+    let Some(annotation_type) = raw.annotation_type.as_deref() else {
         return Err(metadata_error(
             "missing required `@sqlcomp` metadata field `type`",
             block.payload_range(),
@@ -148,12 +144,251 @@ pub fn parse_sqlcomp_query_metadata(
     if annotation_type != "query" {
         return Err(metadata_error(
             format!(
-                "unsupported `@sqlcomp` annotation type `{annotation_type}`; MVP only supports `query`"
+                "unsupported `@sqlcomp` annotation type `{annotation_type}`; expected `query` metadata"
             ),
             block.payload_range(),
         ));
     }
 
+    parse_query_metadata(raw, block)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SqlcompAnnotation {
+    Query(core::QueryMetadata),
+    Param,
+    ParamEnd,
+}
+
+#[derive(Debug)]
+struct ParsedSqlcompBlock<'a> {
+    block: &'a SqlcompBlock,
+    annotation: SqlcompAnnotation,
+}
+
+fn parse_sqlcomp_annotation(block: &SqlcompBlock) -> core::DiagnosticResult<SqlcompAnnotation> {
+    let annotation_type = parse_annotation_type(block)?;
+
+    match annotation_type.as_str() {
+        "query" => parse_sqlcomp_query_metadata(block).map(SqlcompAnnotation::Query),
+        "param" => {
+            parse_param_metadata(block)?;
+            Ok(SqlcompAnnotation::Param)
+        }
+        "paramEnd" => {
+            parse_param_end_metadata(block)?;
+            Ok(SqlcompAnnotation::ParamEnd)
+        }
+        "param_end" => Err(metadata_error(
+            "unsupported `@sqlcomp` annotation type `param_end`; use `paramEnd` for Param end markers",
+            block.payload_range(),
+        )),
+        _ => Err(metadata_error(
+            format!(
+                "unsupported `@sqlcomp` annotation type `{annotation_type}`; supported values are `query`, `param`, and `paramEnd`"
+            ),
+            block.payload_range(),
+        )),
+    }
+}
+
+fn parse_annotation_type(block: &SqlcompBlock) -> core::DiagnosticResult<String> {
+    match deserialize_sqlcomp_metadata::<RawSqlcompAnnotationType>(block) {
+        Ok(raw) => {
+            let Some(annotation_type) = raw.annotation_type else {
+                return Err(metadata_error(
+                    "missing required `@sqlcomp` metadata field `type`",
+                    block.payload_range(),
+                ));
+            };
+            Ok(annotation_type)
+        }
+        Err(report) => parse_sqlcomp_metadata_object(block)
+            .and_then(|metadata| required_annotation_type_from_metadata(&metadata, block))
+            .map_err(|_| report),
+    }
+}
+
+fn parse_sqlcomp_metadata_object(
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<Map<String, Value>> {
+    let value = parse_sqlcomp_metadata_value(block)?;
+    let Value::Object(metadata) = value else {
+        return Err(metadata_error(
+            "`@sqlcomp` metadata must be an object",
+            block.payload_range(),
+        ));
+    };
+
+    Ok(metadata)
+}
+
+fn parse_sqlcomp_metadata_value(block: &SqlcompBlock) -> core::DiagnosticResult<Value> {
+    match deserialize_sqlcomp_metadata(block) {
+        Ok(value) => Ok(value),
+        Err(report) => parse_flat_sqlcomp_metadata_value(block.payload()).ok_or(report),
+    }
+}
+
+fn deserialize_sqlcomp_metadata<T>(block: &SqlcompBlock) -> core::DiagnosticResult<T>
+where
+    T: DeserializeOwned,
+{
+    match deser_hjson::from_str::<T>(block.payload()) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            if let Some(normalized) = normalize_inline_hjson_metadata(block.payload())
+                && let Ok(value) = deser_hjson::from_str::<T>(&normalized)
+            {
+                return Ok(value);
+            }
+
+            Err(metadata_error(
+                format!("failed to parse `@sqlcomp` metadata as Hjson: {error}"),
+                block.payload_range(),
+            ))
+        }
+    }
+}
+
+fn normalize_inline_hjson_metadata(payload: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(payload.len());
+    let mut index = 0;
+    let mut changed = false;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < payload.len() {
+        let char = payload[index..]
+            .chars()
+            .next()
+            .expect("index should point at a character");
+
+        if !in_single_quote && !in_double_quote && char.is_whitespace() {
+            let whitespace_start = index;
+            while index < payload.len() {
+                let whitespace_char = payload[index..]
+                    .chars()
+                    .next()
+                    .expect("index should point at a character");
+                if !whitespace_char.is_whitespace() {
+                    break;
+                }
+                index += whitespace_char.len_utf8();
+            }
+
+            let previous_significant = last_non_whitespace_char(&normalized);
+            let should_insert_line_break = metadata_key_starts(&payload[index..])
+                && !matches!(previous_significant, None | Some(',' | '\n' | '\r'))
+                || payload[index..].starts_with('}')
+                    && !matches!(previous_significant, None | Some('{' | ',' | '\n' | '\r'));
+            if should_insert_line_break {
+                normalized.push('\n');
+                changed = true;
+            } else {
+                normalized.push_str(&payload[whitespace_start..index]);
+            }
+            continue;
+        }
+
+        if !in_double_quote && char == '\'' {
+            in_single_quote = !in_single_quote;
+        } else if !in_single_quote && char == '"' {
+            in_double_quote = !in_double_quote;
+        }
+
+        normalized.push(char);
+        index += char.len_utf8();
+    }
+
+    changed.then_some(normalized)
+}
+
+fn metadata_key_starts(source: &str) -> bool {
+    let mut chars = source.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+
+    for char in chars {
+        if char == ':' {
+            return true;
+        }
+        if !(char == '_' || char.is_ascii_alphanumeric()) {
+            return false;
+        }
+    }
+
+    false
+}
+
+fn parse_flat_sqlcomp_metadata_value(payload: &str) -> Option<Value> {
+    let normalized = normalize_inline_hjson_metadata(payload)?;
+    let trimmed = normalized.trim();
+    let inner = trimmed.strip_prefix('{')?.strip_suffix('}')?;
+    let mut metadata = Map::new();
+
+    for line in inner.lines() {
+        let line = line.trim().trim_end_matches(',');
+        if line.is_empty() {
+            continue;
+        }
+
+        let (key, value) = line.split_once(':')?;
+        let key = key.trim();
+        if !is_metadata_key(key) {
+            return None;
+        }
+
+        metadata.insert(key.to_owned(), flat_metadata_value(value.trim())?);
+    }
+
+    Some(Value::Object(metadata))
+}
+
+fn is_metadata_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
+}
+
+fn flat_metadata_value(value: &str) -> Option<Value> {
+    if value.is_empty() {
+        return None;
+    }
+
+    match value {
+        "true" => Some(Value::Bool(true)),
+        "false" => Some(Value::Bool(false)),
+        _ => {
+            let unquoted = value
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .or_else(|| {
+                    value
+                        .strip_prefix('\'')
+                        .and_then(|value| value.strip_suffix('\''))
+                })
+                .unwrap_or(value);
+            Some(Value::String(unquoted.to_owned()))
+        }
+    }
+}
+
+fn last_non_whitespace_char(source: &str) -> Option<char> {
+    source.chars().rev().find(|char| !char.is_whitespace())
+}
+
+fn parse_query_metadata(
+    raw: RawSqlcompQueryMetadata,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<core::QueryMetadata> {
     let Some(id) = raw.id else {
         return Err(metadata_error(
             "missing required `@sqlcomp` metadata field `id`",
@@ -172,6 +407,197 @@ pub fn parse_sqlcomp_query_metadata(
         id,
         parse_cardinality(raw.cardinality, block)?,
     ))
+}
+
+fn parse_param_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> {
+    match parse_sqlcomp_metadata_object(block) {
+        Ok(metadata) => parse_param_metadata_object(&metadata, block),
+        Err(_) => parse_param_metadata_raw(
+            deserialize_sqlcomp_metadata::<RawSqlcompParamMetadata>(block)?,
+            block,
+        ),
+    }
+}
+
+fn parse_param_metadata_object(
+    metadata: &Map<String, Value>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<()> {
+    reject_unknown_metadata_fields(
+        metadata,
+        &["type", "id", "valueType", "nullable"],
+        "param",
+        "`type`, `id`, `valueType`, and `nullable`",
+        block,
+    )?;
+    let id = required_param_string_metadata_field(metadata, "id", block)?;
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid Param id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
+            block.payload_range(),
+        ));
+    }
+
+    let value_type = optional_string_metadata_field(metadata, "valueType", block)?;
+    validate_param_value_type(value_type.as_deref(), block)?;
+    if let Some(nullable) = metadata.get("nullable") {
+        match nullable {
+            Value::Bool(true) => {}
+            Value::Bool(false) => {
+                return Err(metadata_error(
+                    "`nullable: false` is not supported for Param metadata; omit `nullable` for non-null inputs",
+                    block.payload_range(),
+                ));
+            }
+            _ => {
+                return Err(metadata_error(
+                    "`param` metadata field `nullable` must be `true`",
+                    block.payload_range(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_param_metadata_raw(
+    raw: RawSqlcompParamMetadata,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<()> {
+    let RawSqlcompParamMetadata {
+        annotation_type,
+        id,
+        value_type,
+        nullable,
+    } = raw;
+
+    if annotation_type.as_deref() != Some("param") {
+        return Err(metadata_error(
+            "expected `param` metadata",
+            block.payload_range(),
+        ));
+    }
+
+    let Some(id) = id else {
+        return Err(metadata_error(
+            "missing required `param` metadata field `id`",
+            block.payload_range(),
+        ));
+    };
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid Param id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
+            block.payload_range(),
+        ));
+    }
+
+    validate_param_value_type(value_type.as_deref(), block)?;
+    validate_param_nullable(nullable, block)
+}
+
+fn parse_param_end_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> {
+    let metadata = parse_sqlcomp_metadata_object(block)?;
+    reject_unknown_metadata_fields(&metadata, &["type"], "paramEnd", "`type`", block)
+}
+
+fn reject_unknown_metadata_fields(
+    metadata: &Map<String, Value>,
+    allowed_fields: &[&str],
+    annotation_type: &str,
+    supported_fields: &str,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<()> {
+    if let Some(field) = metadata
+        .keys()
+        .find(|field| !allowed_fields.contains(&field.as_str()))
+    {
+        return Err(metadata_error(
+            format!(
+                "unknown `{annotation_type}` metadata field `{field}`; supported fields are {supported_fields}"
+            ),
+            block.payload_range(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn required_annotation_type_from_metadata(
+    metadata: &Map<String, Value>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<String> {
+    match metadata.get("type") {
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(metadata_error(
+            "`@sqlcomp` metadata field `type` must be a string",
+            block.payload_range(),
+        )),
+        None => Err(metadata_error(
+            "missing required `@sqlcomp` metadata field `type`",
+            block.payload_range(),
+        )),
+    }
+}
+
+fn required_param_string_metadata_field(
+    metadata: &Map<String, Value>,
+    field: &str,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<String> {
+    match metadata.get(field) {
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(metadata_error(
+            format!("`param` metadata field `{field}` must be a string"),
+            block.payload_range(),
+        )),
+        None => Err(metadata_error(
+            format!("missing required `param` metadata field `{field}`"),
+            block.payload_range(),
+        )),
+    }
+}
+
+fn optional_string_metadata_field(
+    metadata: &Map<String, Value>,
+    field: &str,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<Option<String>> {
+    match metadata.get(field) {
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(metadata_error(
+            format!("`@sqlcomp` metadata field `{field}` must be a string"),
+            block.payload_range(),
+        )),
+        None => Ok(None),
+    }
+}
+
+fn validate_param_nullable(
+    nullable: Option<bool>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<()> {
+    match nullable {
+        Some(true) | None => Ok(()),
+        Some(false) => Err(metadata_error(
+            "`nullable: false` is not supported for Param metadata; omit `nullable` for non-null inputs",
+            block.payload_range(),
+        )),
+    }
+}
+
+fn validate_param_value_type(
+    value_type: Option<&str>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<()> {
+    if value_type.is_some_and(str::is_empty) {
+        return Err(metadata_error(
+            "`param` metadata field `valueType` must not be empty",
+            block.payload_range(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn parse_cardinality(
@@ -214,23 +640,105 @@ fn split_sqlcomp_query_blocks_from_scan(
     scan: &SqlcompBlockScan,
 ) -> core::DiagnosticResult<Vec<core::RawQuery>> {
     let blocks = scan.blocks();
-    let mut queries = Vec::with_capacity(blocks.len());
+    let mut parsed_blocks = Vec::with_capacity(blocks.len());
 
-    for (index, block) in blocks.iter().enumerate() {
-        let metadata = parse_sqlcomp_query_metadata(block)?;
-        let body_start = block.comment_end_index();
-        let body_end = blocks
-            .get(index + 1)
-            .map_or(source.len(), SqlcompBlock::comment_start_index);
+    for block in blocks {
+        parsed_blocks.push(ParsedSqlcompBlock {
+            block,
+            annotation: parse_sqlcomp_annotation(block)?,
+        });
+    }
+
+    validate_inline_param_markers(&parsed_blocks)?;
+
+    let query_indexes = parsed_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parsed_block)| {
+            matches!(parsed_block.annotation, SqlcompAnnotation::Query(_)).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    let mut queries = Vec::with_capacity(query_indexes.len());
+
+    for (query_position, parsed_index) in query_indexes.iter().copied().enumerate() {
+        let parsed_block = &parsed_blocks[parsed_index];
+        let SqlcompAnnotation::Query(metadata) = &parsed_block.annotation else {
+            unreachable!("query indexes only point at query annotations");
+        };
+        let body_start = parsed_block.block.comment_end_index();
+        let body_end = query_indexes
+            .get(query_position + 1)
+            .map_or(source.len(), |next_query_index| {
+                parsed_blocks[*next_query_index].block.comment_start_index()
+            });
         let sql = source[body_start..body_end].to_owned();
         let location = core::SourceLocation::from_range(source_range_for_sql_body(
             source, body_start, body_end,
         ));
 
-        queries.push(core::RawQuery::new(metadata, sql).with_source_location(location));
+        queries.push(core::RawQuery::new(metadata.clone(), sql).with_source_location(location));
     }
 
     Ok(queries)
+}
+
+fn validate_inline_param_markers(
+    parsed_blocks: &[ParsedSqlcompBlock<'_>],
+) -> core::DiagnosticResult<()> {
+    let mut inside_query = false;
+    let mut open_param_block: Option<&SqlcompBlock> = None;
+
+    for parsed_block in parsed_blocks {
+        match parsed_block.annotation {
+            SqlcompAnnotation::Query(_) => {
+                if let Some(block) = open_param_block.take() {
+                    return Err(metadata_error(
+                        "`param` marker is missing a matching `paramEnd` marker",
+                        block.payload_range(),
+                    ));
+                }
+                inside_query = true;
+            }
+            SqlcompAnnotation::Param => {
+                if !inside_query {
+                    return Err(metadata_error(
+                        "Param markers must appear inside a query body",
+                        parsed_block.block.payload_range(),
+                    ));
+                }
+                if open_param_block.is_some() {
+                    return Err(metadata_error(
+                        "nested Param ranges are not supported",
+                        parsed_block.block.payload_range(),
+                    ));
+                }
+                open_param_block = Some(parsed_block.block);
+            }
+            SqlcompAnnotation::ParamEnd => {
+                if !inside_query {
+                    return Err(metadata_error(
+                        "Param markers must appear inside a query body",
+                        parsed_block.block.payload_range(),
+                    ));
+                }
+                if open_param_block.take().is_none() {
+                    return Err(metadata_error(
+                        "`paramEnd` marker has no matching `param` marker",
+                        parsed_block.block.payload_range(),
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(block) = open_param_block {
+        return Err(metadata_error(
+            "`param` marker is missing a matching `paramEnd` marker",
+            block.payload_range(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Dummy filesystem-backed source reader.
@@ -560,12 +1068,28 @@ fn contains_non_comment_sql(source: &str) -> bool {
 }
 
 #[derive(Debug, Deserialize)]
+struct RawSqlcompAnnotationType {
+    #[serde(rename = "type")]
+    annotation_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawSqlcompMetadata {
+struct RawSqlcompQueryMetadata {
     #[serde(rename = "type")]
     annotation_type: Option<String>,
     id: Option<String>,
     cardinality: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RawSqlcompParamMetadata {
+    #[serde(rename = "type")]
+    annotation_type: Option<String>,
+    id: Option<String>,
+    value_type: Option<String>,
+    nullable: Option<bool>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1347,6 +1871,242 @@ SELECT 2;
     }
 
     #[test]
+    fn split_query_blocks_keeps_inline_param_markers_inside_query_body() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: true } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source).expect("inline Param should be accepted");
+
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0].metadata().id(), "findUserByEmail");
+        assert!(
+            queries[0].sql().contains("type: param id: email"),
+            "sql: {}",
+            queries[0].sql()
+        );
+        assert!(
+            queries[0].sql().contains("type: paramEnd"),
+            "sql: {}",
+            queries[0].sql()
+        );
+    }
+
+    #[test]
+    fn split_query_blocks_keeps_multiple_query_boundaries_with_inline_params() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source)
+            .expect("inline Param should not create extra query boundaries");
+
+        assert_eq!(queries.len(), 2);
+        assert_eq!(queries[0].metadata().id(), "findUserByEmail");
+        assert_eq!(queries[1].metadata().id(), "listUsers");
+        assert!(
+            !queries[0].sql().contains("id: listUsers"),
+            "first query sql: {}",
+            queries[0].sql()
+        );
+        assert_eq!(queries[1].sql(), "\nSELECT id FROM users;\n");
+    }
+
+    #[test]
+    fn rejects_invalid_param_ids_at_param_marker_location() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: 1bad } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let report =
+            split_sqlcomp_query_blocks(source).expect_err("invalid Param id should be rejected");
+        let diagnostic = report
+            .diagnostics()
+            .first()
+            .expect("a diagnostic should be returned");
+        let range = diagnostic
+            .location()
+            .and_then(core::SourceLocation::range)
+            .expect("Param diagnostic should include source range");
+
+        assert_eq!(
+            diagnostic.message(),
+            "invalid Param id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"
+        );
+        assert_eq!(range.start().line(), 8);
+    }
+
+    #[test]
+    fn rejects_invalid_inline_param_metadata() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email extra: true } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "unknown `param` metadata field `extra`; supported fields are `type`, `id`, `valueType`, and `nullable`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd id: email } */;
+",
+                "unknown `paramEnd` metadata field `id`; supported fields are `type`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email } */
+  'test@example.test'
+  /* @sqlcomp { type: param_end } */;
+",
+                "unsupported `@sqlcomp` annotation type `param_end`; use `paramEnd` for Param end markers",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report =
+                split_sqlcomp_query_blocks(source).expect_err("invalid Param metadata rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+        }
+    }
+
+    #[test]
+    fn rejects_unpaired_or_nested_inline_param_markers() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email } */
+  'test@example.test';
+",
+                "`param` marker is missing a matching `paramEnd` marker",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = 'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "`paramEnd` marker has no matching `param` marker",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email } */
+  COALESCE(/* @sqlcomp { type: param id: fallbackEmail } */ 'test@example.test'
+  /* @sqlcomp { type: paramEnd } */)
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "nested Param ranges are not supported",
+            ),
+            (
+                r"
+/* @sqlcomp { type: param id: email } */
+'test@example.test'
+/* @sqlcomp { type: paramEnd } */
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users;
+",
+                "Param markers must appear inside a query body",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report = split_sqlcomp_query_blocks(source)
+                .expect_err("invalid Param marker structure should be rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+        }
+    }
+
+    #[test]
     fn filesystem_source_reader_reads_included_files_as_query_blocks() {
         let project_dir = test_project_dir("reads-included-files");
         let sql_dir = project_dir.join("sql");
@@ -1552,7 +2312,7 @@ SELECT id FROM users;
 
         assert_eq!(
             diagnostic.message(),
-            "unsupported `@sqlcomp` annotation type `param`; MVP only supports `query`"
+            "unsupported `@sqlcomp` annotation type `param`; expected `query` metadata"
         );
         assert!(diagnostic.location().is_some());
     }
