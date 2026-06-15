@@ -40,9 +40,9 @@ Use this connection URL for local checks:
 export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
 ```
 
-The local MySQL service loads fixture DDL and seed data from
-`fixtures/mysql/init/` when the database volume is first created. Reset the fixture
-state with:
+The local MySQL service starts an empty development database. Example and fixture
+checks load their own prefix-scoped schema and seed data each time they run. Reset
+the database volume with:
 
 ```sh
 script/mysql-reset.sh
@@ -60,17 +60,24 @@ Run the same non-database baseline checks used by CI with:
 
 ```sh
 npm ci
-script/check-all.sh
+script/check-baseline.sh
 ```
 
-Type-check the generated TypeScript fixture directly with:
+Type-check committed generated TypeScript artifacts directly with:
 
 ```sh
-npm run typecheck:generated
+npm run typecheck:examples
+npm run typecheck:fixtures
 ```
 
-Run the MySQL-backed integration checks against a running MySQL service with:
+Run the MySQL-backed example E2E check against a running MySQL service with:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/mysql-integration.sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-examples.sh
+```
+
+Run the MySQL-backed fixture checks with:
+
+```sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
 ```

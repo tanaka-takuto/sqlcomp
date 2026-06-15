@@ -2,9 +2,9 @@ use sqlx::{Column, Connection, Executor, MySqlConnection, SqlSafeStr, TypeInfo};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
-const DROP_FIXTURE: &str = "DROP TABLE IF EXISTS sqlcomp_metadata_spike_users;";
+const DROP_FIXTURE: &str = "DROP TABLE IF EXISTS fixture_metadata_spike_users;";
 const CREATE_FIXTURE: &str = r"
-CREATE TABLE sqlcomp_metadata_spike_users (
+CREATE TABLE fixture_metadata_spike_users (
   id BIGINT NOT NULL PRIMARY KEY,
   display_name VARCHAR(255) NOT NULL,
   nickname VARCHAR(255) NULL,
@@ -27,7 +27,7 @@ SELECT
   nickname AS nickname,
   created_at AS createdAt,
   deleted_at AS deletedAt
-FROM sqlcomp_metadata_spike_users;
+FROM fixture_metadata_spike_users;
 ",
         expected: &[
             ExpectedColumn::exact("userId", "BIGINT", Some(false)),
@@ -45,7 +45,7 @@ SELECT
   CONCAT(display_name, ':', id) AS label,
   age + 1 AS nextAge,
   deleted_at IS NULL AS isActiveExpression
-FROM sqlcomp_metadata_spike_users;
+FROM fixture_metadata_spike_users;
 ",
         expected: &[
             ExpectedColumn::exact("nextId", "BIGINT", Some(false)),
@@ -61,7 +61,7 @@ SELECT
   balance AS balance,
   active AS active,
   payload AS payload
-FROM sqlcomp_metadata_spike_users;
+FROM fixture_metadata_spike_users;
 ",
         expected: &[
             ExpectedColumn::exact("balance", "DECIMAL", Some(false)),
