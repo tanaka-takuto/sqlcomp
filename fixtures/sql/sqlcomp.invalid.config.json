@@ -1,0 +1,16 @@
+{
+  "source": {
+    "include": ["invalid/**/*.sql"],
+    "exclude": []
+  },
+  "output": {
+    "dir": "generated-invalid"
+  },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "typescript"
+  }
+}

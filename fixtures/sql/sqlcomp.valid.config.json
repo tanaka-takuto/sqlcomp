@@ -1,0 +1,16 @@
+{
+  "source": {
+    "include": ["valid/**/*.sql"],
+    "exclude": []
+  },
+  "output": {
+    "dir": "generated"
+  },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "typescript"
+  }
+}

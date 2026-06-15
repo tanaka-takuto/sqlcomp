@@ -49,9 +49,9 @@ The Compose service uses deterministic development-only credentials:
 export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
 ```
 
-MySQL fixture DDL and seed data live in `fixtures/mysql/init/`. The official MySQL
-image runs those files when a fresh database volume is created. To rebuild the
-local fixture database from scratch:
+The Compose service starts an empty development database. Example and fixture
+checks load their own prefix-scoped schema and seed data each time they run. To
+rebuild the local database volume from scratch:
 
 ```sh
 script/mysql-reset.sh
@@ -68,19 +68,26 @@ script/mysql-down.sh
 Run the non-database baseline repository checks before opening a pull request:
 
 ```sh
-script/check-all.sh
+script/check-baseline.sh
 ```
 
-Run only the generated TypeScript type check with:
+Run only the generated TypeScript type checks with:
 
 ```sh
-npm run typecheck:generated
+npm run typecheck:examples
+npm run typecheck:fixtures
 ```
 
-Run the MySQL-backed integration checks against a running MySQL service:
+Run the MySQL-backed example E2E check against a running MySQL service:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/mysql-integration.sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-examples.sh
+```
+
+Run the MySQL-backed fixture checks against a running MySQL service:
+
+```sh
+DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
 ```
 
 ## Set up Git hooks
@@ -188,33 +195,30 @@ cargo clippy --locked --workspace --all-targets --all-features
 cargo test --locked --workspace --all-targets --all-features
 ```
 
-`script/check-all.sh` combines the format and Rust checks into one local baseline
+`script/check-baseline.sh` combines external-service-free checks into one local baseline
 command.
 
-MySQL integration CI follows the same trigger and reusable workflow split:
+Examples CI follows the same trigger and reusable workflow split:
 
-- Trigger layer: `.github/workflows/on_pull_request_mysql-integration.yml` and `.github/workflows/on_push_mysql-integration.yml`
-- Reusable Workflow layer: `.github/workflows/_mysql-integration.yml`
+- Trigger layer: `.github/workflows/on_pull_request_examples-check.yml` and `.github/workflows/on_push_examples-check.yml`
+- Reusable Workflow layer: `.github/workflows/_examples-check.yml`
 
-The MySQL integration workflow starts a MySQL 8.4 service, loads
-`fixtures/mysql/init/`, and runs:
+The examples workflow starts a MySQL 8.4 service and runs:
 
 ```sh
-script/mysql-integration.sh
+script/check-examples.sh
 ```
 
-Generated TypeScript CI follows the same trigger and reusable workflow split:
+MySQL fixture CI follows the same trigger and reusable workflow split:
 
-- Trigger layer:
-  `.github/workflows/on_pull_request_typescript-generated-check.yml` and
-  `.github/workflows/on_push_typescript-generated-check.yml`
-- Reusable Workflow layer: `.github/workflows/_typescript-generated-check.yml`
+- Trigger layer: `.github/workflows/on_pull_request_mysql-fixtures-check.yml` and `.github/workflows/on_push_mysql-fixtures-check.yml`
+- Reusable Workflow layer: `.github/workflows/_mysql-fixtures-check.yml`
 - Composite Action layer: `.github/actions/setup-node/action.yml`
 
-The generated TypeScript workflow installs npm dependencies from `package-lock.json` and runs:
+The MySQL fixture workflow starts a MySQL 8.4 service and runs:
 
 ```sh
-npm run typecheck:generated
+script/check-mysql-fixtures.sh
 ```
 
 Rust lint policy is defined in `Cargo.toml`. The default is intentionally strict:

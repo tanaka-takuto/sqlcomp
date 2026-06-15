@@ -1,0 +1,14 @@
+name: "[examples] Pull Request"
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  examples:
+    name: Call examples check
+    uses: ./.github/workflows/_examples-check.yml

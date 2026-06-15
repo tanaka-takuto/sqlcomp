@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "noEmit": true
+  },
+  "include": [
+    "assert-generated-surface.ts",
+    "generated/**/*.ts"
+  ]
+}

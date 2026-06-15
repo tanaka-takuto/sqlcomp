@@ -59,7 +59,7 @@ metadata.
 Fixture table:
 
 ```sql
-CREATE TABLE sqlcomp_metadata_spike_users (
+CREATE TABLE fixture_metadata_spike_users (
   id BIGINT NOT NULL PRIMARY KEY,
   display_name VARCHAR(255) NOT NULL,
   nickname VARCHAR(255) NULL,

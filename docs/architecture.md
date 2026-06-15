@@ -349,9 +349,18 @@ output directory as generated output and overwrites same-path files during
 ## Development and Integration Checks
 
 The project should keep local and CI checks aligned. Rust formatting, linting, and
-unit tests remain the baseline checks. The MVP also needs a reproducible MySQL 8.x
-development service, fixture schema, and MySQL-backed integration tests so metadata
-behavior is validated against the supported database.
+unit tests remain the external-service-free baseline checks. MySQL-backed checks are
+separate because they require a running MySQL 8.x database and prefix-scoped schema
+reset.
+
+Examples and fixtures have different responsibilities. `examples/` contains
+user-facing sample projects with generated TypeScript output that is actual compiler
+output. `fixtures/` contains implementation-focused test inputs and expected
+artifacts for coverage, edge cases, and diagnostics. DB-backed generated-output
+checks should regenerate examples and fixtures in temporary directories, compare the
+generated output byte for byte with committed expected artifacts, and type-check the
+generated TypeScript. These checks should not use Git working-tree diffs as their
+oracle.
 
 Rust tests should follow the conventional crate layout:
 
@@ -376,3 +385,4 @@ See also:
 - [ADR 0006: Define MVP CLI, Config, and Generation Workflow](./adr/0006-define-mvp-cli-config-and-generation-workflow.md)
 - [ADR 0002: Use TypeScript SQL builders as the first target generator](./adr/0002-use-typescript-target-generator-first.md)
 - [ADR 0005: Do not automatically transform generated names](./adr/0005-do-not-transform-generated-names.md)
+- [ADR 0007: Use examples and fixtures as generated E2E artifacts](./adr/0007-use-examples-and-fixtures-as-generated-e2e-artifacts.md)

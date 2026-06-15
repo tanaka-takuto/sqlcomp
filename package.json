@@ -1,7 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "typecheck:generated": "tsc --noEmit --project fixtures/typescript/tsconfig.json"
+    "typecheck:examples": "tsc --noEmit --project examples/bookstore/tsconfig.json",
+    "typecheck:fixtures": "tsc --noEmit --project fixtures/sql/tsconfig.json"
   },
   "devDependencies": {
     "typescript": "6.0.3"
