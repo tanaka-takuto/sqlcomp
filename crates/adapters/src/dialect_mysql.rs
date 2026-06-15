@@ -13,6 +13,8 @@ pub struct MysqlDialectAnalyzer;
 
 impl DialectAnalyzer for MysqlDialectAnalyzer {
     fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
+        reject_inline_sqlcomp_annotations(query)?;
+
         let dialect = MySqlDialect {};
         let statements = Parser::parse_sql(&dialect, query.sql())
             .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))?;
@@ -44,6 +46,27 @@ impl DialectAnalyzer for MysqlDialectAnalyzer {
 
         Ok(core::AnalyzedQuery::new(infer_cardinality(parsed_query)))
     }
+}
+
+fn reject_inline_sqlcomp_annotations(query: &core::RawQuery) -> core::DiagnosticResult<()> {
+    let scan = crate::source_fs::scan_sqlcomp_blocks(query.sql()).map_err(|report| {
+        core::DiagnosticReport::from_diagnostics(
+            report
+                .into_diagnostics()
+                .into_iter()
+                .map(|diagnostic| core::Diagnostic::error(diagnostic.message()))
+                .collect(),
+        )
+    })?;
+
+    if !scan.blocks().is_empty() {
+        return Err(query_error(
+            query,
+            "inline Param markers are parsed by source intake but are not supported by the full compile pipeline yet",
+        ));
+    }
+
+    Ok(())
 }
 
 fn tokenize_query(query: &core::RawQuery) -> core::DiagnosticResult<Vec<Token>> {
@@ -291,6 +314,19 @@ mod tests {
         assert_eq!(
             report.diagnostics()[0].message(),
             "query parameters/placeholders are not supported in the MVP"
+        );
+    }
+
+    #[test]
+    fn rejects_inline_param_markers_until_param_replacement_is_supported() {
+        let report = analyze_sql(
+            "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;",
+        )
+        .expect_err("inline Param markers should not flow into dialect analysis yet");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "inline Param markers are parsed by source intake but are not supported by the full compile pipeline yet"
         );
     }
 

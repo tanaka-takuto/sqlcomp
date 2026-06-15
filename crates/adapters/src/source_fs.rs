@@ -10,6 +10,10 @@ use sqlcomp_app::{SourceRead, SourceReader};
 use sqlcomp_core as core;
 
 const SQLCOMP_MARKER: &str = "@sqlcomp";
+const SUPPORTED_PARAM_VALUE_TYPES: [&str; 11] = [
+    "bool", "int32", "int64", "float64", "decimal", "string", "bytes", "date", "time", "datetime",
+    "json",
+];
 
 /// Result of scanning SQL text for sqlcomp metadata blocks.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -590,14 +594,42 @@ fn validate_param_value_type(
     value_type: Option<&str>,
     block: &SqlcompBlock,
 ) -> core::DiagnosticResult<()> {
-    if value_type.is_some_and(str::is_empty) {
+    let Some(value_type) = value_type else {
+        return Ok(());
+    };
+
+    if value_type.is_empty() {
         return Err(metadata_error(
             "`param` metadata field `valueType` must not be empty",
             block.payload_range(),
         ));
     }
+    if !SUPPORTED_PARAM_VALUE_TYPES.contains(&value_type) {
+        return Err(metadata_error(
+            format!(
+                "unsupported Param valueType `{value_type}`; supported values are {}",
+                supported_param_value_types_message()
+            ),
+            block.payload_range(),
+        ));
+    }
 
     Ok(())
+}
+
+fn supported_param_value_types_message() -> String {
+    let (last, first) = SUPPORTED_PARAM_VALUE_TYPES
+        .split_last()
+        .expect("Param valueType list is non-empty");
+
+    format!(
+        "{}, and `{last}`",
+        first
+            .iter()
+            .map(|value_type| format!("`{value_type}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn parse_cardinality(
@@ -2021,6 +2053,36 @@ WHERE email = /* @sqlcomp { type: param id: email } */
   /* @sqlcomp { type: param_end } */;
 ",
                 "unsupported `@sqlcomp` annotation type `param_end`; use `paramEnd` for Param end markers",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: banana } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "unsupported Param valueType `banana`; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: unknown } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "unsupported Param valueType `unknown`; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`",
             ),
         ] {
             let source = source
