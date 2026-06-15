@@ -178,4 +178,4 @@ load_mysql_file "$fixture_root/seed.sql"
 compare_directories "$fixture_root/generated" "$tmp_fixture/generated"
 cd "$repo_root"
 cargo test --locked -p sqlcomp-adapters --all-features --tests -- --ignored --nocapture
-npm run typecheck:fixtures
+npm exec -- tsc --noEmit --project "$tmp_fixture/tsconfig.json"

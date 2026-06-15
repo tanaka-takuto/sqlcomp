@@ -173,4 +173,4 @@ load_mysql_file "$example_root/seed.sql"
 cd "$repo_root"
 DATABASE_URL=$DATABASE_URL cargo run --locked -- compile --config "$tmp_example/sqlcomp.config.json"
 compare_directories "$example_root/generated" "$tmp_example/generated"
-npm run typecheck:examples
+npm exec -- tsc --noEmit --project "$tmp_example/tsconfig.json"
