@@ -180,6 +180,11 @@ For the MVP:
 - `cardinality` is optional and may override compiler inference.
 - one SQL file may contain multiple query annotations.
 
+For post-MVP SELECT `Param` intake, `type: query` remains the only annotation that
+starts a new query block. Inline `type: param` and `type: paramEnd` annotations are
+recognized inside query bodies as defined by
+[ADR 0008](./adr/0008-define-select-param-support.md).
+
 ## Dialect Analyzer
 
 The Dialect Analyzer interprets a `RawQuery` as SQL for one configured database
