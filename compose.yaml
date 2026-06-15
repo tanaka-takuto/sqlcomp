@@ -23,7 +23,6 @@ services:
       start_period: 30s
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./fixtures/mysql/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   mysql-data:

@@ -17,13 +17,401 @@ const DATABASE_URL_ENV: &str = "DATABASE_URL";
 static MYSQL_FIXTURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const INIT_FIXTURES: &[&str] = &[
-    include_str!("../../../fixtures/mysql/init/001_metadata_fixture.sql"),
-    include_str!("../../../fixtures/mysql/init/002_business_fixture.sql"),
+    include_str!("../../../fixtures/sql/schema.sql"),
+    include_str!("../../../fixtures/sql/seed.sql"),
 ];
 
 const QUERY_FIXTURES: &[&str] = &[
-    include_str!("../../../fixtures/mysql/queries/metadata.sql"),
-    include_str!("../../../fixtures/mysql/queries/business.sql"),
+    include_str!("../../../fixtures/sql/valid/type_metadata_matrix.sql"),
+    include_str!("../../../fixtures/sql/valid/generation_surface.sql"),
+    include_str!("../../../fixtures/sql/valid/nested/path_mapping.sql"),
+];
+
+const VALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.valid.config.json");
+const INVALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.invalid.config.json");
+
+struct FixtureColumnCoverage {
+    nullable_name: &'static str,
+    nullable_definition: &'static str,
+    not_null_name: &'static str,
+    not_null_definition: &'static str,
+    core_type: core::CoreType,
+}
+
+const fn fixture_column_coverage(
+    nullable_name: &'static str,
+    nullable_definition: &'static str,
+    not_null_name: &'static str,
+    not_null_definition: &'static str,
+    core_type: core::CoreType,
+) -> FixtureColumnCoverage {
+    FixtureColumnCoverage {
+        nullable_name,
+        nullable_definition,
+        not_null_name,
+        not_null_definition,
+        core_type,
+    }
+}
+
+static FIXTURE_ALL_COLUMN_TYPE_COVERAGE: &[FixtureColumnCoverage] = &[
+    fixture_column_coverage(
+        "tinyint_col",
+        "tinyint_col TINYINT NULL",
+        "tinyint_nn_col",
+        "tinyint_nn_col TINYINT NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "tinyint_unsigned_col",
+        "tinyint_unsigned_col TINYINT UNSIGNED NULL",
+        "tinyint_unsigned_nn_col",
+        "tinyint_unsigned_nn_col TINYINT UNSIGNED NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "smallint_col",
+        "smallint_col SMALLINT NULL",
+        "smallint_nn_col",
+        "smallint_nn_col SMALLINT NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "smallint_unsigned_col",
+        "smallint_unsigned_col SMALLINT UNSIGNED NULL",
+        "smallint_unsigned_nn_col",
+        "smallint_unsigned_nn_col SMALLINT UNSIGNED NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "mediumint_col",
+        "mediumint_col MEDIUMINT NULL",
+        "mediumint_nn_col",
+        "mediumint_nn_col MEDIUMINT NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "mediumint_unsigned_col",
+        "mediumint_unsigned_col MEDIUMINT UNSIGNED NULL",
+        "mediumint_unsigned_nn_col",
+        "mediumint_unsigned_nn_col MEDIUMINT UNSIGNED NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "int_col",
+        "int_col INT NULL",
+        "int_nn_col",
+        "int_nn_col INT NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "int_unsigned_col",
+        "int_unsigned_col INT UNSIGNED NULL",
+        "int_unsigned_nn_col",
+        "int_unsigned_nn_col INT UNSIGNED NOT NULL",
+        core::CoreType::Int64,
+    ),
+    fixture_column_coverage(
+        "integer_col",
+        "integer_col INTEGER NULL",
+        "integer_nn_col",
+        "integer_nn_col INTEGER NOT NULL",
+        core::CoreType::Int32,
+    ),
+    fixture_column_coverage(
+        "bigint_col",
+        "bigint_col BIGINT NULL",
+        "bigint_nn_col",
+        "bigint_nn_col BIGINT NOT NULL PRIMARY KEY",
+        core::CoreType::Int64,
+    ),
+    fixture_column_coverage(
+        "bigint_unsigned_col",
+        "bigint_unsigned_col BIGINT UNSIGNED NULL",
+        "bigint_unsigned_nn_col",
+        "bigint_unsigned_nn_col BIGINT UNSIGNED NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "decimal_18_4_col",
+        "decimal_18_4_col DECIMAL(18, 4) NULL",
+        "decimal_18_4_nn_col",
+        "decimal_18_4_nn_col DECIMAL(18, 4) NOT NULL",
+        core::CoreType::Decimal,
+    ),
+    fixture_column_coverage(
+        "dec_col",
+        "dec_col DEC(12, 2) NULL",
+        "dec_nn_col",
+        "dec_nn_col DEC(12, 2) NOT NULL",
+        core::CoreType::Decimal,
+    ),
+    fixture_column_coverage(
+        "numeric_col",
+        "numeric_col NUMERIC(12, 2) NULL",
+        "numeric_nn_col",
+        "numeric_nn_col NUMERIC(12, 2) NOT NULL",
+        core::CoreType::Decimal,
+    ),
+    fixture_column_coverage(
+        "fixed_col",
+        "fixed_col FIXED(12, 2) NULL",
+        "fixed_nn_col",
+        "fixed_nn_col FIXED(12, 2) NOT NULL",
+        core::CoreType::Decimal,
+    ),
+    fixture_column_coverage(
+        "float_col",
+        "float_col FLOAT NULL",
+        "float_nn_col",
+        "float_nn_col FLOAT NOT NULL",
+        core::CoreType::Float64,
+    ),
+    fixture_column_coverage(
+        "double_col",
+        "double_col DOUBLE NULL",
+        "double_nn_col",
+        "double_nn_col DOUBLE NOT NULL",
+        core::CoreType::Float64,
+    ),
+    fixture_column_coverage(
+        "double_precision_col",
+        "double_precision_col DOUBLE PRECISION NULL",
+        "double_precision_nn_col",
+        "double_precision_nn_col DOUBLE PRECISION NOT NULL",
+        core::CoreType::Float64,
+    ),
+    fixture_column_coverage(
+        "real_col",
+        "real_col REAL NULL",
+        "real_nn_col",
+        "real_nn_col REAL NOT NULL",
+        core::CoreType::Float64,
+    ),
+    fixture_column_coverage(
+        "bit_col",
+        "bit_col BIT(8) NULL",
+        "bit_nn_col",
+        "bit_nn_col BIT(8) NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "bool_col",
+        "bool_col BOOL NULL",
+        "bool_nn_col",
+        "bool_nn_col BOOL NOT NULL",
+        core::CoreType::Bool,
+    ),
+    fixture_column_coverage(
+        "boolean_col",
+        "boolean_col BOOLEAN NULL",
+        "boolean_nn_col",
+        "boolean_nn_col BOOLEAN NOT NULL",
+        core::CoreType::Bool,
+    ),
+    fixture_column_coverage(
+        "date_col",
+        "date_col DATE NULL",
+        "date_nn_col",
+        "date_nn_col DATE NOT NULL",
+        core::CoreType::Date,
+    ),
+    fixture_column_coverage(
+        "time_col",
+        "time_col TIME NULL",
+        "time_nn_col",
+        "time_nn_col TIME NOT NULL",
+        core::CoreType::Time,
+    ),
+    fixture_column_coverage(
+        "datetime_6_col",
+        "datetime_6_col DATETIME(6) NULL",
+        "datetime_6_nn_col",
+        "datetime_6_nn_col DATETIME(6) NOT NULL",
+        core::CoreType::DateTime,
+    ),
+    fixture_column_coverage(
+        "timestamp_col",
+        "timestamp_col TIMESTAMP NULL DEFAULT NULL",
+        "timestamp_nn_col",
+        "timestamp_nn_col TIMESTAMP NOT NULL",
+        core::CoreType::DateTime,
+    ),
+    fixture_column_coverage(
+        "year_col",
+        "year_col YEAR NULL",
+        "year_nn_col",
+        "year_nn_col YEAR NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "char_16_col",
+        "char_16_col CHAR(16) NULL",
+        "char_16_nn_col",
+        "char_16_nn_col CHAR(16) NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "varchar_255_col",
+        "varchar_255_col VARCHAR(255) NULL",
+        "varchar_255_nn_col",
+        "varchar_255_nn_col VARCHAR(255) NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "varchar_320_col",
+        "varchar_320_col VARCHAR(320) NULL",
+        "varchar_320_nn_col",
+        "varchar_320_nn_col VARCHAR(320) NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "tinytext_col",
+        "tinytext_col TINYTEXT NULL",
+        "tinytext_nn_col",
+        "tinytext_nn_col TINYTEXT NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "text_col",
+        "text_col TEXT NULL",
+        "text_nn_col",
+        "text_nn_col TEXT NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "mediumtext_col",
+        "mediumtext_col MEDIUMTEXT NULL",
+        "mediumtext_nn_col",
+        "mediumtext_nn_col MEDIUMTEXT NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "longtext_col",
+        "longtext_col LONGTEXT NULL",
+        "longtext_nn_col",
+        "longtext_nn_col LONGTEXT NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "enum_col",
+        "enum_col ENUM('one', 'two') NULL",
+        "enum_nn_col",
+        "enum_nn_col ENUM('one', 'two') NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "set_col",
+        "set_col SET('one', 'two') NULL",
+        "set_nn_col",
+        "set_nn_col SET('one', 'two') NOT NULL",
+        core::CoreType::String,
+    ),
+    fixture_column_coverage(
+        "binary_16_col",
+        "binary_16_col BINARY(16) NULL",
+        "binary_16_nn_col",
+        "binary_16_nn_col BINARY(16) NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "varbinary_64_col",
+        "varbinary_64_col VARBINARY(64) NULL",
+        "varbinary_64_nn_col",
+        "varbinary_64_nn_col VARBINARY(64) NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "tinyblob_col",
+        "tinyblob_col TINYBLOB NULL",
+        "tinyblob_nn_col",
+        "tinyblob_nn_col TINYBLOB NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "blob_col",
+        "blob_col BLOB NULL",
+        "blob_nn_col",
+        "blob_nn_col BLOB NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "mediumblob_col",
+        "mediumblob_col MEDIUMBLOB NULL",
+        "mediumblob_nn_col",
+        "mediumblob_nn_col MEDIUMBLOB NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "longblob_col",
+        "longblob_col LONGBLOB NULL",
+        "longblob_nn_col",
+        "longblob_nn_col LONGBLOB NOT NULL",
+        core::CoreType::Bytes,
+    ),
+    fixture_column_coverage(
+        "json_col",
+        "json_col JSON NULL",
+        "json_nn_col",
+        "json_nn_col JSON NOT NULL",
+        core::CoreType::Json,
+    ),
+    fixture_column_coverage(
+        "geometry_col",
+        "geometry_col GEOMETRY NULL",
+        "geometry_nn_col",
+        "geometry_nn_col GEOMETRY NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "point_col",
+        "point_col POINT NULL",
+        "point_nn_col",
+        "point_nn_col POINT NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "linestring_col",
+        "linestring_col LINESTRING NULL",
+        "linestring_nn_col",
+        "linestring_nn_col LINESTRING NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "polygon_col",
+        "polygon_col POLYGON NULL",
+        "polygon_nn_col",
+        "polygon_nn_col POLYGON NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "multipoint_col",
+        "multipoint_col MULTIPOINT NULL",
+        "multipoint_nn_col",
+        "multipoint_nn_col MULTIPOINT NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "multilinestring_col",
+        "multilinestring_col MULTILINESTRING NULL",
+        "multilinestring_nn_col",
+        "multilinestring_nn_col MULTILINESTRING NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "multipolygon_col",
+        "multipolygon_col MULTIPOLYGON NULL",
+        "multipolygon_nn_col",
+        "multipolygon_nn_col MULTIPOLYGON NOT NULL",
+        core::CoreType::Unknown,
+    ),
+    fixture_column_coverage(
+        "geometrycollection_col",
+        "geometrycollection_col GEOMETRYCOLLECTION NULL",
+        "geometrycollection_nn_col",
+        "geometrycollection_nn_col GEOMETRYCOLLECTION NOT NULL",
+        core::CoreType::Unknown,
+    ),
 ];
 
 #[test]
@@ -92,10 +480,12 @@ fn check_command_dry_runs_fixture_sql_without_writing_generated_files()
     }
 
     let project_dir = unique_temp_dir("sqlcomp-check-mysql-fixture");
-    let sql_dir = project_dir.join("sql");
-    std::fs::create_dir_all(&sql_dir)?;
-    std::fs::write(sql_dir.join("metadata.sql"), QUERY_FIXTURES[0])?;
-    std::fs::write(sql_dir.join("business.sql"), QUERY_FIXTURES[1])?;
+    let valid_dir = project_dir.join("valid");
+    std::fs::create_dir_all(&valid_dir)?;
+    std::fs::write(
+        valid_dir.join("type_metadata_matrix.sql"),
+        QUERY_FIXTURES[0],
+    )?;
 
     let config = project_config(project_dir.clone());
     let metadata_provider = SqlxMysqlMetadataProvider::new(database_url);
@@ -111,7 +501,7 @@ fn check_command_dry_runs_fixture_sql_without_writing_generated_files()
     DefaultCompileUseCase::check(&config, &pipeline)?;
 
     assert!(
-        !project_dir.join("src/generated").exists(),
+        !project_dir.join("generated").exists(),
         "check must not create the configured output directory"
     );
 
@@ -139,6 +529,113 @@ fn sqlx_mysql_metadata_provider_reports_connection_failures_as_diagnostics() {
     );
 }
 
+#[test]
+fn mysql_fixtures_use_meta_schema_names() {
+    assert!(
+        INIT_FIXTURES[0].contains("CREATE TABLE fixture_all_column_type"),
+        "schema should use a metadata-oriented parent table name"
+    );
+    assert!(
+        INIT_FIXTURES[0].contains("CREATE TABLE fixture_child"),
+        "schema should use a metadata-oriented child table name"
+    );
+    assert!(
+        INIT_FIXTURES[0].contains("bigint_nn_col BIGINT NOT NULL PRIMARY KEY"),
+        "schema should name columns by type/nullability metadata"
+    );
+
+    for fixture in INIT_FIXTURES.iter().chain(QUERY_FIXTURES) {
+        for project_term in [
+            "fixture_type_metadata_users",
+            "fixture_type_metadata_orders",
+            "display_name",
+            "nickname",
+            "email",
+            "order_number",
+            "typeMetadataSingleUser",
+            "singleUser",
+        ] {
+            assert!(
+                !fixture.contains(project_term),
+                "fixture should not contain project-like term `{project_term}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn mysql_fixtures_use_sql_valid_invalid_layout() {
+    for required_path in [
+        "fixtures/sql/sqlcomp.valid.config.json",
+        "fixtures/sql/sqlcomp.invalid.config.json",
+        "fixtures/sql/valid/type_metadata_matrix.sql",
+        "fixtures/sql/valid/generation_surface.sql",
+        "fixtures/sql/valid/nested/path_mapping.sql",
+        "fixtures/sql/invalid/non_select.sql",
+    ] {
+        assert!(
+            repo_path(required_path).exists(),
+            "fixture path should exist: {required_path}"
+        );
+    }
+
+    for legacy_path in [
+        "fixtures/mysql/sqlcomp.config.json",
+        "fixtures/mysql/queries/type_metadata_matrix.sql",
+        "fixtures/sqlcomp/invalid/non_select.sql",
+    ] {
+        assert!(
+            !repo_path(legacy_path).exists(),
+            "legacy fixture path should be removed: {legacy_path}"
+        );
+    }
+
+    assert!(VALID_CONFIG.contains(r#""include": ["valid/**/*.sql"]"#));
+    assert!(INVALID_CONFIG.contains(r#""include": ["invalid/**/*.sql"]"#));
+}
+
+#[test]
+fn fixture_all_column_type_schema_covers_mysql_type_categories_in_order() {
+    let schema = INIT_FIXTURES[0];
+    let actual_columns = fixture_all_column_type_columns(schema);
+    let expected_columns = FIXTURE_ALL_COLUMN_TYPE_COVERAGE
+        .iter()
+        .flat_map(|column| {
+            [
+                format!("  {}", column.nullable_definition),
+                format!("  {}", column.not_null_definition),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actual_columns, expected_columns,
+        "fixture_all_column_type should list MySQL type categories in coverage order",
+    );
+}
+
+#[test]
+fn fixture_all_column_type_schema_covers_nullable_and_not_null_pairs() {
+    let columns = fixture_all_column_type_columns(INIT_FIXTURES[0]);
+
+    for column in FIXTURE_ALL_COLUMN_TYPE_COVERAGE {
+        assert!(
+            columns
+                .iter()
+                .any(|schema_column| schema_column.trim() == column.nullable_definition),
+            "missing nullable fixture column `{}`",
+            column.nullable_definition,
+        );
+        assert!(
+            columns
+                .iter()
+                .any(|schema_column| schema_column.trim() == column.not_null_definition),
+            "missing not-null fixture column `{}`",
+            column.not_null_definition,
+        );
+    }
+}
+
 #[tokio::test]
 async fn sqlx_mysql_metadata_provider_reports_connection_failures_inside_tokio_runtime() {
     let provider = SqlxMysqlMetadataProvider::new("not-a-mysql-url");
@@ -164,10 +661,10 @@ fn sqlx_mysql_metadata_provider_reports_describe_failures_as_diagnostics()
 -> Result<(), Box<dyn std::error::Error>> {
     let provider = SqlxMysqlMetadataProvider::new(std::env::var(DATABASE_URL_ENV)?);
     let location = core::SourceLocation::at_position(
-        "fixtures/mysql/queries/missing.sql",
+        "fixtures/sql/valid/missing.sql",
         core::SourcePosition::one_based(7, 1).expect("test position should be valid"),
     );
-    let query = raw_query("SELECT missing_column FROM sqlcomp_missing_table;")
+    let query = raw_query("SELECT missing_column FROM fixture_missing_table;")
         .with_source_location(location.clone());
     let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
 
@@ -246,26 +743,19 @@ fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::
 }
 
 fn assert_fixture_core_type_matrix(columns: &[core::DbResultColumn]) {
-    assert_mapped_type(columns, "userId", core::CoreType::Int64);
-    assert_mapped_type(columns, "displayName", core::CoreType::String);
-    assert_mapped_type(columns, "accountBalance", core::CoreType::Decimal);
-    assert_mapped_type(columns, "ratioFloat", core::CoreType::Float64);
-    assert_mapped_type(columns, "scoreDouble", core::CoreType::Float64);
-    assert_mapped_type(columns, "avatarBytes", core::CoreType::Bytes);
-    assert_mapped_type(columns, "profileBlob", core::CoreType::Bytes);
-    assert_mapped_type(columns, "birthDate", core::CoreType::Date);
-    assert_mapped_type(columns, "createdAt", core::CoreType::DateTime);
-    assert_mapped_type(columns, "lastSeenAt", core::CoreType::DateTime);
-    assert_mapped_type(columns, "deliveryWindow", core::CoreType::Time);
-    assert_mapped_type(columns, "active", core::CoreType::Bool);
-    assert_mapped_type(columns, "settings", core::CoreType::Json);
+    for column in FIXTURE_ALL_COLUMN_TYPE_COVERAGE {
+        assert_mapped_type(columns, column.nullable_name, column.core_type);
+        assert_mapped_type(columns, column.not_null_name, column.core_type);
+    }
+
+    assert_mapped_type(columns, "childTimeCol", core::CoreType::Time);
 }
 
 fn assert_fixture_nullability_matrix(columns: &[core::DbResultColumn]) {
-    assert_mapped_nullability(columns, "displayName", Some(false), false);
-    assert_mapped_nullability(columns, "nickname", Some(true), true);
-    assert_mapped_nullability(columns, "createdAt", Some(false), false);
-    assert_mapped_nullability(columns, "lastSeenAt", Some(true), true);
+    for column in FIXTURE_ALL_COLUMN_TYPE_COVERAGE {
+        assert_mapped_nullability(columns, column.nullable_name, Some(true), true);
+        assert_mapped_nullability(columns, column.not_null_name, Some(false), false);
+    }
 }
 
 fn assert_mapped_type(columns: &[core::DbResultColumn], name: &str, expected_type: core::CoreType) {
@@ -300,6 +790,29 @@ fn assert_mapped_nullability(
     );
 }
 
+fn fixture_all_column_type_columns(schema: &str) -> Vec<String> {
+    let start_marker = "CREATE TABLE fixture_all_column_type (\n";
+    let start = schema
+        .find(start_marker)
+        .expect("schema should define fixture_all_column_type")
+        + start_marker.len();
+    let end = schema[start..]
+        .find("\n);")
+        .expect("fixture_all_column_type definition should be closed")
+        + start;
+
+    schema[start..end]
+        .lines()
+        .map(|line| line.trim_end_matches(',').to_owned())
+        .collect()
+}
+
+fn repo_path(path: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path)
+}
+
 async fn execute_fixture_statements(
     connection: &mut MySqlConnection,
     fixture: &'static str,
@@ -330,8 +843,8 @@ fn raw_query(sql: &str) -> core::RawQuery {
 fn project_config(config_dir: std::path::PathBuf) -> core::ProjectConfig {
     core::ProjectConfig::new(
         config_dir,
-        core::SourceConfig::new(vec!["sql/**/*.sql".to_owned()], Vec::new()),
-        core::OutputConfig::new("src/generated/sqlcomp".to_owned()),
+        core::SourceConfig::new(vec!["valid/**/*.sql".to_owned()], Vec::new()),
+        core::OutputConfig::new("generated".to_owned()),
         core::DatabaseConfig::new(core::DatabaseDialect::MySql, DATABASE_URL_ENV.to_owned()),
         core::TargetConfig::new(core::TargetLanguage::TypeScript),
     )

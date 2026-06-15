@@ -1,0 +1,14 @@
+name: "[mysql-fixtures] Push"
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  mysql-fixtures:
+    name: Call MySQL fixtures check
+    uses: ./.github/workflows/_mysql-fixtures-check.yml
