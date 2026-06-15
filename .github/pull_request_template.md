@@ -16,6 +16,25 @@ Closes #
 
 - Describe the main change.
 
+## Input / Output Examples
+
+<!--
+Required when this PR changes accepted SQL input, CLI commands/options/logs, config shape/defaults,
+generated TypeScript, diagnostics, or other user-visible/generated behavior.
+Use N/A with a short reason when this PR has no input/output behavior changes.
+-->
+
+### Inputs
+
+- SQL:
+- CLI:
+- Config:
+
+### Outputs
+
+- Generated code:
+- CLI output / logs:
+
 ## Tests
 
 - [ ] I used a GitHub closing keyword above, such as `Closes #123`, when this PR should close an
