@@ -269,6 +269,31 @@ fn query_compiler_builds_core_ir_with_empty_mvp_input_and_result_columns() {
 }
 
 #[test]
+fn query_compiler_rejects_param_queries_until_param_output_generation_exists() {
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUser".to_owned(), None),
+        "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
+    .with_param_usages(vec![core::ParamUsage::new(
+        "email".to_owned(),
+        Some(core::CoreType::String),
+        false,
+        core::SourceLocation::unknown(),
+    )]);
+    let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+
+    let report = DefaultQueryCompiler
+        .compile(&query, &analysis, &core::DbQueryMetadata::new(Vec::new()))
+        .expect_err("Param query generation should remain blocked until output support exists");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Param queries are not supported by generated output yet"
+    );
+}
+
+#[test]
 fn query_compiler_uses_inferred_cardinality_when_metadata_has_no_override() {
     let compiled = compile_query(None, core::Cardinality::Many);
 

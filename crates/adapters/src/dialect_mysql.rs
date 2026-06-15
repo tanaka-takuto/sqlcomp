@@ -13,10 +13,8 @@ pub struct MysqlDialectAnalyzer;
 
 impl DialectAnalyzer for MysqlDialectAnalyzer {
     fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
-        reject_inline_sqlcomp_annotations(query)?;
-
         let dialect = MySqlDialect {};
-        let statements = Parser::parse_sql(&dialect, query.sql())
+        let statements = Parser::parse_sql(&dialect, query.analysis_sql())
             .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))?;
 
         let [statement] = statements.as_slice() else {
@@ -35,6 +33,7 @@ impl DialectAnalyzer for MysqlDialectAnalyzer {
         }
 
         reject_unsupported_placeholders(query, &tokens)?;
+        validate_param_sample_expressions(query)?;
 
         let Statement::Query(parsed_query) = statement else {
             return Err(unsupported_statement_error(query, statement));
@@ -48,30 +47,9 @@ impl DialectAnalyzer for MysqlDialectAnalyzer {
     }
 }
 
-fn reject_inline_sqlcomp_annotations(query: &core::RawQuery) -> core::DiagnosticResult<()> {
-    let scan = crate::source_fs::scan_sqlcomp_blocks(query.sql()).map_err(|report| {
-        core::DiagnosticReport::from_diagnostics(
-            report
-                .into_diagnostics()
-                .into_iter()
-                .map(|diagnostic| core::Diagnostic::error(diagnostic.message()))
-                .collect(),
-        )
-    })?;
-
-    if !scan.blocks().is_empty() {
-        return Err(query_error(
-            query,
-            "inline Param markers are parsed by source intake but are not supported by the full compile pipeline yet",
-        ));
-    }
-
-    Ok(())
-}
-
 fn tokenize_query(query: &core::RawQuery) -> core::DiagnosticResult<Vec<Token>> {
     let dialect = MySqlDialect {};
-    Tokenizer::new(&dialect, query.sql())
+    Tokenizer::new(&dialect, query.analysis_sql())
         .tokenize()
         .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))
 }
@@ -90,13 +68,75 @@ fn reject_unsupported_placeholders(
     query: &core::RawQuery,
     tokens: &[Token],
 ) -> core::DiagnosticResult<()> {
-    if tokens
+    let placeholder_count = tokens
         .iter()
-        .any(|token| matches!(token, Token::Placeholder(_)))
-    {
+        .filter(|token| matches!(token, Token::Placeholder(_)))
+        .count();
+    if placeholder_count == 0 {
+        return Ok(());
+    }
+
+    let param_usage_count = query.param_usages().len();
+    if param_usage_count == 0 {
         return Err(query_error(
             query,
-            "query parameters/placeholders are not supported in the MVP",
+            "raw `?` placeholders are not supported; use inline Param markers",
+        ));
+    }
+    if placeholder_count != param_usage_count {
+        return Err(query_error(
+            query,
+            format!(
+                "generated placeholder count {placeholder_count} does not match Param usage count {param_usage_count}"
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_param_sample_expressions(query: &core::RawQuery) -> core::DiagnosticResult<()> {
+    for usage in query.param_usages() {
+        validate_param_sample_expression(query, usage)?;
+    }
+
+    Ok(())
+}
+
+fn validate_param_sample_expression(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+) -> core::DiagnosticResult<()> {
+    let trimmed = usage.sample_sql().trim();
+    if trimmed.is_empty() {
+        return Err(param_usage_error(
+            query,
+            usage,
+            "Param range must contain exactly one SQL expression",
+        ));
+    }
+
+    let dialect = MySqlDialect {};
+    let mut parser = Parser::new(&dialect).try_with_sql(trimmed).map_err(|_| {
+        param_usage_error(
+            query,
+            usage,
+            "Param range must contain exactly one SQL expression",
+        )
+    })?;
+    parser.parse_expr().map_err(|_| {
+        param_usage_error(
+            query,
+            usage,
+            "Param range must contain exactly one SQL expression",
+        )
+    })?;
+
+    if parser.peek_token_ref().token != Token::EOF {
+        return Err(param_usage_error(
+            query,
+            usage,
+            "Param range must contain exactly one SQL expression",
         ));
     }
 
@@ -177,9 +217,28 @@ fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::Diag
     core::DiagnosticReport::new(diagnostic)
 }
 
+fn param_usage_error(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
+    let location =
+        if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
+            usage.source_location().clone()
+        } else {
+            query
+                .source_location()
+                .cloned()
+                .unwrap_or_else(core::SourceLocation::unknown)
+        };
+
+    core::DiagnosticReport::new(core::Diagnostic::error(message).with_location(location))
+}
+
 #[cfg(test)]
 mod tests {
     use super::MysqlDialectAnalyzer;
+    use crate::source_fs::split_sqlcomp_query_blocks;
     use sqlcomp_app::DialectAnalyzer;
     use sqlcomp_core as core;
 
@@ -307,27 +366,96 @@ mod tests {
     }
 
     #[test]
-    fn rejects_positional_placeholders_while_mvp_params_are_unsupported() {
+    fn rejects_raw_positional_placeholders_without_param_usages() {
         let report = analyze_sql("SELECT id FROM users WHERE email = ?;")
-            .expect_err("MVP query parameters should be rejected");
+            .expect_err("raw query parameters should be rejected");
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "query parameters/placeholders are not supported in the MVP"
+            "raw `?` placeholders are not supported; use inline Param markers"
         );
     }
 
     #[test]
-    fn rejects_inline_param_markers_until_param_replacement_is_supported() {
-        let report = analyze_sql(
+    fn accepts_generated_placeholders_for_param_usages() {
+        let query = raw_query(
             "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;",
         )
-        .expect_err("inline Param markers should not flow into dialect analysis yet");
+        .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
+        .with_param_usages(vec![core::ParamUsage::new(
+            "email".to_owned(),
+            Some(core::CoreType::String),
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_sample_sql("'test@example.test'".to_owned())]);
+
+        let analysis = MysqlDialectAnalyzer
+            .analyze(&query)
+            .expect("Param replacement SQL should be accepted");
+
+        assert_eq!(analysis.cardinality(), core::Cardinality::Many);
+    }
+
+    #[test]
+    fn rejects_generated_placeholder_count_mismatches() {
+        let query = raw_query("SELECT id FROM users WHERE email = ? AND id = ?;")
+            .with_param_usages(vec![core::ParamUsage::new(
+                "email".to_owned(),
+                Some(core::CoreType::String),
+                false,
+                core::SourceLocation::unknown(),
+            )]);
+        let report = MysqlDialectAnalyzer
+            .analyze(&query)
+            .expect_err("placeholder count must match Param usage count");
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "inline Param markers are parsed by source intake but are not supported by the full compile pipeline yet"
+            "generated placeholder count 2 does not match Param usage count 1"
         );
+    }
+
+    #[test]
+    fn rejects_param_range_that_is_not_one_expression() {
+        for source in [
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1, 2 /* @sqlcomp { type: paramEnd } */;
+",
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1 FROM users /* @sqlcomp { type: paramEnd } */;
+",
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let queries =
+                split_sqlcomp_query_blocks(source).expect("source intake should replace Param");
+            let report = MysqlDialectAnalyzer
+                .analyze(&queries[0])
+                .expect_err("Param sample must contain one expression");
+
+            assert_eq!(
+                report.diagnostics()[0].message(),
+                "Param range must contain exactly one SQL expression"
+            );
+            assert!(
+                report.diagnostics()[0].location().is_some(),
+                "diagnostic should point to the Param source range"
+            );
+        }
     }
 
     #[test]

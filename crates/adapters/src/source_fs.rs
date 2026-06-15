@@ -160,8 +160,15 @@ pub fn parse_sqlcomp_query_metadata(
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SqlcompAnnotation {
     Query(core::QueryMetadata),
-    Param,
+    Param(ParsedParamMetadata),
     ParamEnd,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ParsedParamMetadata {
+    id: String,
+    value_type: Option<core::CoreType>,
+    nullable: bool,
 }
 
 #[derive(Debug)]
@@ -175,10 +182,7 @@ fn parse_sqlcomp_annotation(block: &SqlcompBlock) -> core::DiagnosticResult<Sqlc
 
     match annotation_type.as_str() {
         "query" => parse_sqlcomp_query_metadata(block).map(SqlcompAnnotation::Query),
-        "param" => {
-            parse_param_metadata(block)?;
-            Ok(SqlcompAnnotation::Param)
-        }
+        "param" => parse_param_metadata(block).map(SqlcompAnnotation::Param),
         "paramEnd" => {
             parse_param_end_metadata(block)?;
             Ok(SqlcompAnnotation::ParamEnd)
@@ -413,7 +417,7 @@ fn parse_query_metadata(
     ))
 }
 
-fn parse_param_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> {
+fn parse_param_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<ParsedParamMetadata> {
     match parse_sqlcomp_metadata_object(block) {
         Ok(metadata) => parse_param_metadata_object(&metadata, block),
         Err(_) => parse_param_metadata_raw(
@@ -426,7 +430,7 @@ fn parse_param_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> {
 fn parse_param_metadata_object(
     metadata: &Map<String, Value>,
     block: &SqlcompBlock,
-) -> core::DiagnosticResult<()> {
+) -> core::DiagnosticResult<ParsedParamMetadata> {
     reject_unknown_metadata_fields(
         metadata,
         &["type", "id", "valueType", "nullable"],
@@ -442,11 +446,13 @@ fn parse_param_metadata_object(
         ));
     }
 
-    let value_type = optional_string_metadata_field(metadata, "valueType", block)?;
-    validate_param_value_type(value_type.as_deref(), block)?;
-    if let Some(nullable) = metadata.get("nullable") {
+    let value_type = parse_param_value_type(
+        optional_string_metadata_field(metadata, "valueType", block)?.as_deref(),
+        block,
+    )?;
+    let nullable = if let Some(nullable) = metadata.get("nullable") {
         match nullable {
-            Value::Bool(true) => {}
+            Value::Bool(true) => true,
             Value::Bool(false) => {
                 return Err(metadata_error(
                     "`nullable: false` is not supported for Param metadata; omit `nullable` for non-null inputs",
@@ -460,15 +466,21 @@ fn parse_param_metadata_object(
                 ));
             }
         }
-    }
+    } else {
+        false
+    };
 
-    Ok(())
+    Ok(ParsedParamMetadata {
+        id,
+        value_type,
+        nullable,
+    })
 }
 
 fn parse_param_metadata_raw(
     raw: RawSqlcompParamMetadata,
     block: &SqlcompBlock,
-) -> core::DiagnosticResult<()> {
+) -> core::DiagnosticResult<ParsedParamMetadata> {
     let RawSqlcompParamMetadata {
         annotation_type,
         id,
@@ -496,8 +508,11 @@ fn parse_param_metadata_raw(
         ));
     }
 
-    validate_param_value_type(value_type.as_deref(), block)?;
-    validate_param_nullable(nullable, block)
+    Ok(ParsedParamMetadata {
+        id,
+        value_type: parse_param_value_type(value_type.as_deref(), block)?,
+        nullable: validate_param_nullable(nullable, block)?,
+    })
 }
 
 fn parse_param_end_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> {
@@ -580,9 +595,10 @@ fn optional_string_metadata_field(
 fn validate_param_nullable(
     nullable: Option<bool>,
     block: &SqlcompBlock,
-) -> core::DiagnosticResult<()> {
+) -> core::DiagnosticResult<bool> {
     match nullable {
-        Some(true) | None => Ok(()),
+        Some(true) => Ok(true),
+        None => Ok(false),
         Some(false) => Err(metadata_error(
             "`nullable: false` is not supported for Param metadata; omit `nullable` for non-null inputs",
             block.payload_range(),
@@ -590,12 +606,12 @@ fn validate_param_nullable(
     }
 }
 
-fn validate_param_value_type(
+fn parse_param_value_type(
     value_type: Option<&str>,
     block: &SqlcompBlock,
-) -> core::DiagnosticResult<()> {
+) -> core::DiagnosticResult<Option<core::CoreType>> {
     let Some(value_type) = value_type else {
-        return Ok(());
+        return Ok(None);
     };
 
     if value_type.is_empty() {
@@ -614,7 +630,26 @@ fn validate_param_value_type(
         ));
     }
 
-    Ok(())
+    Ok(Some(core_type_from_param_value_type(value_type).expect(
+        "supported Param valueType should map to a CoreType",
+    )))
+}
+
+fn core_type_from_param_value_type(value_type: &str) -> Option<core::CoreType> {
+    match value_type.as_bytes() {
+        b"bool" => Some(core::CoreType::Bool),
+        b"int32" => Some(core::CoreType::Int32),
+        b"int64" => Some(core::CoreType::Int64),
+        b"float64" => Some(core::CoreType::Float64),
+        b"decimal" => Some(core::CoreType::Decimal),
+        b"string" => Some(core::CoreType::String),
+        b"bytes" => Some(core::CoreType::Bytes),
+        b"date" => Some(core::CoreType::Date),
+        b"time" => Some(core::CoreType::Time),
+        b"datetime" => Some(core::CoreType::DateTime),
+        b"json" => Some(core::CoreType::Json),
+        _ => None,
+    }
 }
 
 fn supported_param_value_types_message() -> String {
@@ -707,11 +742,153 @@ fn split_sqlcomp_query_blocks_from_scan(
         let location = core::SourceLocation::from_range(source_range_for_sql_body(
             source, body_start, body_end,
         ));
+        let replacement =
+            replace_inline_param_ranges(source, body_start, body_end, &parsed_blocks)?;
 
-        queries.push(core::RawQuery::new(metadata.clone(), sql).with_source_location(location));
+        queries.push(
+            core::RawQuery::new(metadata.clone(), sql)
+                .with_analysis_sql(replacement.analysis_sql)
+                .with_param_usages(replacement.param_usages)
+                .with_source_location(location),
+        );
     }
 
     Ok(queries)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ParamReplacement {
+    analysis_sql: String,
+    param_usages: Vec<core::ParamUsage>,
+}
+
+fn replace_inline_param_ranges(
+    source: &str,
+    body_start: usize,
+    body_end: usize,
+    parsed_blocks: &[ParsedSqlcompBlock<'_>],
+) -> core::DiagnosticResult<ParamReplacement> {
+    let query_blocks = parsed_blocks
+        .iter()
+        .filter(|parsed_block| {
+            let start = parsed_block.block.comment_start_index();
+            start >= body_start && start < body_end
+        })
+        .collect::<Vec<_>>();
+    let mut analysis_sql = String::with_capacity(body_end - body_start);
+    let mut param_usages = Vec::new();
+    let mut cursor = body_start;
+    let mut index = 0;
+
+    while index < query_blocks.len() {
+        let parsed_block = query_blocks[index];
+        match &parsed_block.annotation {
+            SqlcompAnnotation::Query(_) => {
+                index += 1;
+            }
+            SqlcompAnnotation::Param(metadata) => {
+                append_non_param_sql(
+                    source,
+                    cursor,
+                    parsed_block.block.comment_start_index(),
+                    &mut analysis_sql,
+                )?;
+
+                let Some(end_block) = query_blocks.get(index + 1).copied() else {
+                    unreachable!("Param marker pairing is validated before replacement");
+                };
+                debug_assert!(matches!(end_block.annotation, SqlcompAnnotation::ParamEnd));
+
+                let sample_start = parsed_block.block.comment_end_index();
+                let sample_end = end_block.block.comment_start_index();
+                reject_sample_placeholder(source, sample_start, sample_end)?;
+
+                analysis_sql.push('?');
+                param_usages.push(
+                    core::ParamUsage::new(
+                        metadata.id.clone(),
+                        metadata.value_type,
+                        metadata.nullable,
+                        core::SourceLocation::from_range(source_range_for_span(
+                            source,
+                            parsed_block.block.comment_start_index(),
+                            end_block.block.comment_end_index(),
+                        )),
+                    )
+                    .with_sample_sql(source[sample_start..sample_end].to_owned()),
+                );
+
+                cursor = end_block.block.comment_end_index();
+                index += 2;
+            }
+            SqlcompAnnotation::ParamEnd => {
+                unreachable!("Param end markers are consumed with their matching Param marker");
+            }
+        }
+    }
+
+    append_non_param_sql(source, cursor, body_end, &mut analysis_sql)?;
+    verify_placeholder_count(
+        &analysis_sql,
+        param_usages.len(),
+        source_range_for_sql_body(source, body_start, body_end),
+    )?;
+
+    Ok(ParamReplacement {
+        analysis_sql,
+        param_usages,
+    })
+}
+
+fn append_non_param_sql(
+    source: &str,
+    start: usize,
+    end: usize,
+    output: &mut String,
+) -> core::DiagnosticResult<()> {
+    reject_raw_placeholder(source, start, end)?;
+    output.push_str(&source[start..end]);
+    Ok(())
+}
+
+fn reject_raw_placeholder(source: &str, start: usize, end: usize) -> core::DiagnosticResult<()> {
+    if let Some(index) = first_placeholder_index(source, start, end) {
+        return Err(metadata_error(
+            "raw `?` placeholders are not supported; use inline Param markers",
+            source_range_for_span(source, index, index + 1),
+        ));
+    }
+
+    Ok(())
+}
+
+fn reject_sample_placeholder(source: &str, start: usize, end: usize) -> core::DiagnosticResult<()> {
+    if let Some(index) = first_placeholder_index(source, start, end) {
+        return Err(metadata_error(
+            "`?` placeholders are not allowed inside Param sample expressions",
+            source_range_for_span(source, index, index + 1),
+        ));
+    }
+
+    Ok(())
+}
+
+fn verify_placeholder_count(
+    analysis_sql: &str,
+    param_usage_count: usize,
+    range: core::SourceRange,
+) -> core::DiagnosticResult<()> {
+    let placeholder_count = PlaceholderScanner::new(analysis_sql, 0, analysis_sql.len()).count();
+    if placeholder_count != param_usage_count {
+        return Err(metadata_error(
+            format!(
+                "generated placeholder count {placeholder_count} does not match Param usage count {param_usage_count}"
+            ),
+            range,
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_inline_param_markers(
@@ -731,7 +908,7 @@ fn validate_inline_param_markers(
                 }
                 inside_query = true;
             }
-            SqlcompAnnotation::Param => {
+            SqlcompAnnotation::Param(_) => {
                 if !inside_query {
                     return Err(metadata_error(
                         "Param markers must appear inside a query body",
@@ -861,11 +1038,27 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
     let range = query
         .source_location()
         .and_then(core::SourceLocation::range);
+    let param_usages = query
+        .param_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_param_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
-    if let Some(range) = range {
+    let query = if let Some(range) = range {
         query.with_source_location(core::SourceLocation::at_range(path, range))
     } else {
         query.with_source_location(core::SourceLocation::for_path(path))
+    };
+
+    query.with_param_usages(param_usages)
+}
+
+fn attach_param_usage_path(usage: core::ParamUsage, path: &Path) -> core::ParamUsage {
+    if let Some(range) = usage.source_location().range() {
+        usage.with_source_location(core::SourceLocation::at_range(path, range))
+    } else {
+        usage.with_source_location(core::SourceLocation::for_path(path))
     }
 }
 
@@ -1445,6 +1638,135 @@ impl<'a> NonCommentSqlScanner<'a> {
     }
 }
 
+fn first_placeholder_index(source: &str, start: usize, end: usize) -> Option<usize> {
+    PlaceholderScanner::new(source, start, end).next_placeholder_index()
+}
+
+struct PlaceholderScanner<'a> {
+    source: &'a str,
+    index: usize,
+    end: usize,
+}
+
+impl<'a> PlaceholderScanner<'a> {
+    const fn new(source: &'a str, start: usize, end: usize) -> Self {
+        Self {
+            source,
+            index: start,
+            end,
+        }
+    }
+
+    fn count(mut self) -> usize {
+        let mut count = 0;
+        while self.next_placeholder_index().is_some() {
+            count += 1;
+        }
+
+        count
+    }
+
+    fn next_placeholder_index(&mut self) -> Option<usize> {
+        while !self.is_at_end() {
+            if self.starts_with("/*") {
+                self.skip_block_comment();
+            } else if self.is_line_comment_start() {
+                self.skip_line_comment();
+            } else if self.current_char().is_some_and(is_quote_delimiter) {
+                self.skip_quoted();
+            } else if self.current_char() == Some('?') {
+                let index = self.index;
+                self.advance_current();
+                return Some(index);
+            } else {
+                self.advance_current();
+            }
+        }
+
+        None
+    }
+
+    fn skip_block_comment(&mut self) {
+        self.advance_current();
+        self.advance_current();
+
+        while !self.is_at_end() {
+            if self.starts_with("*/") {
+                self.advance_current();
+                self.advance_current();
+                return;
+            }
+
+            self.advance_current();
+        }
+    }
+
+    fn skip_line_comment(&mut self) {
+        while let Some(char) = self.advance_current() {
+            if char == '\n' {
+                return;
+            }
+        }
+    }
+
+    fn skip_quoted(&mut self) {
+        let delimiter = self
+            .current_char()
+            .expect("quoted skip should start at a delimiter");
+        self.advance_current();
+
+        while let Some(char) = self.current_char() {
+            self.advance_current();
+
+            if delimiter != '`' && char == '\\' {
+                if !self.is_at_end() {
+                    self.advance_current();
+                }
+                continue;
+            }
+
+            if char == delimiter {
+                if self.current_char() == Some(delimiter) {
+                    self.advance_current();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn advance_current(&mut self) -> Option<char> {
+        let char = self.current_char()?;
+        self.index += char.len_utf8();
+        Some(char)
+    }
+
+    fn current_char(&self) -> Option<char> {
+        if self.is_at_end() {
+            return None;
+        }
+
+        self.source[self.index..self.end].chars().next()
+    }
+
+    const fn is_at_end(&self) -> bool {
+        self.index >= self.end
+    }
+
+    fn starts_with(&self, needle: &str) -> bool {
+        self.source[self.index..self.end].starts_with(needle)
+    }
+
+    fn is_line_comment_start(&self) -> bool {
+        self.starts_with("#")
+            || (self.starts_with("--")
+                && self.source[self.index + 2..self.end]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace))
+    }
+}
+
 const fn is_quote_delimiter(char: char) -> bool {
     matches!(char, '\'' | '"' | '`')
 }
@@ -1970,6 +2292,93 @@ SELECT id FROM users;
             queries[0].sql()
         );
         assert_eq!(queries[1].sql(), "\nSELECT id FROM users;\n");
+    }
+
+    #[test]
+    fn split_query_blocks_replaces_inline_param_ranges_and_records_usages() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */ AND id = /* @sqlcomp { type: param id: userId valueType: int64 } */ 42 /* @sqlcomp { type: paramEnd } */;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source).expect("inline Param should be accepted");
+
+        assert_eq!(queries.len(), 1);
+        assert_eq!(
+            queries[0].analysis_sql(),
+            "\nSELECT id FROM users WHERE email = ? AND id = ?;\n"
+        );
+        assert_eq!(queries[0].param_usages().len(), 2);
+        assert_eq!(queries[0].param_usages()[0].id(), "email");
+        assert_eq!(
+            queries[0].param_usages()[0].value_type_override(),
+            Some(core::CoreType::String)
+        );
+        assert!(queries[0].param_usages()[0].nullable_override());
+        assert_eq!(
+            queries[0].param_usages()[0].sample_sql(),
+            " 'test@example.test' "
+        );
+        assert_eq!(queries[0].param_usages()[1].id(), "userId");
+        assert_eq!(
+            queries[0].param_usages()[1].value_type_override(),
+            Some(core::CoreType::Int64)
+        );
+        assert!(!queries[0].param_usages()[1].nullable_override());
+
+        let range = queries[0].param_usages()[0]
+            .source_location()
+            .range()
+            .expect("Param usage should include the source range");
+        assert_eq!(range.start().line(), 7);
+    }
+
+    #[test]
+    fn split_query_blocks_rejects_raw_or_sample_placeholders() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users WHERE email = ?;
+",
+                "raw `?` placeholders are not supported; use inline Param markers",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ ? /* @sqlcomp { type: paramEnd } */;
+",
+                "`?` placeholders are not allowed inside Param sample expressions",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report =
+                split_sqlcomp_query_blocks(source).expect_err("placeholder should be rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+            assert!(
+                report.diagnostics()[0].location().is_some(),
+                "diagnostic should point to the SQL source"
+            );
+        }
     }
 
     #[test]

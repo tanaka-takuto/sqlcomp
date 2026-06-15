@@ -13,6 +13,13 @@ impl QueryCompiler for DefaultQueryCompiler {
         analysis: &core::AnalyzedQuery,
         metadata: &core::DbQueryMetadata,
     ) -> core::DiagnosticResult<core::CompiledQuery> {
+        if !query.param_usages().is_empty() {
+            return Err(query_error(
+                query,
+                "Param queries are not supported by generated output yet",
+            ));
+        }
+
         let cardinality = query
             .metadata()
             .cardinality()
@@ -25,7 +32,7 @@ impl QueryCompiler for DefaultQueryCompiler {
 
         let mut compiled = core::CompiledQuery::new(
             core::QueryId::new(query.metadata().id().to_owned()),
-            query.sql().to_owned(),
+            query.analysis_sql().to_owned(),
             cardinality,
             Vec::new(),
             row,
@@ -37,4 +44,13 @@ impl QueryCompiler for DefaultQueryCompiler {
 
         Ok(compiled)
     }
+}
+
+fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {
+    let mut diagnostic = core::Diagnostic::error(message);
+    if let Some(location) = query.source_location() {
+        diagnostic = diagnostic.with_location(location.clone());
+    }
+
+    core::DiagnosticReport::new(diagnostic)
 }

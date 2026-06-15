@@ -88,7 +88,7 @@ async fn describe_query_metadata(
     // The dialect analyzer has already accepted this query as the MVP's single
     // SELECT statement shape. sqlx requires the assertion for dynamic SQL text.
     let description = connection
-        .describe(AssertSqlSafe(query.sql().to_owned()).into_sql_str())
+        .describe(AssertSqlSafe(query.analysis_sql().to_owned()).into_sql_str())
         .await
         .map_err(|error| query_error(query, format!("failed to describe MySQL query: {error}")))?;
 
