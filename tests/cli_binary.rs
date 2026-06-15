@@ -134,6 +134,71 @@ fn check_discovers_config_from_nested_child_directory() {
 }
 
 #[test]
+fn check_warns_for_included_unannotated_sql_file() {
+    let config_dir = unique_temp_dir("sqlcomp-cli-unannotated-sql-warning");
+    let sql_dir = config_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
+    std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+    let sql_path = sql_dir.join("users.sql");
+    std::fs::write(&sql_path, "SELECT id FROM users;\n").expect("temp SQL should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+        .arg("check")
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlcomp check should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&sql_path.display().to_string()),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("warning:"), "stderr: {stderr}");
+    assert!(stderr.contains("@sqlcomp"), "stderr: {stderr}");
+    assert!(stderr.contains("type: query"), "stderr: {stderr}");
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn check_does_not_warn_for_empty_or_comment_only_sql_files() {
+    let config_dir = unique_temp_dir("sqlcomp-cli-comment-only-sql");
+    let sql_dir = config_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
+    std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+    std::fs::write(sql_dir.join("empty.sql"), "\n\n").expect("empty SQL should be written");
+    std::fs::write(
+        sql_dir.join("comments.sql"),
+        "-- comment only\n# another comment\n/* block comment */\n",
+    )
+    .expect("comment-only SQL should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+        .arg("check")
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlcomp check should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
 fn explicit_config_path_bypasses_upward_discovery() {
     let config_dir = unique_temp_dir("sqlcomp-cli-explicit-config");
     let child_dir = config_dir.join("packages").join("api");

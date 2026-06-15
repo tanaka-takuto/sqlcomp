@@ -142,7 +142,10 @@ fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -
         .load()
         .and_then(|config| run_configured_use_case(command, &config, &planner))
     {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(diagnostics) => {
+            print_diagnostics(&diagnostics);
+            ExitCode::SUCCESS
+        }
         Err(report) => fail(&report),
     }
 }
@@ -151,7 +154,7 @@ fn run_configured_use_case(
     command: ConfiguredCommand,
     config: &core::ProjectConfig,
     planner: &impl app::CompilationPlanner,
-) -> core::DiagnosticResult<()> {
+) -> core::DiagnosticResult<core::DiagnosticReport> {
     let source_reader = FileSystemSourceReader;
     let dialect_analyzer = MysqlDialectAnalyzer;
     let database_url = database_url_from_env(config.database())?;
@@ -213,6 +216,12 @@ fn run_init_command() -> ExitCode {
 fn fail(report: &core::DiagnosticReport) -> ExitCode {
     eprintln!("{report}");
     ExitCode::FAILURE
+}
+
+fn print_diagnostics(report: &core::DiagnosticReport) {
+    if !report.is_empty() {
+        eprintln!("{report}");
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

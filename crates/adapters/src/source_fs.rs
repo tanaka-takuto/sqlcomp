@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
-use sqlcomp_app::SourceReader;
+use sqlcomp_app::{SourceRead, SourceReader};
 use sqlcomp_core as core;
 
 const SQLCOMP_MARKER: &str = "@sqlcomp";
@@ -206,6 +206,13 @@ fn parse_cardinality(
 /// payload is invalid.
 pub fn split_sqlcomp_query_blocks(source: &str) -> core::DiagnosticResult<Vec<core::RawQuery>> {
     let scan = scan_sqlcomp_blocks(source)?;
+    split_sqlcomp_query_blocks_from_scan(source, &scan)
+}
+
+fn split_sqlcomp_query_blocks_from_scan(
+    source: &str,
+    scan: &SqlcompBlockScan,
+) -> core::DiagnosticResult<Vec<core::RawQuery>> {
     let blocks = scan.blocks();
     let mut queries = Vec::with_capacity(blocks.len());
 
@@ -231,9 +238,10 @@ pub fn split_sqlcomp_query_blocks(source: &str) -> core::DiagnosticResult<Vec<co
 pub struct FileSystemSourceReader;
 
 impl SourceReader for FileSystemSourceReader {
-    fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+    fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead> {
         let mut seen_ids = HashMap::new();
         let mut queries = Vec::new();
+        let mut diagnostics = core::DiagnosticReport::default();
 
         for path in discover_source_files(plan)? {
             let source_path = plan.source_relative_path(&path).ok_or_else(|| {
@@ -255,8 +263,15 @@ impl SourceReader for FileSystemSourceReader {
                     &path,
                 )
             })?;
-            let file_queries =
-                split_sqlcomp_query_blocks(&source).map_err(|report| attach_path(report, &path))?;
+            let scan = scan_sqlcomp_blocks(&source).map_err(|report| attach_path(report, &path))?;
+            if scan.blocks().is_empty()
+                && contains_non_comment_sql(scan.sql_without_sqlcomp_blocks())
+            {
+                diagnostics.push(unannotated_sql_warning(&path));
+            }
+
+            let file_queries = split_sqlcomp_query_blocks_from_scan(&source, &scan)
+                .map_err(|report| attach_path(report, &path))?;
             let file_queries = file_queries
                 .into_iter()
                 .map(|query| attach_query_path(query, &path).with_source_path(source_path.clone()))
@@ -265,7 +280,7 @@ impl SourceReader for FileSystemSourceReader {
             queries.extend(file_queries);
         }
 
-        Ok(queries)
+        Ok(SourceRead::new(queries, diagnostics))
     }
 }
 
@@ -500,6 +515,17 @@ fn attach_path(report: core::DiagnosticReport, path: &Path) -> core::DiagnosticR
     )
 }
 
+fn unannotated_sql_warning(path: &Path) -> core::Diagnostic {
+    core::Diagnostic::warning(
+        "included SQL file contains SQL but no `@sqlcomp` query annotation; add a `/* @sqlcomp { type: query, id: ... } */` block before the query",
+    )
+    .with_location(core::SourceLocation::for_path(path))
+}
+
+fn contains_non_comment_sql(source: &str) -> bool {
+    NonCommentSqlScanner::new(source).contains_sql()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSqlcompMetadata {
@@ -726,6 +752,83 @@ impl<'a> Scanner<'a> {
         let char = self.current_char()?;
         self.index += char.len_utf8();
         self.position.advance(char);
+        Some(char)
+    }
+
+    fn current_char(&self) -> Option<char> {
+        self.source[self.index..].chars().next()
+    }
+
+    const fn is_at_end(&self) -> bool {
+        self.index >= self.source.len()
+    }
+
+    fn starts_with(&self, needle: &str) -> bool {
+        self.source[self.index..].starts_with(needle)
+    }
+
+    fn is_line_comment_start(&self) -> bool {
+        self.starts_with("#")
+            || (self.starts_with("--")
+                && self.source[self.index + 2..]
+                    .chars()
+                    .next()
+                    .is_none_or(char::is_whitespace))
+    }
+}
+
+struct NonCommentSqlScanner<'a> {
+    source: &'a str,
+    index: usize,
+}
+
+impl<'a> NonCommentSqlScanner<'a> {
+    const fn new(source: &'a str) -> Self {
+        Self { source, index: 0 }
+    }
+
+    fn contains_sql(mut self) -> bool {
+        while !self.is_at_end() {
+            if self.starts_with("/*") {
+                self.skip_block_comment();
+            } else if self.is_line_comment_start() {
+                self.skip_line_comment();
+            } else if self.current_char().is_some_and(char::is_whitespace) {
+                self.advance_current();
+            } else {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn skip_block_comment(&mut self) {
+        self.advance_current();
+        self.advance_current();
+
+        while !self.is_at_end() {
+            if self.starts_with("*/") {
+                self.advance_current();
+                self.advance_current();
+                return;
+            }
+
+            self.advance_current();
+        }
+    }
+
+    fn skip_line_comment(&mut self) {
+        while let Some(char) = self.advance_current() {
+            if char == '\n' {
+                return;
+            }
+        }
+    }
+
+    fn advance_current(&mut self) -> Option<char> {
+        let char = self.current_char()?;
+        self.index += char.len_utf8();
         Some(char)
     }
 
@@ -1237,13 +1340,14 @@ SELECT id FROM users WHERE id = 1;
         )
         .expect("test SQL file should be written");
 
-        let queries = FileSystemSourceReader
+        let source_read = FileSystemSourceReader
             .read(&compilation_plan(
                 &project_dir,
                 vec![project_dir.join("sql/**/*.sql")],
                 Vec::new(),
             ))
             .expect("included SQL file should be read");
+        let queries = source_read.queries();
 
         assert_eq!(queries.len(), 2);
         assert_eq!(queries[0].metadata().id(), "listUsers");
@@ -1281,13 +1385,14 @@ SELECT id FROM users;
         )
         .expect("test SQL file should be written");
 
-        let queries = FileSystemSourceReader
+        let source_read = FileSystemSourceReader
             .read(&compilation_plan(
                 &project_dir,
                 vec![project_dir.join("sql/**/*.sql")],
                 Vec::new(),
             ))
             .expect("included SQL file should be read");
+        let queries = source_read.queries();
         let location = queries[0]
             .source_location()
             .expect("query should include source location");
@@ -1325,13 +1430,14 @@ SELECT FROM;
         )
         .expect("test SQL file should be written");
 
-        let queries = FileSystemSourceReader
+        let source_read = FileSystemSourceReader
             .read(&compilation_plan(
                 &project_dir,
                 vec![project_dir.join("sql/**/*.sql")],
                 Vec::new(),
             ))
             .expect("included SQL file should be read");
+        let queries = source_read.queries();
         let report = MysqlDialectAnalyzer
             .analyze(&queries[0])
             .expect_err("invalid SQL should produce a parser diagnostic");

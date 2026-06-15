@@ -274,7 +274,7 @@ impl fmt::Display for Diagnostic {
     }
 }
 
-/// One or more diagnostics returned as a command-visible failure.
+/// One or more diagnostics that should be visible to command users.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DiagnosticReport {
     diagnostics: Vec<Diagnostic>,

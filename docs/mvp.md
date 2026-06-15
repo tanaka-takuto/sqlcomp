@@ -86,6 +86,10 @@ next `type: query` annotation or the end of the file.
 
 Each query body must contain exactly one `SELECT` statement and must end with `;`.
 
+An included `.sql` file that contains SQL text but no `@sqlcomp` query annotation
+emits a warning so users can tell the file was ignored by the query compiler. Empty
+files and comment-only files do not warn.
+
 ```sql
 /* @sqlcomp
 {
@@ -196,6 +200,7 @@ The implementation should cover these scenarios:
 - ordinary `SELECT` infers `many`.
 - explicit `cardinality` overrides inference.
 - `cardinality: exec` is rejected in the MVP.
+- included SQL files with SQL text but no `@sqlcomp` query annotations warn.
 - MySQL nullable metadata maps to `T | null`.
 - unknown nullability maps to `T | null`.
 

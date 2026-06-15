@@ -70,7 +70,51 @@ pub trait SourceReader {
     ///
     /// Returns diagnostics when source files cannot be discovered, read, or
     /// converted into raw query blocks.
-    fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<core::RawQuery>>;
+    fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead>;
+}
+
+/// Source intake output, including non-fatal diagnostics discovered while
+/// reading included SQL files.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SourceRead {
+    queries: Vec<core::RawQuery>,
+    diagnostics: core::DiagnosticReport,
+}
+
+impl SourceRead {
+    /// Build source intake output.
+    #[must_use]
+    pub const fn new(queries: Vec<core::RawQuery>, diagnostics: core::DiagnosticReport) -> Self {
+        Self {
+            queries,
+            diagnostics,
+        }
+    }
+
+    /// Build source intake output without diagnostics.
+    #[must_use]
+    pub const fn from_queries(queries: Vec<core::RawQuery>) -> Self {
+        Self::new(
+            queries,
+            core::DiagnosticReport::from_diagnostics(Vec::new()),
+        )
+    }
+
+    /// Query blocks found in included SQL sources.
+    #[must_use]
+    pub fn queries(&self) -> &[core::RawQuery] {
+        &self.queries
+    }
+
+    /// Non-fatal diagnostics found during source intake.
+    #[must_use]
+    pub const fn diagnostics(&self) -> &core::DiagnosticReport {
+        &self.diagnostics
+    }
+
+    fn into_parts(self) -> (Vec<core::RawQuery>, core::DiagnosticReport) {
+        (self.queries, self.diagnostics)
+    }
 }
 
 /// Port for dialect-specific SQL analysis.
@@ -212,6 +256,8 @@ where
 impl DefaultCompileUseCase {
     /// Run the `check` command as a dry run of the full generation pipeline.
     ///
+    /// Returns non-fatal diagnostics that should be shown to the user.
+    ///
     /// # Errors
     ///
     /// Returns diagnostics when planning, source intake, analysis, metadata
@@ -219,7 +265,7 @@ impl DefaultCompileUseCase {
     pub fn check<P, S, D, M, Q, T, W>(
         config: &core::ProjectConfig,
         pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
-    ) -> core::DiagnosticResult<()>
+    ) -> core::DiagnosticResult<core::DiagnosticReport>
     where
         P: CompilationPlanner,
         S: SourceReader,
@@ -230,12 +276,14 @@ impl DefaultCompileUseCase {
         W: GeneratedFileWriter,
     {
         let plan = pipeline.planner.plan(config)?;
-        let _generated_files = generate_files(&plan, pipeline)?;
+        let output = generate_files(&plan, pipeline)?;
 
-        Ok(())
+        Ok(output.diagnostics)
     }
 
     /// Run the `compile` command.
+    ///
+    /// Returns non-fatal diagnostics that should be shown to the user.
     ///
     /// # Errors
     ///
@@ -245,7 +293,7 @@ impl DefaultCompileUseCase {
         config: &core::ProjectConfig,
         pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
         clean: bool,
-    ) -> core::DiagnosticResult<()>
+    ) -> core::DiagnosticResult<core::DiagnosticReport>
     where
         P: CompilationPlanner,
         S: SourceReader,
@@ -257,23 +305,31 @@ impl DefaultCompileUseCase {
     {
         let plan = pipeline.planner.plan(config)?;
 
-        let generated_files = generate_files(&plan, pipeline)?;
-        pipeline.generated_file_writer.write(&generated_files)?;
+        let output = generate_files(&plan, pipeline)?;
+        pipeline
+            .generated_file_writer
+            .write(&output.generated_files)?;
 
         if clean {
             pipeline
                 .generated_file_writer
-                .clean_stale(plan.output_dir(), &generated_files)?;
+                .clean_stale(plan.output_dir(), &output.generated_files)?;
         }
 
-        Ok(())
+        Ok(output.diagnostics)
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct GeneratedPipelineOutput {
+    generated_files: core::GeneratedFiles,
+    diagnostics: core::DiagnosticReport,
 }
 
 fn generate_files<P, S, D, M, Q, T, W>(
     plan: &core::CompilationPlan,
     pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
-) -> core::DiagnosticResult<core::GeneratedFiles>
+) -> core::DiagnosticResult<GeneratedPipelineOutput>
 where
     P: CompilationPlanner,
     S: SourceReader,
@@ -283,7 +339,7 @@ where
     T: TargetGenerator,
     W: GeneratedFileWriter,
 {
-    let raw_queries = pipeline.source_reader.read(plan)?;
+    let (raw_queries, diagnostics) = pipeline.source_reader.read(plan)?.into_parts();
     let mut compiled_queries = Vec::with_capacity(raw_queries.len());
 
     for query in &raw_queries {
@@ -295,7 +351,14 @@ where
         compiled_queries.push(compiled);
     }
 
-    pipeline.target_generator.generate(plan, &compiled_queries)
+    let generated_files = pipeline
+        .target_generator
+        .generate(plan, &compiled_queries)?;
+
+    Ok(GeneratedPipelineOutput {
+        generated_files,
+        diagnostics,
+    })
 }
 
 /// Dummy port bundle showing dependencies required by compile-like use cases.
@@ -401,7 +464,7 @@ mod tests {
     use super::{
         CompilationPlanner, CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase,
         DefaultQueryCompiler, DialectAnalyzer, GeneratedFileCleaner, GeneratedFileWriter,
-        MetadataProvider, QueryCompiler, SourceReader, TargetGenerator,
+        MetadataProvider, QueryCompiler, SourceRead, SourceReader, TargetGenerator,
     };
     use sqlcomp_core as core;
 
@@ -482,9 +545,10 @@ mod tests {
             generated_file_writer: &generated_file_writer,
         };
 
-        DefaultCompileUseCase::check(&config, &pipeline)
+        let diagnostics = DefaultCompileUseCase::check(&config, &pipeline)
             .expect("check should dry-run generation successfully");
 
+        assert!(diagnostics.is_empty());
         assert_eq!(
             calls.entries(),
             ["read", "analyze", "describe", "compile", "generate"]
@@ -521,9 +585,10 @@ mod tests {
             generated_file_writer: &generated_file_writer,
         };
 
-        DefaultCompileUseCase::compile(&config, &pipeline, false)
+        let diagnostics = DefaultCompileUseCase::compile(&config, &pipeline, false)
             .expect("compile should write generated files");
 
+        assert!(diagnostics.is_empty());
         assert_eq!(
             calls.entries(),
             [
@@ -596,9 +661,10 @@ mod tests {
             generated_file_writer: &generated_file_writer,
         };
 
-        DefaultCompileUseCase::compile(&config, &pipeline, true)
+        let diagnostics = DefaultCompileUseCase::compile(&config, &pipeline, true)
             .expect("compile --clean should run generation and cleanup");
 
+        assert!(diagnostics.is_empty());
         let (output_dir, current_files) = generated_file_writer
             .cleaned_files()
             .expect("compile --clean should clean stale generated files");
@@ -837,13 +903,10 @@ mod tests {
     }
 
     impl SourceReader for FakeSourceReader {
-        fn read(
-            &self,
-            _plan: &core::CompilationPlan,
-        ) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+        fn read(&self, _plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead> {
             self.calls.push("read");
 
-            Ok(vec![raw_query()])
+            Ok(SourceRead::from_queries(vec![raw_query()]))
         }
     }
 
