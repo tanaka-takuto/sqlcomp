@@ -19,7 +19,7 @@ pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
 pub use ir::{CompiledQuery, CoreType, InputField, ResultColumn};
 pub use metadata::{DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
-pub use query::{AnalyzedQuery, Cardinality, QueryId, QueryMetadata, RawQuery};
+pub use query::{AnalyzedQuery, Cardinality, ParamUsage, QueryId, QueryMetadata, RawQuery};
 pub use reporting::{
     Diagnostic, DiagnosticReport, DiagnosticResult, DiagnosticSeverity, SourceLocation,
     SourcePosition, SourceRange,
