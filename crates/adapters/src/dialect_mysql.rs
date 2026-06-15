@@ -27,9 +27,12 @@ impl DialectAnalyzer for MysqlDialectAnalyzer {
             ));
         };
 
-        if !ends_with_statement_terminator(query)? {
+        let tokens = tokenize_query(query)?;
+        if !ends_with_statement_terminator(&tokens) {
             return Err(query_error(query, "query block must end with `;`"));
         }
+
+        reject_unsupported_placeholders(query, &tokens)?;
 
         let Statement::Query(parsed_query) = statement else {
             return Err(unsupported_statement_error(query, statement));
@@ -43,19 +46,38 @@ impl DialectAnalyzer for MysqlDialectAnalyzer {
     }
 }
 
-fn ends_with_statement_terminator(query: &core::RawQuery) -> core::DiagnosticResult<bool> {
+fn tokenize_query(query: &core::RawQuery) -> core::DiagnosticResult<Vec<Token>> {
     let dialect = MySqlDialect {};
-    let tokens = Tokenizer::new(&dialect, query.sql())
+    Tokenizer::new(&dialect, query.sql())
         .tokenize()
-        .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))?;
+        .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))
+}
 
-    Ok(matches!(
+fn ends_with_statement_terminator(tokens: &[Token]) -> bool {
+    matches!(
         tokens
             .iter()
             .rev()
             .find(|token| !matches!(token, Token::Whitespace(_))),
         Some(Token::SemiColon)
-    ))
+    )
+}
+
+fn reject_unsupported_placeholders(
+    query: &core::RawQuery,
+    tokens: &[Token],
+) -> core::DiagnosticResult<()> {
+    if tokens
+        .iter()
+        .any(|token| matches!(token, Token::Placeholder(_)))
+    {
+        return Err(query_error(
+            query,
+            "query parameters/placeholders are not supported in the MVP",
+        ));
+    }
+
+    Ok(())
 }
 
 fn infer_cardinality(query: &Query) -> core::Cardinality {
@@ -163,6 +185,14 @@ mod tests {
     }
 
     #[test]
+    fn accepts_question_marks_inside_string_literals() {
+        let analysis = analyze_sql("SELECT '?' AS literal_text;")
+            .expect("question marks inside SQL literals should be accepted");
+
+        assert_eq!(analysis.cardinality(), core::Cardinality::Many);
+    }
+
+    #[test]
     fn accepts_select_set_operations() {
         let analysis = analyze_sql("SELECT id FROM users UNION SELECT id FROM archived_users;")
             .expect("SELECT set operations should be accepted");
@@ -250,6 +280,17 @@ mod tests {
         assert_eq!(
             report.diagnostics()[0].message(),
             "query block must end with `;`"
+        );
+    }
+
+    #[test]
+    fn rejects_positional_placeholders_while_mvp_params_are_unsupported() {
+        let report = analyze_sql("SELECT id FROM users WHERE email = ?;")
+            .expect_err("MVP query parameters should be rejected");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "query parameters/placeholders are not supported in the MVP"
         );
     }
 
