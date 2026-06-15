@@ -10,6 +10,7 @@ pub struct CompiledQuery {
     cardinality: Cardinality,
     source_path: Option<PathBuf>,
     input: Vec<InputField>,
+    params: Vec<ParamBinding>,
     row: Vec<ResultColumn>,
 }
 
@@ -29,8 +30,16 @@ impl CompiledQuery {
             cardinality,
             source_path: None,
             input,
+            params: Vec::new(),
             row,
         }
+    }
+
+    /// Attach query parameter bindings in source occurrence order.
+    #[must_use]
+    pub fn with_params(mut self, params: Vec<ParamBinding>) -> Self {
+        self.params = params;
+        self
     }
 
     /// Attach the source SQL path relative to the configuration directory.
@@ -70,6 +79,12 @@ impl CompiledQuery {
         &self.input
     }
 
+    /// Query parameter bindings in source occurrence order.
+    #[must_use]
+    pub fn params(&self) -> &[ParamBinding] {
+        &self.params
+    }
+
     /// Result row columns for the query.
     #[must_use]
     pub fn row(&self) -> &[ResultColumn] {
@@ -105,6 +120,44 @@ impl InputField {
     }
 
     /// Whether the input field accepts null.
+    #[must_use]
+    pub const fn is_nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
+/// One generated parameter binding in source occurrence order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParamBinding {
+    input_name: String,
+    ty: CoreType,
+    nullable: bool,
+}
+
+impl ParamBinding {
+    /// Build a query parameter binding.
+    #[must_use]
+    pub const fn new(input_name: String, ty: CoreType, nullable: bool) -> Self {
+        Self {
+            input_name,
+            ty,
+            nullable,
+        }
+    }
+
+    /// Input field name used for this parameter occurrence.
+    #[must_use]
+    pub fn input_name(&self) -> &str {
+        &self.input_name
+    }
+
+    /// Language-neutral parameter type.
+    #[must_use]
+    pub const fn ty(&self) -> CoreType {
+        self.ty
+    }
+
+    /// Whether this parameter occurrence accepts null.
     #[must_use]
     pub const fn is_nullable(&self) -> bool {
         self.nullable
@@ -198,6 +251,7 @@ mod tests {
         assert_eq!(query.cardinality(), Cardinality::Many);
         assert_eq!(query.source_path(), None);
         assert!(query.input().is_empty());
+        assert!(query.params().is_empty());
         assert_eq!(query.row().len(), 2);
         assert_eq!(query.row()[0].name(), "id");
         assert_eq!(query.row()[0].ty(), CoreType::Int64);
