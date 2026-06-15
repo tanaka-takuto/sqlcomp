@@ -511,6 +511,102 @@ fn check_command_dry_runs_fixture_sql_without_writing_generated_files()
 }
 
 #[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn compile_generates_one_typescript_module_for_multiple_queries_in_one_sql_file()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    let project_dir = unique_temp_dir("sqlcomp-compile-multiple-query-fixture");
+    let valid_dir = project_dir.join("valid");
+    std::fs::create_dir_all(&valid_dir)?;
+    std::fs::write(valid_dir.join("generation_surface.sql"), QUERY_FIXTURES[1])?;
+
+    let config = project_config(project_dir.clone());
+    let metadata_provider = SqlxMysqlMetadataProvider::new(database_url);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &FileSystemSourceReader,
+        dialect_analyzer: &MysqlDialectAnalyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &DefaultQueryCompiler,
+        target_generator: &TypeScriptTargetGenerator,
+        generated_file_writer: &FileSystemGeneratedFileWriter,
+    };
+    DefaultCompileUseCase::compile(&config, &pipeline, false)?;
+
+    let generated_dir = project_dir.join("generated/valid");
+    let generated_path = generated_dir.join("generation_surface.ts");
+    let generated = std::fs::read_to_string(&generated_path)?;
+    let generated_files = std::fs::read_dir(&generated_dir)?.collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(
+        generated_files.len(),
+        1,
+        "one SQL file should generate one TypeScript module"
+    );
+    assert!(
+        generated.starts_with(core::GENERATED_FILE_HEADER),
+        "generated file should include the sqlcomp header"
+    );
+
+    let expected_queries = [
+        ("generationEscapedSql", "generationEscapedSql_Row[]"),
+        (
+            "generationInferredSingleRow",
+            "generationInferredSingleRow_Row | null",
+        ),
+        (
+            "generationExplicitOneOverridesMany",
+            "generationExplicitOneOverridesMany_Row | null",
+        ),
+        (
+            "generationExplicitManyOverridesLimitOne",
+            "generationExplicitManyOverridesLimitOne_Row[]",
+        ),
+    ];
+
+    for (id, output_type) in expected_queries {
+        assert!(
+            generated.contains(&format!("export type {id}_Input = Record<string, never>;")),
+            "generated file should contain input type for `{id}`"
+        );
+        assert!(
+            generated.contains(&format!("export type {id}_Row = {{")),
+            "generated file should contain row type for `{id}`"
+        );
+        assert!(
+            generated.contains(&format!("export type {id}_Output = {output_type};")),
+            "generated file should contain output type for `{id}`"
+        );
+        assert!(
+            generated.contains(&format!("export function {id}(")),
+            "generated file should contain builder function for `{id}`"
+        );
+    }
+
+    assert_eq!(
+        generated.matches("export function ").count(),
+        expected_queries.len(),
+        "generated module should contain exactly the expected query builders"
+    );
+
+    std::fs::remove_dir_all(project_dir)?;
+
+    Ok(())
+}
+
+#[test]
 fn sqlx_mysql_metadata_provider_reports_connection_failures_as_diagnostics() {
     let provider = SqlxMysqlMetadataProvider::new("not-a-mysql-url");
     let query = raw_query("SELECT 1 AS value;");
