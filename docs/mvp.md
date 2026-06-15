@@ -38,6 +38,10 @@ The MVP exposes three commands:
   but does not write generated files.
 - `sqlcomp compile` writes generated TypeScript SQL builder files.
 
+Running `sqlcomp` with no arguments prints top-level help and exits successfully.
+`sqlcomp init --help`, `sqlcomp check --help`, and `sqlcomp compile --help` print
+command-specific help with concise examples.
+
 After a successful `sqlcomp check`, the CLI prints that the check passed and that
 no files were written.
 
