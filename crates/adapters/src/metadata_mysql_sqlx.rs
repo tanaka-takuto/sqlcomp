@@ -595,6 +595,12 @@ fn collect_table_factor_source(
                 alias.as_ref().map(|alias| alias.name.value.clone()),
             );
         }
+        TableFactor::JsonTable { alias, .. } => {
+            sources.insert_unsupported_table(
+                None,
+                alias.as_ref().map(|alias| alias.name.value.clone()),
+            );
+        }
         TableFactor::NestedJoin {
             table_with_joins,
             alias,
@@ -676,6 +682,9 @@ fn collect_table_factor_param_contexts(table: &TableFactor, contexts: &mut Vec<O
         }
         TableFactor::TableFunction { expr, .. } => {
             collect_unsupported_expr_param_contexts(expr, contexts);
+        }
+        TableFactor::JsonTable { json_expr, .. } => {
+            collect_unsupported_expr_param_contexts(json_expr, contexts);
         }
         TableFactor::Function { args, .. } => {
             for arg in args {
@@ -1150,6 +1159,9 @@ fn collect_unsupported_table_factor_param_contexts(
         }
         TableFactor::TableFunction { expr, .. } => {
             collect_unsupported_expr_param_contexts(expr, contexts);
+        }
+        TableFactor::JsonTable { json_expr, .. } => {
+            collect_unsupported_expr_param_contexts(json_expr, contexts);
         }
         TableFactor::Function { args, .. } => {
             for arg in args {
@@ -1771,6 +1783,42 @@ mod tests {
             params,
             [
                 core::DbParamUsage::new("marker".to_owned(), core::CoreType::String),
+                core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+            ]
+        );
+    }
+
+    #[test]
+    fn value_type_override_in_json_table_preserves_later_inference_order() {
+        let query = raw_param_query(
+            "SELECT u.id FROM JSON_TABLE(?, '$[*]' COLUMNS (id BIGINT PATH '$.id')) AS jt JOIN users AS u ON u.id = jt.id WHERE u.email = ?;",
+            [
+                core::ParamUsage::new(
+                    "jsonRows".to_owned(),
+                    Some(core::CoreType::Json),
+                    false,
+                    core::SourceLocation::unknown(),
+                ),
+                core::ParamUsage::new(
+                    "email".to_owned(),
+                    None,
+                    false,
+                    core::SourceLocation::unknown(),
+                ),
+            ],
+        );
+        let schema_columns = [
+            schema_column("users", "id", core::CoreType::Int64),
+            schema_column("users", "email", core::CoreType::String),
+        ];
+
+        let params = resolve_param_usage_metadata(&query, &schema_columns)
+            .expect("JSON_TABLE valueType should not shift later Param inference");
+
+        assert_eq!(
+            params,
+            [
+                core::DbParamUsage::new("jsonRows".to_owned(), core::CoreType::Json),
                 core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
             ]
         );
