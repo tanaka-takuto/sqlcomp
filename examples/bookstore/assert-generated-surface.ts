@@ -24,9 +24,9 @@ const availableBooksSql: string = availableBooksQuery.sql;
 const availableBooksParams: readonly [] = availableBooksQuery.params;
 const availableBooksOutput: listAvailableBooks_Output = [];
 
-const bookDetailQuery = findBookDetail({});
+const bookDetailQuery = findBookDetail({ isbn: "9780441478125" });
 const bookDetailSql: string = bookDetailQuery.sql;
-const bookDetailParams: readonly [] = bookDetailQuery.params;
+const bookDetailParams: readonly [string] = bookDetailQuery.params;
 const bookDetailOutput: findBookDetail_Output = null;
 
 const restockQuery = listBooksNeedingRestock();

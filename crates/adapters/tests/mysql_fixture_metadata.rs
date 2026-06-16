@@ -12,7 +12,7 @@ use sqlcomp_app::{
 };
 use sqlcomp_core as core;
 use sqlx::TypeInfo;
-use sqlx::{Column, Connection, Executor, MySqlConnection, SqlSafeStr};
+use sqlx::{AssertSqlSafe, Column, Connection, Executor, MySqlConnection, SqlSafeStr};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 static MYSQL_FIXTURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -26,10 +26,17 @@ const QUERY_FIXTURES: &[&str] = &[
     include_str!("../../../fixtures/sql/valid/type_metadata_matrix.sql"),
     include_str!("../../../fixtures/sql/valid/generation_surface.sql"),
     include_str!("../../../fixtures/sql/valid/nested/path_mapping.sql"),
+    include_str!("../../../fixtures/sql/valid/param_bindings.sql"),
 ];
 
 const VALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.valid.config.json");
 const INVALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.invalid.config.json");
+const PARAM_CONFLICTING_REPEATED_NULLABILITY: &str =
+    include_str!("../../../fixtures/sql/invalid/param_conflicting_repeated_nullability.sql");
+const PARAM_CONFLICTING_REPEATED_TYPE: &str =
+    include_str!("../../../fixtures/sql/invalid/param_conflicting_repeated_type.sql");
+const PARAM_UNSUPPORTED_INFERENCE_CONTEXT: &str =
+    include_str!("../../../fixtures/sql/invalid/param_unsupported_inference_context.sql");
 const EXPECTED_GENERATION_SURFACE: &str =
     include_str!("../../../fixtures/sql/generated/valid/generation_surface.ts");
 const EXPECTED_NESTED_PATH_MAPPING: &str =
@@ -745,8 +752,13 @@ fn mysql_fixtures_use_sql_valid_invalid_layout() {
         "fixtures/sql/sqlcomp.invalid.config.json",
         "fixtures/sql/valid/type_metadata_matrix.sql",
         "fixtures/sql/valid/generation_surface.sql",
+        "fixtures/sql/valid/param_bindings.sql",
         "fixtures/sql/valid/nested/path_mapping.sql",
         "fixtures/sql/invalid/non_select.sql",
+        "fixtures/sql/invalid/param_raw_placeholder.sql",
+        "fixtures/sql/invalid/param_unsupported_inference_context.sql",
+        "fixtures/sql/invalid/param_conflicting_repeated_type.sql",
+        "fixtures/sql/invalid/param_conflicting_repeated_nullability.sql",
     ] {
         assert!(
             repo_path(required_path).exists(),
@@ -862,6 +874,48 @@ fn sqlx_mysql_metadata_provider_reports_describe_failures_as_diagnostics()
 
 #[test]
 #[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn mysql_param_invalid_fixtures_report_expected_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    let cases = [
+        (
+            "param_unsupported_inference_context.sql",
+            PARAM_UNSUPPORTED_INFERENCE_CONTEXT,
+            "Param `lowerVarchar` requires `valueType` because no supported qualified column context was found",
+        ),
+        (
+            "param_conflicting_repeated_type.sql",
+            PARAM_CONFLICTING_REPEATED_TYPE,
+            "conflicting Param `sameValue` types: first occurrence resolved to Int64 but later occurrence resolved to String",
+        ),
+        (
+            "param_conflicting_repeated_nullability.sql",
+            PARAM_CONFLICTING_REPEATED_NULLABILITY,
+            "conflicting Param `sameText` nullability: first occurrence is nullable false but later occurrence is nullable true",
+        ),
+    ];
+
+    for (file_name, source, expected) in cases {
+        assert_mysql_invalid_fixture_error_contains(&database_url, file_name, source, expected)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
 fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let _fixture_lock = MYSQL_FIXTURE_LOCK
         .lock()
@@ -879,10 +933,11 @@ fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::
     let mut query_count = 0;
     let mut mapped_columns = Vec::new();
     for fixture in QUERY_FIXTURES {
-        for sql in extract_sqlcomp_queries(fixture) {
+        for sql in extract_sqlcomp_queries(fixture)? {
             query_count += 1;
 
-            let description = runtime.block_on(connection.describe(sql.into_sql_str()))?;
+            let description =
+                runtime.block_on(connection.describe(AssertSqlSafe(sql.clone()).into_sql_str()))?;
             assert!(
                 !description.columns().is_empty(),
                 "query should expose columns: {sql}"
@@ -1025,6 +1080,51 @@ fn project_config(config_dir: std::path::PathBuf) -> core::ProjectConfig {
     )
 }
 
+fn assert_mysql_invalid_fixture_error_contains(
+    database_url: &str,
+    file_name: &str,
+    source: &str,
+    expected: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let project_dir = unique_temp_dir("sqlcomp-invalid-param-fixture");
+    let valid_dir = project_dir.join("valid");
+    std::fs::create_dir_all(&valid_dir)?;
+    std::fs::write(valid_dir.join(file_name), source)?;
+
+    let config = project_config(project_dir.clone());
+    let metadata_provider = SqlxMysqlMetadataProvider::new(database_url.to_owned());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &FileSystemSourceReader,
+        dialect_analyzer: &MysqlDialectAnalyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &DefaultQueryCompiler,
+        target_generator: &TypeScriptTargetGenerator,
+        generated_file_writer: &FileSystemGeneratedFileWriter,
+    };
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("invalid Param fixture should fail the compile pipeline");
+    let messages = diagnostic_messages(&report);
+
+    assert!(
+        messages.contains(expected),
+        "expected diagnostic containing `{expected}`, got:\n{messages}"
+    );
+
+    std::fs::remove_dir_all(project_dir)?;
+
+    Ok(())
+}
+
+fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
+    report
+        .diagnostics()
+        .iter()
+        .map(core::Diagnostic::message)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn generated_relative_files(
     root: &std::path::Path,
 ) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
@@ -1061,30 +1161,11 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
 }
 
-fn extract_sqlcomp_queries(fixture: &'static str) -> Vec<&'static str> {
-    let mut queries = Vec::new();
-    let mut remaining = fixture;
-
-    while let Some(annotation_start) = remaining.find("/* @sqlcomp") {
-        let after_annotation = &remaining[annotation_start..];
-        let Some(comment_end) = after_annotation.find("*/") else {
-            break;
-        };
-
-        let after_comment = &after_annotation[comment_end + "*/".len()..];
-        let next_annotation = after_comment
-            .find("/* @sqlcomp")
-            .unwrap_or(after_comment.len());
-        let sql = after_comment[..next_annotation].trim();
-
-        if !sql.is_empty() {
-            queries.push(sql);
-        }
-
-        remaining = &after_comment[next_annotation..];
-    }
-
-    queries
+fn extract_sqlcomp_queries(fixture: &'static str) -> core::DiagnosticResult<Vec<String>> {
+    Ok(split_sqlcomp_query_blocks(fixture)?
+        .into_iter()
+        .map(|query| query.analysis_sql().trim().to_owned())
+        .collect())
 }
 
 #[cfg(test)]
@@ -1111,8 +1192,31 @@ SELECT 1;
 */
 SELECT 2;
 ",
-        );
+        )
+        .expect("query extraction should pass source intake");
 
         assert_eq!(queries, vec!["SELECT 1;", "SELECT 2;"]);
+    }
+
+    #[test]
+    fn extracted_sqlcomp_query_bodies_use_param_analysis_sql() {
+        let queries = extract_sqlcomp_queries(
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: findUser
+}
+*/
+SELECT id
+FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: string } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+        )
+        .expect("Param query extraction should pass source intake");
+
+        assert_eq!(queries, vec!["SELECT id\nFROM users\nWHERE email = ?;"]);
     }
 }

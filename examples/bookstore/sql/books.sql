@@ -77,7 +77,9 @@ SELECT
 FROM bookstore_books AS b
 INNER JOIN bookstore_authors AS a
   ON a.id = b.author_id
-WHERE b.isbn = '9780441478125'
+WHERE b.isbn = /* @sqlcomp { type: param id: isbn } */
+  '9780441478125'
+  /* @sqlcomp { type: paramEnd } */
 LIMIT 1;
 
 /* @sqlcomp

@@ -1,7 +1,7 @@
 # SQL Fixtures
 
 These fixtures support SQL source and MySQL 8.x metadata integration work for the
-MVP. They are test fixtures, not user-facing examples.
+MVP and post-MVP Param coverage. They are test fixtures, not user-facing examples.
 
 - `schema.sql` resets the metadata-oriented MySQL tables used by these fixtures,
   such as `fixture_all_column_type` and `fixture_child`.
@@ -16,10 +16,13 @@ MVP. They are test fixtures, not user-facing examples.
 - `valid/generation_surface.sql` exercises generated TypeScript surface behavior
   such as escaped SQL literals, inferred `LIMIT 1` cardinality, and explicit
   cardinality overrides.
+- `valid/param_bindings.sql` exercises Param binding behavior, including direct
+  column inference, inline `valueType`, `nullable: true`, repeated Param IDs, and
+  `IN` predicates with one placeholder per marker.
 - `valid/nested/path_mapping.sql` verifies that generated output preserves nested
   config-relative source paths.
 - `generated/` contains committed generated TypeScript expected artifacts.
-- `invalid/` contains negative SQL source fixtures.
+- `invalid/` contains negative SQL source and Param diagnostics fixtures.
 
 From the repository root, run the DB-backed fixture check against a running MySQL
 service:

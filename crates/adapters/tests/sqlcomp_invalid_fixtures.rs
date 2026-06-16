@@ -9,6 +9,18 @@ const INVALID_ID: &str = include_str!("../../../fixtures/sql/invalid/invalid_id.
 const MULTIPLE_STATEMENTS: &str =
     include_str!("../../../fixtures/sql/invalid/multiple_statements.sql");
 const NON_SELECT: &str = include_str!("../../../fixtures/sql/invalid/non_select.sql");
+const PARAM_END_WITHOUT_START: &str =
+    include_str!("../../../fixtures/sql/invalid/param_end_without_start.sql");
+const PARAM_INVALID_ID: &str = include_str!("../../../fixtures/sql/invalid/param_invalid_id.sql");
+const PARAM_MISSING_END: &str = include_str!("../../../fixtures/sql/invalid/param_missing_end.sql");
+const PARAM_NESTED_RANGES: &str =
+    include_str!("../../../fixtures/sql/invalid/param_nested_ranges.sql");
+const PARAM_RAW_PLACEHOLDER: &str =
+    include_str!("../../../fixtures/sql/invalid/param_raw_placeholder.sql");
+const PARAM_SAMPLE_PLACEHOLDER: &str =
+    include_str!("../../../fixtures/sql/invalid/param_sample_placeholder.sql");
+const PARAM_UNSUPPORTED_VALUE_TYPE: &str =
+    include_str!("../../../fixtures/sql/invalid/param_unsupported_value_type.sql");
 
 #[test]
 fn invalid_metadata_fixtures_fail_during_source_intake() {
@@ -28,6 +40,35 @@ fn invalid_sql_shape_fixtures_fail_during_dialect_analysis() {
     assert_analysis_error_contains(
         NON_SELECT,
         "unsupported SQL statement `INSERT`; MVP only supports SELECT queries",
+    );
+}
+
+#[test]
+fn invalid_param_source_fixtures_fail_during_source_intake() {
+    assert_source_error_contains(
+        PARAM_RAW_PLACEHOLDER,
+        "raw `?` placeholders are not supported; use inline Param markers",
+    );
+    assert_source_error_contains(
+        PARAM_SAMPLE_PLACEHOLDER,
+        "`?` placeholders are not allowed inside Param sample expressions",
+    );
+    assert_source_error_contains(
+        PARAM_MISSING_END,
+        "`param` marker is missing a matching `paramEnd` marker",
+    );
+    assert_source_error_contains(
+        PARAM_END_WITHOUT_START,
+        "`paramEnd` marker has no matching `param` marker",
+    );
+    assert_source_error_contains(PARAM_NESTED_RANGES, "nested Param ranges are not supported");
+    assert_source_error_contains(
+        PARAM_INVALID_ID,
+        "invalid Param id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
+    );
+    assert_source_error_contains(
+        PARAM_UNSUPPORTED_VALUE_TYPE,
+        "unsupported Param valueType `banana`",
     );
 }
 

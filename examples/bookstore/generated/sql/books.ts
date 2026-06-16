@@ -26,7 +26,9 @@ export function listAvailableBooks(
   };
 }
 
-export type findBookDetail_Input = Record<string, never>;
+export type findBookDetail_Input = {
+  isbn: string;
+};
 
 export type findBookDetail_Row = {
   bookId: string | null;
@@ -47,11 +49,11 @@ export type findBookDetail_Row = {
 export type findBookDetail_Output = findBookDetail_Row | null;
 
 export function findBookDetail(
-  _input: findBookDetail_Input = {},
-): { sql: string; params: readonly [] } {
+  input: findBookDetail_Input,
+): { sql: string; params: readonly [string] } {
   return {
-    sql: "\nSELECT\n  b.id AS bookId,\n  b.isbn AS isbn,\n  b.title AS title,\n  b.description AS description,\n  a.display_name AS authorName,\n  a.country_code AS authorCountryCode,\n  b.format AS format,\n  b.price AS price,\n  b.published_on AS publishedOn,\n  CAST(JSON_UNQUOTE(JSON_EXTRACT(b.metadata, '$.series')) AS CHAR(255)) AS seriesName,\n  (\n    SELECT MIN(c.display_name)\n    FROM bookstore_book_categories AS bc\n    INNER JOIN bookstore_categories AS c\n      ON c.id = bc.category_id\n    WHERE bc.book_id = b.id\n  ) AS primaryCategory,\n  (\n    SELECT COUNT(*)\n    FROM bookstore_reviews AS counted_reviews\n    WHERE counted_reviews.book_id = b.id\n      AND counted_reviews.approved = 1\n  ) AS approvedReviewCount,\n  (\n    SELECT AVG(averaged_reviews.rating)\n    FROM bookstore_reviews AS averaged_reviews\n    WHERE averaged_reviews.book_id = b.id\n      AND averaged_reviews.approved = 1\n  ) AS averageRating\nFROM bookstore_books AS b\nINNER JOIN bookstore_authors AS a\n  ON a.id = b.author_id\nWHERE b.isbn = '9780441478125'\nLIMIT 1;\n\n",
-    params: [] as const,
+    sql: "\nSELECT\n  b.id AS bookId,\n  b.isbn AS isbn,\n  b.title AS title,\n  b.description AS description,\n  a.display_name AS authorName,\n  a.country_code AS authorCountryCode,\n  b.format AS format,\n  b.price AS price,\n  b.published_on AS publishedOn,\n  CAST(JSON_UNQUOTE(JSON_EXTRACT(b.metadata, '$.series')) AS CHAR(255)) AS seriesName,\n  (\n    SELECT MIN(c.display_name)\n    FROM bookstore_book_categories AS bc\n    INNER JOIN bookstore_categories AS c\n      ON c.id = bc.category_id\n    WHERE bc.book_id = b.id\n  ) AS primaryCategory,\n  (\n    SELECT COUNT(*)\n    FROM bookstore_reviews AS counted_reviews\n    WHERE counted_reviews.book_id = b.id\n      AND counted_reviews.approved = 1\n  ) AS approvedReviewCount,\n  (\n    SELECT AVG(averaged_reviews.rating)\n    FROM bookstore_reviews AS averaged_reviews\n    WHERE averaged_reviews.book_id = b.id\n      AND averaged_reviews.approved = 1\n  ) AS averageRating\nFROM bookstore_books AS b\nINNER JOIN bookstore_authors AS a\n  ON a.id = b.author_id\nWHERE b.isbn = ?\nLIMIT 1;\n\n",
+    params: [input.isbn] as const,
   };
 }
 
