@@ -21,7 +21,7 @@ pub use metadata::{DbParamUsage, DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
 pub use query::{
     AnalyzedQuery, Cardinality, FragmentMetadata, ParamUsage, QueryId, QueryMetadata, RawFragment,
-    RawQuery,
+    RawQuery, SlotUsage,
 };
 pub use reporting::{
     Diagnostic, DiagnosticReport, DiagnosticResult, DiagnosticSeverity, SourceLocation,

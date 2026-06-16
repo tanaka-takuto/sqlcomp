@@ -193,6 +193,11 @@ annotation. Fragment source units are parsed and retained for the ADR 0009
 implementation slices, but end-to-end Slot/Fragment composition remains unsupported
 until the later resolution, validation, and generation slices land.
 
+For initial `Slot` intake, query-local `type: slot` markers are parsed, validated,
+recorded as zero-width insertion points, and removed from the SQL text used for
+downstream analysis. Slot target resolution and SQL expansion remain later ADR 0009
+implementation slices.
+
 ## Dialect Analyzer
 
 The Dialect Analyzer interprets a `RawQuery` as SQL for one configured database

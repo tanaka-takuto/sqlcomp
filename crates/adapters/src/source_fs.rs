@@ -164,6 +164,7 @@ enum SqlcompAnnotation {
     Fragment(core::FragmentMetadata),
     Param(ParsedParamMetadata),
     ParamEnd,
+    Slot(ParsedSlotMetadata),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -171,6 +172,12 @@ struct ParsedParamMetadata {
     id: String,
     value_type: Option<core::CoreType>,
     nullable: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ParsedSlotMetadata {
+    id: String,
+    targets: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -216,13 +223,14 @@ fn parse_sqlcomp_annotation(block: &SqlcompBlock) -> core::DiagnosticResult<Sqlc
             parse_param_end_metadata(block)?;
             Ok(SqlcompAnnotation::ParamEnd)
         }
+        "slot" => parse_slot_metadata(block).map(SqlcompAnnotation::Slot),
         "param_end" => Err(metadata_error(
             "unsupported `@sqlcomp` annotation type `param_end`; use `paramEnd` for Param end markers",
             block.payload_range(),
         )),
         _ => Err(metadata_error(
             format!(
-                "unsupported `@sqlcomp` annotation type `{annotation_type}`; supported values are `query`, `fragment`, `param`, and `paramEnd`"
+                "unsupported `@sqlcomp` annotation type `{annotation_type}`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`"
             ),
             block.payload_range(),
         )),
@@ -405,22 +413,43 @@ fn flat_metadata_value(value: &str) -> Option<Value> {
         return None;
     }
 
+    if let Some(array) = flat_metadata_array_value(value) {
+        return Some(array);
+    }
+
     match value {
         "true" => Some(Value::Bool(true)),
         "false" => Some(Value::Bool(false)),
-        _ => {
-            let unquoted = value
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-                .or_else(|| {
-                    value
-                        .strip_prefix('\'')
-                        .and_then(|value| value.strip_suffix('\''))
-                })
-                .unwrap_or(value);
-            Some(Value::String(unquoted.to_owned()))
-        }
+        _ => Some(Value::String(flat_metadata_string_value(value).to_owned())),
     }
+}
+
+fn flat_metadata_array_value(value: &str) -> Option<Value> {
+    let inner = value.strip_prefix('[')?.strip_suffix(']')?;
+    if inner.trim().is_empty() {
+        return Some(Value::Array(Vec::new()));
+    }
+
+    inner
+        .split(',')
+        .map(|item| {
+            let item = item.trim();
+            (!item.is_empty()).then(|| Value::String(flat_metadata_string_value(item).to_owned()))
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(Value::Array)
+}
+
+fn flat_metadata_string_value(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .or_else(|| {
+            value
+                .strip_prefix('\'')
+                .and_then(|value| value.strip_suffix('\''))
+        })
+        .unwrap_or(value)
 }
 
 fn last_non_whitespace_char(source: &str) -> Option<char> {
@@ -575,6 +604,27 @@ fn parse_param_end_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<()> 
     reject_unknown_metadata_fields(&metadata, &["type"], "paramEnd", "`type`", block)
 }
 
+fn parse_slot_metadata(block: &SqlcompBlock) -> core::DiagnosticResult<ParsedSlotMetadata> {
+    let metadata = parse_sqlcomp_metadata_object(block)?;
+    reject_unknown_metadata_fields(
+        &metadata,
+        &["type", "id", "targets"],
+        "slot",
+        "`type`, `id`, and `targets`",
+        block,
+    )?;
+    let id = required_slot_string_metadata_field(&metadata, "id", block)?;
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid Slot id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
+            block.payload_range(),
+        ));
+    }
+    let targets = required_slot_targets_metadata_field(&metadata, block)?;
+
+    Ok(ParsedSlotMetadata { id, targets })
+}
+
 fn reject_unknown_metadata_fields(
     metadata: &Map<String, Value>,
     allowed_fields: &[&str],
@@ -648,6 +698,59 @@ fn required_fragment_string_metadata_field(
             block.payload_range(),
         )),
     }
+}
+
+fn required_slot_string_metadata_field(
+    metadata: &Map<String, Value>,
+    field: &str,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<String> {
+    match metadata.get(field) {
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(metadata_error(
+            format!("`slot` metadata field `{field}` must be a string"),
+            block.payload_range(),
+        )),
+        None => Err(metadata_error(
+            format!("missing required `slot` metadata field `{field}`"),
+            block.payload_range(),
+        )),
+    }
+}
+
+fn required_slot_targets_metadata_field(
+    metadata: &Map<String, Value>,
+    block: &SqlcompBlock,
+) -> core::DiagnosticResult<Vec<String>> {
+    let Some(targets) = metadata.get("targets") else {
+        return Err(metadata_error(
+            "missing required `slot` metadata field `targets`",
+            block.payload_range(),
+        ));
+    };
+    let Value::Array(values) = targets else {
+        return Err(metadata_error(
+            "`slot` metadata field `targets` must be a string array",
+            block.payload_range(),
+        ));
+    };
+    if values.is_empty() {
+        return Err(metadata_error(
+            "`slot` metadata field `targets` must contain at least one value",
+            block.payload_range(),
+        ));
+    }
+
+    values
+        .iter()
+        .map(|value| match value {
+            Value::String(target) => Ok(target.clone()),
+            _ => Err(metadata_error(
+                "`slot` metadata field `targets` must be a string array",
+                block.payload_range(),
+            )),
+        })
+        .collect()
 }
 
 fn optional_string_metadata_field(
@@ -811,7 +914,7 @@ fn split_sqlcomp_source_units_from_scan(
         });
     }
 
-    validate_inline_param_markers(&parsed_blocks)?;
+    validate_inline_markers(&parsed_blocks)?;
 
     let source_unit_indexes = parsed_blocks
         .iter()
@@ -840,12 +943,13 @@ fn split_sqlcomp_source_units_from_scan(
         match &parsed_block.annotation {
             SqlcompAnnotation::Query(metadata) => {
                 let replacement =
-                    replace_inline_param_ranges(source, body_start, body_end, &parsed_blocks)?;
+                    replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
 
                 queries.push(
                     core::RawQuery::new(metadata.clone(), sql)
                         .with_analysis_sql(replacement.analysis_sql)
                         .with_param_usages(replacement.param_usages)
+                        .with_slot_usages(replacement.slot_usages)
                         .with_source_location(location),
                 );
             }
@@ -855,7 +959,9 @@ fn split_sqlcomp_source_units_from_scan(
                     core::RawFragment::new(metadata.clone(), sql).with_source_location(location),
                 );
             }
-            SqlcompAnnotation::Param(_) | SqlcompAnnotation::ParamEnd => {
+            SqlcompAnnotation::Param(_)
+            | SqlcompAnnotation::ParamEnd
+            | SqlcompAnnotation::Slot(_) => {
                 unreachable!("source unit indexes only point at global annotations");
             }
         }
@@ -872,17 +978,18 @@ const fn is_global_source_unit(parsed_block: &ParsedSqlcompBlock<'_>) -> bool {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ParamReplacement {
+struct InlineMarkerReplacement {
     analysis_sql: String,
     param_usages: Vec<core::ParamUsage>,
+    slot_usages: Vec<core::SlotUsage>,
 }
 
-fn replace_inline_param_ranges(
+fn replace_inline_markers(
     source: &str,
     body_start: usize,
     body_end: usize,
     parsed_blocks: &[ParsedSqlcompBlock<'_>],
-) -> core::DiagnosticResult<ParamReplacement> {
+) -> core::DiagnosticResult<InlineMarkerReplacement> {
     let query_blocks = parsed_blocks
         .iter()
         .filter(|parsed_block| {
@@ -892,6 +999,7 @@ fn replace_inline_param_ranges(
         .collect::<Vec<_>>();
     let mut analysis_sql = String::with_capacity(body_end - body_start);
     let mut param_usages = Vec::new();
+    let mut slot_usages = Vec::new();
     let mut cursor = body_start;
     let mut index = 0;
 
@@ -903,6 +1011,24 @@ fn replace_inline_param_ranges(
             }
             SqlcompAnnotation::Fragment(_) => {
                 unreachable!("fragment annotations are global source unit boundaries");
+            }
+            SqlcompAnnotation::Slot(metadata) => {
+                append_non_param_sql(
+                    source,
+                    cursor,
+                    parsed_block.block.comment_start_index(),
+                    &mut analysis_sql,
+                )?;
+
+                slot_usages.push(core::SlotUsage::new(
+                    metadata.id.clone(),
+                    metadata.targets.clone(),
+                    analysis_sql.len(),
+                    core::SourceLocation::from_range(parsed_block.block.comment_range()),
+                ));
+
+                cursor = parsed_block.block.comment_end_index();
+                index += 1;
             }
             SqlcompAnnotation::Param(metadata) => {
                 append_non_param_sql(
@@ -952,9 +1078,10 @@ fn replace_inline_param_ranges(
         source_range_for_sql_body(source, body_start, body_end),
     )?;
 
-    Ok(ParamReplacement {
+    Ok(InlineMarkerReplacement {
         analysis_sql,
         param_usages,
+        slot_usages,
     })
 }
 
@@ -1028,25 +1155,32 @@ fn first_statement_separator_index(source: &str, start: usize, end: usize) -> Op
     StatementSeparatorScanner::new(source, start, end).next_separator_index()
 }
 
-fn validate_inline_param_markers(
-    parsed_blocks: &[ParsedSqlcompBlock<'_>],
-) -> core::DiagnosticResult<()> {
-    let mut inside_source_unit = false;
+fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::DiagnosticResult<()> {
+    let mut context = InlineMarkerContext::OutsideSourceUnit;
     let mut open_param_block: Option<&SqlcompBlock> = None;
 
     for parsed_block in parsed_blocks {
         match parsed_block.annotation {
-            SqlcompAnnotation::Query(_) | SqlcompAnnotation::Fragment(_) => {
+            SqlcompAnnotation::Query(_) => {
                 if let Some(block) = open_param_block.take() {
                     return Err(metadata_error(
                         "`param` marker is missing a matching `paramEnd` marker",
                         block.payload_range(),
                     ));
                 }
-                inside_source_unit = true;
+                context = InlineMarkerContext::QueryBody;
+            }
+            SqlcompAnnotation::Fragment(_) => {
+                if let Some(block) = open_param_block.take() {
+                    return Err(metadata_error(
+                        "`param` marker is missing a matching `paramEnd` marker",
+                        block.payload_range(),
+                    ));
+                }
+                context = InlineMarkerContext::FragmentBody;
             }
             SqlcompAnnotation::Param(_) => {
-                if !inside_source_unit {
+                if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
                         "Param markers must appear inside a query or fragment body",
                         parsed_block.block.payload_range(),
@@ -1061,7 +1195,7 @@ fn validate_inline_param_markers(
                 open_param_block = Some(parsed_block.block);
             }
             SqlcompAnnotation::ParamEnd => {
-                if !inside_source_unit {
+                if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
                         "Param markers must appear inside a query or fragment body",
                         parsed_block.block.payload_range(),
@@ -1070,6 +1204,29 @@ fn validate_inline_param_markers(
                 if open_param_block.take().is_none() {
                     return Err(metadata_error(
                         "`paramEnd` marker has no matching `param` marker",
+                        parsed_block.block.payload_range(),
+                    ));
+                }
+            }
+            SqlcompAnnotation::Slot(_) => {
+                match context {
+                    InlineMarkerContext::OutsideSourceUnit => {
+                        return Err(metadata_error(
+                            "Slot markers must appear inside a query body",
+                            parsed_block.block.payload_range(),
+                        ));
+                    }
+                    InlineMarkerContext::FragmentBody => {
+                        return Err(metadata_error(
+                            "Slot markers are not supported inside fragment bodies",
+                            parsed_block.block.payload_range(),
+                        ));
+                    }
+                    InlineMarkerContext::QueryBody => {}
+                }
+                if open_param_block.is_some() {
+                    return Err(metadata_error(
+                        "Slot markers are not supported inside Param ranges",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -1085,6 +1242,13 @@ fn validate_inline_param_markers(
     }
 
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InlineMarkerContext {
+    OutsideSourceUnit,
+    QueryBody,
+    FragmentBody,
 }
 
 /// Dummy filesystem-backed source reader.
@@ -1199,6 +1363,12 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
         .cloned()
         .map(|usage| attach_param_usage_path(usage, path))
         .collect::<Vec<_>>();
+    let slot_usages = query
+        .slot_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_slot_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
     let query = if let Some(range) = range {
         query.with_source_location(core::SourceLocation::at_range(path, range))
@@ -1206,7 +1376,9 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
         query.with_source_location(core::SourceLocation::for_path(path))
     };
 
-    query.with_param_usages(param_usages)
+    query
+        .with_param_usages(param_usages)
+        .with_slot_usages(slot_usages)
 }
 
 fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFragment {
@@ -1222,6 +1394,14 @@ fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFr
 }
 
 fn attach_param_usage_path(usage: core::ParamUsage, path: &Path) -> core::ParamUsage {
+    if let Some(range) = usage.source_location().range() {
+        usage.with_source_location(core::SourceLocation::at_range(path, range))
+    } else {
+        usage.with_source_location(core::SourceLocation::for_path(path))
+    }
+}
+
+fn attach_slot_usage_path(usage: core::SlotUsage, path: &Path) -> core::SlotUsage {
     if let Some(range) = usage.source_location().range() {
         usage.with_source_location(core::SourceLocation::at_range(path, range))
     } else {
@@ -2836,6 +3016,173 @@ SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email valueType
             .range()
             .expect("Param usage should include the source range");
         assert_eq!(range.start().line(), 7);
+    }
+
+    #[test]
+    fn split_query_blocks_deletes_inline_slot_markers_and_records_usages() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } */;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let queries = split_sqlcomp_query_blocks(source).expect("inline Slot should be accepted");
+
+        assert_eq!(queries.len(), 1);
+        assert_eq!(
+            queries[0].analysis_sql(),
+            "\nSELECT u.id FROM users AS u WHERE 1 = 1;\n"
+        );
+        assert!(!queries[0].analysis_sql().contains("@sqlcomp"));
+        assert_eq!(queries[0].slot_usages().len(), 1);
+        assert_eq!(queries[0].slot_usages()[0].id(), "filter");
+        assert_eq!(
+            queries[0].slot_usages()[0].targets(),
+            ["activeOnly", "byEmail"]
+        );
+        assert_eq!(
+            &queries[0].analysis_sql()[..queries[0].slot_usages()[0].insertion_index()],
+            "\nSELECT u.id FROM users AS u WHERE 1 = 1"
+        );
+        assert_eq!(
+            &queries[0].analysis_sql()[queries[0].slot_usages()[0].insertion_index()..],
+            ";\n"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_inline_slot_metadata() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users/* @sqlcomp { type: slot id: 1bad targets: [activeOnly] } */;
+",
+                "invalid Slot id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users/* @sqlcomp { type: slot id: filter } */;
+",
+                "missing required `slot` metadata field `targets`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [] } */;
+",
+                "`slot` metadata field `targets` must contain at least one value",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: activeOnly } */;
+",
+                "`slot` metadata field `targets` must be a string array",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [activeOnly] required: true } */;
+",
+                "unknown `slot` metadata field `required`; supported fields are `type`, `id`, and `targets`",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report =
+                split_sqlcomp_query_blocks(source).expect_err("invalid Slot metadata rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_inline_slot_placements() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+",
+                "Slot markers must appear inside a query body",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+/* @sqlcomp { type: slot id: filter targets: [byEmail] } */
+AND u.active = 1
+",
+                "Slot markers are not supported inside fragment bodies",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: string } */
+  /* @sqlcomp { type: slot id: filter targets: [activeOnly] } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+",
+                "Slot markers are not supported inside Param ranges",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report =
+                split_sqlcomp_source_units(source).expect_err("invalid Slot placement rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+        }
     }
 
     #[test]

@@ -140,6 +140,64 @@ impl ParamUsage {
     }
 }
 
+/// One inline Slot insertion point in source order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SlotUsage {
+    id: String,
+    targets: Vec<String>,
+    insertion_index: usize,
+    source_location: SourceLocation,
+}
+
+impl SlotUsage {
+    /// Build a Slot usage occurrence.
+    #[must_use]
+    pub const fn new(
+        id: String,
+        targets: Vec<String>,
+        insertion_index: usize,
+        source_location: SourceLocation,
+    ) -> Self {
+        Self {
+            id,
+            targets,
+            insertion_index,
+            source_location,
+        }
+    }
+
+    /// Slot ID exactly as written in source metadata.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Target fragment IDs exactly as written in source metadata.
+    #[must_use]
+    pub fn targets(&self) -> &[String] {
+        &self.targets
+    }
+
+    /// Byte index in `RawQuery::analysis_sql()` where the slot marker was removed.
+    #[must_use]
+    pub const fn insertion_index(&self) -> usize {
+        self.insertion_index
+    }
+
+    /// Source location for the Slot marker.
+    #[must_use]
+    pub const fn source_location(&self) -> &SourceLocation {
+        &self.source_location
+    }
+
+    /// Replace source location context.
+    #[must_use]
+    pub fn with_source_location(mut self, location: SourceLocation) -> Self {
+        self.source_location = location;
+        self
+    }
+}
+
 /// Raw fragment extracted from SQL source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawFragment {
@@ -207,6 +265,7 @@ pub struct RawQuery {
     sql: String,
     analysis_sql: String,
     param_usages: Vec<ParamUsage>,
+    slot_usages: Vec<SlotUsage>,
     source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
@@ -222,6 +281,7 @@ impl RawQuery {
             sql,
             analysis_sql,
             param_usages: Vec::new(),
+            slot_usages: Vec::new(),
             source_path: None,
             source_location: None,
         }
@@ -238,6 +298,13 @@ impl RawQuery {
     #[must_use]
     pub fn with_param_usages(mut self, usages: Vec<ParamUsage>) -> Self {
         self.param_usages = usages;
+        self
+    }
+
+    /// Attach inline Slot usage occurrences in source order.
+    #[must_use]
+    pub fn with_slot_usages(mut self, usages: Vec<SlotUsage>) -> Self {
+        self.slot_usages = usages;
         self
     }
 
@@ -277,6 +344,12 @@ impl RawQuery {
     #[must_use]
     pub fn param_usages(&self) -> &[ParamUsage] {
         &self.param_usages
+    }
+
+    /// Inline Slot insertion points in source order.
+    #[must_use]
+    pub fn slot_usages(&self) -> &[SlotUsage] {
+        &self.slot_usages
     }
 
     /// Source SQL path relative to the configuration directory, when known.
@@ -327,7 +400,7 @@ mod tests {
 
     use crate::{
         AnalyzedQuery, Cardinality, FragmentMetadata, QueryMetadata, RawFragment, RawQuery,
-        SourceLocation, SourcePosition, SourceRange,
+        SlotUsage, SourceLocation, SourcePosition, SourceRange,
     };
 
     #[test]
@@ -381,6 +454,31 @@ mod tests {
         );
         assert!(query.param_usages()[0].nullable_override());
         assert_eq!(query.param_usages()[0].source_location(), &location);
+    }
+
+    #[test]
+    fn raw_query_can_carry_slot_usages() {
+        let location = SourceLocation::from_range(SourceRange::point(
+            SourcePosition::one_based(8, 45).expect("test position should be valid"),
+        ));
+        let query = RawQuery::new(
+            QueryMetadata::new("listUsers".to_owned(), None),
+            "SELECT id FROM users WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+        )
+        .with_analysis_sql("SELECT id FROM users WHERE 1 = 1;".to_owned())
+        .with_slot_usages(vec![SlotUsage::new(
+            "filter".to_owned(),
+            vec!["activeOnly".to_owned()],
+            32,
+            location.clone(),
+        )]);
+
+        assert_eq!(query.analysis_sql(), "SELECT id FROM users WHERE 1 = 1;");
+        assert_eq!(query.slot_usages().len(), 1);
+        assert_eq!(query.slot_usages()[0].id(), "filter");
+        assert_eq!(query.slot_usages()[0].targets(), ["activeOnly"]);
+        assert_eq!(query.slot_usages()[0].insertion_index(), 32);
+        assert_eq!(query.slot_usages()[0].source_location(), &location);
     }
 
     #[test]
