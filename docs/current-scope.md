@@ -54,6 +54,10 @@ The near-term direction is to stabilize the current SELECT builder workflow:
 
 Larger expansions should be captured in ADRs before implementation.
 
+The initial SELECT `Slot`/`Fragment` design is captured in
+[ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md). It remains
+unsupported until the implementation slices for that ADR land.
+
 ## Defining ADRs
 
 The current scope is defined by these accepted ADRs:
@@ -71,7 +75,8 @@ The current scope is defined by these accepted ADRs:
 
 The following remain intentionally unsupported:
 
-- `Slot` and `Fragment` dynamic SQL composition.
+- `Slot` and `Fragment` dynamic SQL composition until the ADR 0009 implementation
+  slices land.
 - optional input properties that would require SQL structure changes.
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
 - multi-statement query blocks.
