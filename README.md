@@ -87,16 +87,17 @@ expressions:
   id: findBook
 }
 */
-SELECT title
-FROM books
-WHERE isbn = /* @sqlcomp { type: param id: isbn } */
+SELECT b.title
+FROM books AS b
+WHERE b.isbn = /* @sqlcomp { type: param id: isbn } */
   '9780131103627'
   /* @sqlcomp { type: paramEnd } */;
 ```
 
 Raw `?` placeholders are not accepted in source SQL; use `Param` markers so the SQL
 file remains readable in database tools and the generated builder receives typed
-input.
+input. Param type inference uses qualified column context such as `b.isbn`; add a
+`valueType` override when a Param is not next to a supported qualified column.
 
 ## Local MySQL
 

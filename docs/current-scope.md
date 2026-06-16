@@ -29,17 +29,18 @@ Inline `Param` markers wrap a sample SQL expression so source queries remain
 directly readable and executable in database tools:
 
 ```sql
-SELECT id, email
-FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+SELECT u.id, u.email
+FROM users AS u
+WHERE u.email = /* @sqlcomp { type: param id: email } */
   'test@example.test'
   /* @sqlcomp { type: paramEnd } */;
 ```
 
 For compilation, each Param range is replaced with one MySQL `?` placeholder. Input
-types are inferred from direct MySQL column context when possible, or from an inline
-`valueType` override. `nullable: true` marks nullable input values. Repeated Param
-IDs are supported when all occurrences agree on type and nullability.
+types are inferred from qualified direct MySQL column context such as `u.email` when
+possible, or from an inline `valueType` override. `nullable: true` marks nullable
+input values. Repeated Param IDs are supported when all occurrences agree on type
+and nullability.
 
 ## Near-Term Direction
 
