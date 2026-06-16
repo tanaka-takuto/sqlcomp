@@ -42,6 +42,29 @@ possible, or from an inline `valueType` override. `nullable: true` marks nullabl
 input values. Repeated Param IDs are supported when all occurrences agree on type
 and nullability.
 
+`valueType` uses lower-case sqlcomp CoreType names, not TypeScript union syntax. For
+a nullable datetime input, write `valueType: datetime` with `nullable: true`; the
+generated TypeScript input field is `string | null` because datetime values map to
+strings:
+
+```sql
+WHERE u.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+  '2026-01-01 00:00:00'
+  /* @sqlcomp { type: paramEnd } */
+```
+
+```ts
+export type listUsers_Input = {
+  createdBefore: string | null;
+};
+```
+
+Optional input properties are not currently supported because omitting an input
+would require changing the SQL structure. Current query authors should either use a
+nullable sentinel pattern such as `param IS NULL OR column = param`, write separate
+queries for distinct shapes, or wait for Slot/Fragment support to handle dynamic SQL
+composition.
+
 ## Near-Term Direction
 
 The near-term direction is to stabilize the current SELECT builder workflow:

@@ -99,6 +99,25 @@ file remains readable in database tools and the generated builder receives typed
 input. Param type inference uses qualified column context such as `b.isbn`; add a
 `valueType` override when a Param is not next to a supported qualified column.
 
+For nullable inputs, keep `valueType` to a sqlcomp CoreType name and add
+`nullable: true` instead of writing a TypeScript union:
+
+```sql
+WHERE b.published_at < /* @sqlcomp { type: param id: publishedBefore valueType: datetime nullable: true } */
+  '2026-01-01 00:00:00'
+  /* @sqlcomp { type: paramEnd } */
+```
+
+```ts
+export type findBook_Input = {
+  publishedBefore: string | null;
+};
+```
+
+Optional input properties are not currently supported because they imply SQL
+structure changes. Use a nullable sentinel pattern, separate queries for distinct
+SQL shapes, or the future Slot/Fragment path for dynamic composition.
+
 ## Local MySQL
 
 The repository includes a Docker Compose service for local MySQL 8.x development:
