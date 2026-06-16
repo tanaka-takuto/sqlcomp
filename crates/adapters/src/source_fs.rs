@@ -251,6 +251,11 @@ where
             {
                 return Ok(value);
             }
+            if let Some(value) = parse_flat_sqlcomp_metadata_value(block.payload())
+                && let Ok(value) = serde_json::from_value::<T>(value)
+            {
+                return Ok(value);
+            }
 
             Err(metadata_error(
                 format!("failed to parse `@sqlcomp` metadata as Hjson: {error}"),
@@ -1993,6 +1998,27 @@ SELECT id FROM users;
             parse_sqlcomp_query_metadata(&scan.blocks()[0]).expect("query metadata should parse");
 
         assert_eq!(metadata.id(), "listUsers");
+        assert_eq!(metadata.cardinality(), None);
+    }
+
+    #[test]
+    fn parses_query_metadata_id_with_nullable_prefix() {
+        let source = r"
+/* @sqlcomp
+{
+  type: query
+  id: nullableParamAttempt
+}
+*/
+SELECT id FROM users;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL test source should start with a newline");
+        let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+        let metadata =
+            parse_sqlcomp_query_metadata(&scan.blocks()[0]).expect("query metadata should parse");
+
+        assert_eq!(metadata.id(), "nullableParamAttempt");
         assert_eq!(metadata.cardinality(), None);
     }
 
