@@ -15,6 +15,8 @@ use sqlx::{
     AssertSqlSafe, Column, Connection, Executor, MySqlConnection, Row, SqlSafeStr, TypeInfo,
 };
 
+const SUPPORTED_PARAM_VALUE_TYPES_MESSAGE: &str = "`bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`";
+
 /// sqlx-backed `MySQL` metadata provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SqlxMysqlMetadataProvider {
@@ -422,9 +424,9 @@ fn resolve_inferred_param_type(
         return Err(param_usage_error(
             query,
             usage,
-            format!(
-                "Param `{}` requires `valueType` because no supported qualified column context was found",
-                usage.id()
+            param_value_type_required_message(
+                usage.id(),
+                "no supported qualified column context was found",
             ),
         ));
     };
@@ -445,10 +447,12 @@ fn resolve_inferred_param_type(
         return Err(param_usage_error(
             query,
             usage,
-            format!(
-                "Param `{}` requires `valueType` because table alias `{}` does not resolve to a current-database table",
+            param_value_type_required_message(
                 usage.id(),
-                column.qualifier
+                format!(
+                    "table alias `{}` does not resolve to a current-database table",
+                    column.qualifier
+                ),
             ),
         ));
     };
@@ -477,6 +481,13 @@ fn resolve_inferred_param_type(
             column.column
         ),
     ))
+}
+
+fn param_value_type_required_message(id: &str, reason: impl AsRef<str>) -> String {
+    let reason = reason.as_ref();
+    format!(
+        "Param `{id}` requires `valueType` because {reason}; use an inline `valueType` such as `valueType: string` or compare the Param directly with a qualified column; supported values are {SUPPORTED_PARAM_VALUE_TYPES_MESSAGE}; use `nullable: true` for nullable inputs"
+    )
 }
 
 fn current_database_table_names(query: &core::RawQuery) -> core::DiagnosticResult<Vec<String>> {
@@ -1843,7 +1854,32 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "Param `email` requires `valueType` because no supported qualified column context was found"
+            super::param_value_type_required_message(
+                "email",
+                "no supported qualified column context was found"
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_nullable_filter_param_without_value_type_with_actionable_guidance() {
+        let query = raw_param_query(
+            "SELECT u.id FROM users AS u WHERE ? IS NULL;",
+            [core::ParamUsage::new(
+                "emailFilter".to_owned(),
+                None,
+                false,
+                core::SourceLocation::unknown(),
+            )],
+        );
+        let schema_columns = [schema_column("users", "email", core::CoreType::String)];
+
+        let report = resolve_param_usage_metadata(&query, &schema_columns)
+            .expect_err("NULL sample optional-filter context should require valueType");
+
+        assert_eq!(
+            report.diagnostics()[0].message(),
+            "Param `emailFilter` requires `valueType` because no supported qualified column context was found; use an inline `valueType` such as `valueType: string` or compare the Param directly with a qualified column; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`; use `nullable: true` for nullable inputs"
         );
     }
 
@@ -1865,7 +1901,10 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "Param `email` requires `valueType` because no supported qualified column context was found"
+            super::param_value_type_required_message(
+                "email",
+                "no supported qualified column context was found"
+            )
         );
     }
 
@@ -1886,7 +1925,10 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "Param `email` requires `valueType` because table alias `u` does not resolve to a current-database table"
+            super::param_value_type_required_message(
+                "email",
+                "table alias `u` does not resolve to a current-database table"
+            )
         );
     }
 
@@ -1908,7 +1950,10 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "Param `userId` requires `valueType` because table alias `u` does not resolve to a current-database table"
+            super::param_value_type_required_message(
+                "userId",
+                "table alias `u` does not resolve to a current-database table"
+            )
         );
     }
 

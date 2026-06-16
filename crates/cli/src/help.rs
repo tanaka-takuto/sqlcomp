@@ -34,6 +34,21 @@ Directive boundary:
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
   Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers around a sample expression.
   Slot and Fragment are not currently supported.
+
+Param marker example:
+  SELECT customers.id, customers.email
+  FROM customers
+  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    'ada@example.test'
+    /* @sqlcomp { type: paramEnd } */
+    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    NULL
+    /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Param metadata:
+  valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.
+  Use nullable: true for T | null inputs; optional input properties are not supported.
+  Repeat the same Param id for optional filters; params follow marker occurrence order.
 ";
 
 pub const INIT_HELP: &str = "\
@@ -64,6 +79,21 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   The success summary reports matched SQL files, compiled queries, output.dir, and per-query parameter placeholders and input fields.
 
+Param marker example:
+  SELECT customers.id, customers.email
+  FROM customers
+  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    'ada@example.test'
+    /* @sqlcomp { type: paramEnd } */
+    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    NULL
+    /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Param metadata:
+  valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.
+  Use nullable: true for T | null inputs; optional input properties are not supported.
+  Repeat the same Param id for optional filters; params follow marker occurrence order.
+
 Options:
   -h, --help         Print this help.
   --config <path>    Use an explicit config path.
@@ -86,6 +116,21 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   The success summary reports matched SQL files, compiled queries, generated file paths, stale-file cleanup, and per-query parameter placeholders and input fields.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
+
+Param marker example:
+  SELECT customers.id, customers.email
+  FROM customers
+  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    'ada@example.test'
+    /* @sqlcomp { type: paramEnd } */
+    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    NULL
+    /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Param metadata:
+  valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.
+  Use nullable: true for T | null inputs; optional input properties are not supported.
+  Repeat the same Param id for optional filters; params follow marker occurrence order.
 
 Options:
   -h, --help         Print this help.

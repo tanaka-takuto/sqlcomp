@@ -626,6 +626,14 @@ fn parse_param_value_type(
             block.payload_range(),
         ));
     }
+    if let Some(nullable_value_type) = nullable_union_param_value_type(value_type) {
+        return Err(metadata_error(
+            format!(
+                "unsupported Param valueType `{value_type}`; use `valueType: {nullable_value_type}` with `nullable: true` for nullable {nullable_value_type} inputs; optional input properties are not supported"
+            ),
+            block.payload_range(),
+        ));
+    }
     if !SUPPORTED_PARAM_VALUE_TYPES.contains(&value_type) {
         return Err(metadata_error(
             format!(
@@ -639,6 +647,16 @@ fn parse_param_value_type(
     Ok(Some(core_type_from_param_value_type(value_type).expect(
         "supported Param valueType should map to a CoreType",
     )))
+}
+
+fn nullable_union_param_value_type(value_type: &str) -> Option<&str> {
+    let (base, nullable) = value_type.split_once('|')?;
+    if nullable.trim() != "null" {
+        return None;
+    }
+
+    let base = base.trim();
+    SUPPORTED_PARAM_VALUE_TYPES.contains(&base).then_some(base)
 }
 
 fn core_type_from_param_value_type(value_type: &str) -> Option<core::CoreType> {
@@ -2521,6 +2539,21 @@ WHERE email = /* @sqlcomp { type: param id: email valueType: unknown } */
   /* @sqlcomp { type: paramEnd } */;
 ",
                 "unsupported Param valueType `unknown`; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`",
+            ),
+            (
+                r#"
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users
+WHERE email = /* @sqlcomp { type: param id: email valueType: "string | null" } */
+  'test@example.test'
+  /* @sqlcomp { type: paramEnd } */;
+"#,
+                "unsupported Param valueType `string | null`; use `valueType: string` with `nullable: true` for nullable string inputs; optional input properties are not supported",
             ),
         ] {
             let source = source

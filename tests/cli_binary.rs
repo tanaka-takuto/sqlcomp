@@ -94,6 +94,26 @@ fn no_args_prints_top_level_help() {
         "stdout: {stdout}"
     );
     assert!(
+        stdout.contains("type: param id: emailFilter valueType: string nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Use nullable: true for T | null inputs; optional input properties are not supported"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Repeat the same Param id for optional filters; params follow marker occurrence order"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
         !stdout.contains("MVP query metadata"),
         "stdout should not describe current help as MVP-only: {stdout}"
     );
@@ -173,6 +193,26 @@ fn check_help_describes_config_discovery_and_database_url() {
         stdout.contains("parameter placeholders and input fields"),
         "stdout: {stdout}"
     );
+    assert!(
+        stdout.contains("type: param id: emailFilter valueType: string nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Use nullable: true for T | null inputs; optional input properties are not supported"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Repeat the same Param id for optional filters; params follow marker occurrence order"
+        ),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -203,6 +243,26 @@ fn compile_help_describes_output_writing_and_clean() {
     );
     assert!(
         stdout.contains("parameter placeholders and input fields"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("type: param id: emailFilter valueType: string nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Use nullable: true for T | null inputs; optional input properties are not supported"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Repeat the same Param id for optional filters; params follow marker occurrence order"
+        ),
         "stdout: {stdout}"
     );
     assert!(
