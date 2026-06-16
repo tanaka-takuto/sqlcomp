@@ -102,14 +102,31 @@ fn append_query_summaries(output: &mut String, summaries: &[app::QuerySummary]) 
     for summary in summaries {
         writeln!(
             output,
-            "  - {} ({}): {} {}",
+            "  - {} ({}): {}",
             summary.id(),
             display_source_path(summary.source_path()),
-            summary.param_count(),
-            pluralize(summary.param_count(), "param", "params")
+            format_parameter_summary(summary)
         )
         .expect("writing to String cannot fail");
     }
+}
+
+fn format_parameter_summary(summary: &app::QuerySummary) -> String {
+    if summary.param_count() == 0 {
+        return "no parameters".to_owned();
+    }
+
+    format!(
+        "{} {}, {} {}",
+        summary.param_count(),
+        pluralize(
+            summary.param_count(),
+            "parameter placeholder",
+            "parameter placeholders"
+        ),
+        summary.input_field_count(),
+        pluralize(summary.input_field_count(), "input field", "input fields")
+    )
 }
 
 fn display_source_path(path: Option<&Path>) -> String {
@@ -136,11 +153,13 @@ mod tests {
                     "listUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
                     0,
+                    0,
                 ),
                 app::QuerySummary::new(
-                    "findUser".to_owned(),
+                    "filterUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
-                    1,
+                    3,
+                    2,
                 ),
             ],
         ));
@@ -152,8 +171,12 @@ mod tests {
         assert!(summary.contains("Compiled 2 queries."));
         assert!(summary.contains("Output dir: /tmp/project/src/generated/sqlcomp"));
         assert!(summary.contains("No files written."));
-        assert!(summary.contains("- listUsers (sql/users.sql): 0 params"));
-        assert!(summary.contains("- findUser (sql/users.sql): 1 param"));
+        assert!(summary.contains("- listUsers (sql/users.sql): no parameters"));
+        assert!(
+            summary.contains(
+                "- filterUsers (sql/users.sql): 3 parameter placeholders, 2 input fields"
+            )
+        );
     }
 
     #[test]
@@ -165,6 +188,7 @@ mod tests {
             vec![app::QuerySummary::new(
                 "listUsers".to_owned(),
                 Some(PathBuf::from("sql/users.sql")),
+                0,
                 0,
             )],
             vec![PathBuf::from(
@@ -182,6 +206,6 @@ mod tests {
         assert!(summary.contains("Removed 1 stale generated file."));
         assert!(summary.contains("Generated files:"));
         assert!(summary.contains("- /tmp/project/src/generated/sqlcomp/sql/users.ts"));
-        assert!(summary.contains("- listUsers (sql/users.sql): 0 params"));
+        assert!(summary.contains("- listUsers (sql/users.sql): no parameters"));
     }
 }

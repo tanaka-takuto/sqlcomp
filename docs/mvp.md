@@ -51,13 +51,15 @@ boundary, output path preservation, and conservative TypeScript type mapping.
 
 After a successful `sqlcomp check`, the CLI prints that the check passed, the number
 of matched SQL files, the compiled query count, the configured output directory,
-that no files were written, and per-query parameter counts.
+that no files were written, and per-query parameter placeholder and input field
+counts when a query has parameters.
 
 After a successful `sqlcomp compile`, the CLI prints the number of matched SQL
 files, the compiled query count, how many files were generated or updated, the
-configured output directory, generated file paths, and per-query parameter counts.
-When `--clean` runs, the success summary also includes how many stale generated
-files were removed.
+configured output directory, generated file paths, and per-query parameter
+placeholder and input field counts when a query has parameters. When `--clean`
+runs, the success summary also includes how many stale generated files were
+removed.
 
 After a successful `sqlcomp init`, the CLI prints the created config filename, a
 `DATABASE_URL=... sqlcomp check` next command example, and a minimal

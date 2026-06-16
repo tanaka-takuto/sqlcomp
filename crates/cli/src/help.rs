@@ -62,7 +62,7 @@ Behavior:
   Reads the database URL from the environment variable named by database.urlEnv.
   No files are written.
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
-  The success summary reports matched SQL files, compiled queries, output.dir, and per-query params such as 0 params.
+  The success summary reports matched SQL files, compiled queries, output.dir, and per-query parameter placeholders and input fields.
 
 Options:
   -h, --help         Print this help.

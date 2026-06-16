@@ -155,16 +155,23 @@ pub struct QuerySummary {
     id: String,
     source_path: Option<PathBuf>,
     param_count: usize,
+    input_field_count: usize,
 }
 
 impl QuerySummary {
     /// Build query-level summary data.
     #[must_use]
-    pub const fn new(id: String, source_path: Option<PathBuf>, param_count: usize) -> Self {
+    pub const fn new(
+        id: String,
+        source_path: Option<PathBuf>,
+        param_count: usize,
+        input_field_count: usize,
+    ) -> Self {
         Self {
             id,
             source_path,
             param_count,
+            input_field_count,
         }
     }
 
@@ -180,10 +187,16 @@ impl QuerySummary {
         self.source_path.as_deref()
     }
 
-    /// Number of generated parameter bindings for this query.
+    /// Number of generated parameter bindings, matching SQL placeholder occurrences.
     #[must_use]
     pub const fn param_count(&self) -> usize {
         self.param_count
+    }
+
+    /// Number of public input fields generated for this query.
+    #[must_use]
+    pub const fn input_field_count(&self) -> usize {
+        self.input_field_count
     }
 
     fn from_compiled_query(query: &core::CompiledQuery) -> Self {
@@ -191,7 +204,40 @@ impl QuerySummary {
             query.id().as_str().to_owned(),
             query.source_path().map(Path::to_path_buf),
             query.params().len(),
+            query.input().len(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_summary_counts_param_placeholders_and_input_fields_separately() {
+        let query = core::CompiledQuery::new(
+            core::QueryId::new("filterUsers".to_owned()),
+            "SELECT id FROM users WHERE status = ? AND (email = ? OR email = ?);".to_owned(),
+            core::Cardinality::Many,
+            vec![
+                core::InputField::new("status".to_owned(), core::CoreType::String, false),
+                core::InputField::new("email".to_owned(), core::CoreType::String, false),
+            ],
+            Vec::new(),
+        )
+        .with_source_path("sql/users.sql")
+        .with_params(vec![
+            core::ParamBinding::new("status".to_owned(), core::CoreType::String, false),
+            core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
+            core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
+        ]);
+
+        let summary = QuerySummary::from_compiled_query(&query);
+
+        assert_eq!(summary.id(), "filterUsers");
+        assert_eq!(summary.source_path(), Some(Path::new("sql/users.sql")));
+        assert_eq!(summary.param_count(), 3);
+        assert_eq!(summary.input_field_count(), 2);
     }
 }
 

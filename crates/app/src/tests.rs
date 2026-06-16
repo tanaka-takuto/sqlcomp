@@ -102,6 +102,7 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
         [crate::QuerySummary::new(
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
+            0,
             0
         )]
     );
@@ -163,6 +164,7 @@ fn compile_writes_generated_files_from_the_shared_pipeline() {
         [crate::QuerySummary::new(
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
+            0,
             0
         )]
     );
