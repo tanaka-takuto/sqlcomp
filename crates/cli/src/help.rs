@@ -36,6 +36,12 @@ Directive boundary:
   Slot and Fragment are not currently supported.
 
 Param marker example:
+  /* @sqlcomp
+  {
+    type: query
+    id: listCustomersByFilter
+  }
+  */
   SELECT customers.id, customers.email
   FROM customers
   WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
@@ -43,7 +49,19 @@ Param marker example:
     /* @sqlcomp { type: paramEnd } */
     OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL);
+    /* @sqlcomp { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      '2026-01-01 00:00:00'
+      /* @sqlcomp { type: paramEnd } */
+      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      NULL
+      /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Generated TypeScript input:
+  export type listCustomersByFilter_Input = {
+    emailFilter: string | null;
+    createdBefore: string | null;
+  };
 
 Param metadata:
   valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.
@@ -80,6 +98,12 @@ Behavior:
   The success summary reports matched SQL files, compiled queries, output.dir, and per-query parameter placeholders and input fields.
 
 Param marker example:
+  /* @sqlcomp
+  {
+    type: query
+    id: listCustomersByFilter
+  }
+  */
   SELECT customers.id, customers.email
   FROM customers
   WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
@@ -87,7 +111,19 @@ Param marker example:
     /* @sqlcomp { type: paramEnd } */
     OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL);
+    /* @sqlcomp { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      '2026-01-01 00:00:00'
+      /* @sqlcomp { type: paramEnd } */
+      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      NULL
+      /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Generated TypeScript input:
+  export type listCustomersByFilter_Input = {
+    emailFilter: string | null;
+    createdBefore: string | null;
+  };
 
 Param metadata:
   valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.
@@ -118,6 +154,12 @@ Behavior:
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:
+  /* @sqlcomp
+  {
+    type: query
+    id: listCustomersByFilter
+  }
+  */
   SELECT customers.id, customers.email
   FROM customers
   WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
@@ -125,7 +167,19 @@ Param marker example:
     /* @sqlcomp { type: paramEnd } */
     OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL);
+    /* @sqlcomp { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      '2026-01-01 00:00:00'
+      /* @sqlcomp { type: paramEnd } */
+      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      NULL
+      /* @sqlcomp { type: paramEnd } */ IS NULL);
+
+Generated TypeScript input:
+  export type listCustomersByFilter_Input = {
+    emailFilter: string | null;
+    createdBefore: string | null;
+  };
 
 Param metadata:
   valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json.

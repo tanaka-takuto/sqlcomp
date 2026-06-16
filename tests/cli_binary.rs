@@ -98,6 +98,18 @@ fn no_args_prints_top_level_help() {
         "stdout: {stdout}"
     );
     assert!(
+        stdout.contains("id: listCustomersByFilter"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("type: param id: createdBefore valueType: datetime nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("createdBefore: string | null;"),
+        "stdout: {stdout}"
+    );
+    assert!(
         stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
         "stdout: {stdout}"
     );
@@ -198,6 +210,18 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
+        stdout.contains("id: listCustomersByFilter"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("type: param id: createdBefore valueType: datetime nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("createdBefore: string | null;"),
+        "stdout: {stdout}"
+    );
+    assert!(
         stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
         "stdout: {stdout}"
     );
@@ -247,6 +271,18 @@ fn compile_help_describes_output_writing_and_clean() {
     );
     assert!(
         stdout.contains("type: param id: emailFilter valueType: string nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("id: listCustomersByFilter"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("type: param id: createdBefore valueType: datetime nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("createdBefore: string | null;"),
         "stdout: {stdout}"
     );
     assert!(
