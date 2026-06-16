@@ -59,6 +59,24 @@ const INVALID_SOURCE_CONFIG: &str = r#"
 }
 "#;
 
+const NESTED_CONFIG_WITH_PARENT_INCLUDE: &str = r#"
+{
+  "source": {
+    "include": ["../sql/**/*.sql"]
+  },
+  "output": {
+    "dir": "generated"
+  },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "SQLCOMP_TEST_DATABASE_URL"
+  },
+  "target": {
+    "language": "typescript"
+  }
+}
+"#;
+
 #[test]
 fn no_args_prints_top_level_help() {
     let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
@@ -88,6 +106,16 @@ fn no_args_prints_top_level_help() {
     );
     assert!(stdout.contains("ordinary SQL comments"), "stdout: {stdout}");
     assert!(stdout.contains("raw `?` placeholders"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("source.include paths must stay inside the config directory"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+        ),
+        "stdout: {stdout}"
+    );
     assert!(stdout.contains("Query metadata:"), "stdout: {stdout}");
     assert!(
         stdout.contains("use paired @sqlcomp Param markers around a sample expression"),
@@ -202,6 +230,16 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
+        stdout.contains("source.include paths must stay inside the config directory"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
         stdout.contains("parameter placeholders and input fields"),
         "stdout: {stdout}"
     );
@@ -263,6 +301,16 @@ fn compile_help_describes_output_writing_and_clean() {
     assert!(stdout.contains("stale generated files"), "stdout: {stdout}");
     assert!(
         stdout.contains("preserves each input SQL path"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("source.include paths must stay inside the config directory"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+        ),
         "stdout: {stdout}"
     );
     assert!(
@@ -352,6 +400,71 @@ fn check_discovers_config_from_nested_child_directory() {
     );
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn check_explains_config_relative_source_include_boundary() {
+    let project_dir = unique_temp_dir("sqlcomp-cli-source-boundary");
+    let configs_dir = project_dir.join("configs");
+    let sql_dir = project_dir.join("sql").join("qa");
+    std::fs::create_dir_all(&configs_dir).expect("temp config dir should be created");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
+    let config_path = configs_dir.join("sqlcomp.qa.json");
+    let sql_path = sql_dir.join("order_nullable_probe.sql");
+    std::fs::write(&config_path, NESTED_CONFIG_WITH_PARENT_INCLUDE)
+        .expect("nested config should be written");
+    std::fs::write(
+        &sql_path,
+        r"
+/* @sqlcomp
+{
+  type: query
+  id: orderNullableProbe
+}
+*/
+SELECT 1;
+"
+        .strip_prefix('\n')
+        .expect("raw SQL fixture should start with a newline"),
+    )
+    .expect("temp SQL should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+        .args(["check", "--config"])
+        .arg(&config_path)
+        .current_dir(&project_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlcomp check should run");
+
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("source file"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("is outside the configuration directory"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("source.include paths are resolved from the config file directory and must stay inside it"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Move sqlcomp.config.json to a common project root when SQL lives in sibling directories"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "generated paths can be preserved relative to that directory under output.dir"
+        ),
+        "stderr: {stderr}"
+    );
+
+    std::fs::remove_dir_all(project_dir).expect("temp config tree should be removed");
 }
 
 #[test]

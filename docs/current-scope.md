@@ -17,6 +17,8 @@ where near-term work should point. The original MVP remains documented in
 - `sqlcomp.config.json` project configuration, discovered from the working
   directory upward when `--config` is omitted. For `check` and `compile`, an
   explicit config path is accepted before the command or as a command option.
+- `source.include` and `source.exclude` paths resolved from the configuration
+  directory, with matched SQL files required to stay inside that directory.
 - `init`, `check`, and `compile` CLI commands.
 - SELECT value binding with paired inline `Param` markers as defined by
   [ADR 0008](./adr/0008-define-select-param-support.md).
@@ -77,6 +79,11 @@ The near-term direction is to stabilize the current SELECT builder workflow:
   coverage for the supported workflow.
 
 Larger expansions should be captured in ADRs before implementation.
+
+Configuration placement matters for generated path preservation. If SQL files live
+in a sibling directory such as `sql/` next to `configs/`, place
+`sqlcomp.config.json` at the common project root instead of including `../sql/**`
+from a nested config file.
 
 The initial SELECT `Slot`/`Fragment` design is captured in
 [ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md). It remains

@@ -124,6 +124,8 @@ Responsibilities:
 - validate the supported values for source, output, database, and target
   settings.
 - resolve source and output paths relative to the configuration file directory.
+- require matched source files to remain inside the configuration directory, so
+  output paths can be derived relative to one stable project root.
 - read the database URL from the process environment using `database.urlEnv`.
 
 The CLI does not implicitly load `.env` files.
@@ -139,6 +141,11 @@ Responsibilities:
 - keep each input file path relative to the configuration file directory.
 - carry the resolved output directory.
 - carry the database URL and target selection for downstream components.
+
+Projects with SQL files in sibling directories should place `sqlcomp.config.json`
+at their common root. A nested config such as `configs/sqlcomp.qa.json` cannot use
+`../sql/**/*.sql` to pull sources from outside the config directory without
+breaking the config-relative output path model.
 
 ## Source Intake
 
