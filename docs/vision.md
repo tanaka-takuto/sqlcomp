@@ -31,28 +31,33 @@ to generated code, the user should choose a suitable name in the source query.
 ### Static Type Safety
 
 Generated code should represent database result metadata in the target language's
-type system. For the MVP, this means generating TypeScript types for MySQL `SELECT`
-result rows.
+type system. The current supported target generates TypeScript types for MySQL
+`SELECT` result rows and typed input values for supported `Param` markers.
 
 When metadata is uncertain, generated types should be conservative rather than
 overconfident. For example, unknown nullability should be treated as nullable.
 
 ### Minimal Runtime Surface
 
-Generated code should have a small runtime surface. The MVP generates SQL builder
-functions that return SQL text and parameters. It does not execute queries or require
-a database driver in generated TypeScript code.
+Generated code should have a small runtime surface. The current TypeScript target
+generates SQL builder functions that return SQL text and parameters. It does not
+execute queries or require a database driver in generated TypeScript code.
 
 ### Flat Result Mapping
 
-Rows are mapped directly to language-level object types. The MVP does not generate
-nested object graphs or ORM-style models.
+Rows are mapped directly to language-level object types. `sqlcomp` does not
+generate nested object graphs or ORM-style models.
 
-## Non-Goals for the MVP
+## Current Boundaries
 
-The MVP does not implement dynamic SQL composition, `Param`, `Slot`, or `Fragment`.
-Those concepts remain part of the long-term design, but the first implementation is
-limited to query metadata, result type extraction, and TypeScript SQL builder output.
+The current implementation supports query metadata, result type extraction, SELECT
+value binding through inline `Param` markers, and TypeScript SQL builder output.
+`Slot` and `Fragment` remain part of the long-term design but are not currently
+supported.
+
+Non-SELECT statements, generated database execution functions, additional SQL
+dialects, and additional target generators require separate design decisions before
+implementation.
 
 Future `Slot` design should use `targets: [...]` rather than a single `target`, so
 exclusive choices and single choices can share one representation.

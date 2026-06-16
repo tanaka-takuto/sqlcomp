@@ -134,7 +134,7 @@ impl DatabaseConfig {
     }
 }
 
-/// Supported MVP database dialects.
+/// Supported database dialects.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DatabaseDialect {
     /// Official `MySQL` 8.x.
@@ -171,7 +171,7 @@ impl TargetConfig {
     }
 }
 
-/// Supported MVP target languages.
+/// Supported target languages.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetLanguage {
     /// `TypeScript` SQL builder generation.

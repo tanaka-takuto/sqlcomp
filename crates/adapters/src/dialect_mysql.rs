@@ -191,7 +191,7 @@ fn unsupported_statement_error(
     query_error(
         query,
         format!(
-            "unsupported SQL statement `{}`; MVP only supports SELECT queries",
+            "unsupported SQL statement `{}`; supported statement kind is `SELECT`",
             statement_keyword(statement)
         ),
     )
@@ -489,7 +489,7 @@ SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1 FROM
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "unsupported SQL statement `VALUES`; MVP only supports SELECT queries"
+            "unsupported SQL statement `VALUES`; supported statement kind is `SELECT`"
         );
     }
 
@@ -498,7 +498,9 @@ SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1 FROM
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            format!("unsupported SQL statement `{statement}`; MVP only supports SELECT queries")
+            format!(
+                "unsupported SQL statement `{statement}`; supported statement kind is `SELECT`"
+            )
         );
     }
 

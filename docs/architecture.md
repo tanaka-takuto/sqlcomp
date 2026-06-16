@@ -4,8 +4,9 @@
 explicit intermediate representations. The components are named by responsibility so
 their database and target-language dependencies stay visible.
 
-The authoritative product rules live in [Vision](./vision.md), and the current MVP
-boundary lives in [MVP](./mvp.md).
+The authoritative product rules live in [Vision](./vision.md), and the active
+supported scope lives in [Current Scope](./current-scope.md). The completed initial
+MVP baseline is recorded in [Initial MVP Baseline](./mvp.md).
 
 ## Crate Layout
 
@@ -83,7 +84,7 @@ generators map the Core IR into language-specific code.
 
 ## Diagnostics and Errors
 
-Components that can fail with user-facing MVP errors return shared diagnostic
+Components that can fail with user-facing errors return shared diagnostic
 primitives from `sqlcomp-core` instead of formatting final CLI output themselves.
 Diagnostics carry a human-readable message and may include file path and one-based
 source location context when that information is available.
@@ -102,7 +103,7 @@ The CLI crate is also the composition root. It may depend on `sqlcomp-app`,
 `sqlcomp-core`, and all concrete adapter crates. No inner crate may depend on the
 CLI crate.
 
-For the MVP, the command surface is:
+The supported command surface is:
 
 - `init` writes a starter `sqlcomp.config.json`.
 - `check` runs the full compile pipeline without writing generated files.
@@ -120,12 +121,12 @@ Responsibilities:
 - find `sqlcomp.config.json` from the current working directory upward when
   `--config` is not provided.
 - parse JSON with comments and trailing commas allowed.
-- validate the supported MVP values for source, output, database, and target
+- validate the supported values for source, output, database, and target
   settings.
 - resolve source and output paths relative to the configuration file directory.
 - read the database URL from the process environment using `database.urlEnv`.
 
-The CLI does not implicitly load `.env` files in the MVP.
+The CLI does not implicitly load `.env` files.
 
 ## Compilation Plan
 
@@ -171,7 +172,7 @@ The canonical query annotation form is:
 SELECT id, name FROM users;
 ```
 
-For the MVP:
+For query annotations:
 
 - `type: query` is required.
 - `id` is required and is never inferred.
@@ -180,8 +181,8 @@ For the MVP:
 - `cardinality` is optional and may override compiler inference.
 - one SQL file may contain multiple query annotations.
 
-For post-MVP SELECT `Param` intake, `type: query` remains the only annotation that
-starts a new query block. Inline `type: param` and `type: paramEnd` annotations are
+For SELECT `Param` intake, `type: query` remains the only annotation that starts a
+new query block. Inline `type: param` and `type: paramEnd` annotations are
 recognized inside query bodies as defined by
 [ADR 0008](./adr/0008-define-select-param-support.md).
 
@@ -190,13 +191,13 @@ recognized inside query bodies as defined by
 The Dialect Analyzer interprets a `RawQuery` as SQL for one configured database
 dialect.
 
-For the MVP, the only dialect analyzer is MySQL 8.x.
+The currently supported dialect analyzer is MySQL 8.x.
 
 Responsibilities:
 
 - parse the raw SQL according to dialect rules.
 - reject unsupported statement forms.
-- verify that each MVP query block contains exactly one `SELECT` statement.
+- verify that each query block contains exactly one `SELECT` statement.
 - infer dialect-dependent query facts such as `LIMIT 1` cardinality.
 - produce `AnalyzedQuery` without target-language concerns.
 
@@ -207,20 +208,16 @@ branching inside target generators.
 
 The Metadata Provider obtains database metadata for an analyzed query.
 
-For the MVP, the provider connects to MySQL 8.x and derives result column metadata
-without executing user data queries. The default Rust database client is `sqlx`,
-pending implementation validation. If `sqlx` cannot expose the required MySQL
-statement and column metadata, the project should record a follow-up ADR before
-changing the client.
+The provider connects to MySQL 8.x and derives result column metadata without
+executing user data queries. The Rust database client is `sqlx`.
 
 Responsibilities:
 
 - connect to the configured database.
 - describe a query without fetching user data.
 - return database-native column names, database types, and nullability metadata.
-- for post-MVP SELECT `Param` support, read current-database
-  `information_schema.columns` metadata used for direct column-context input type
-  inference.
+- for SELECT `Param` support, read current-database `information_schema.columns`
+  metadata used for direct column-context input type inference.
 
 See also:
 
@@ -229,7 +226,7 @@ See also:
 
 ## Application Use Cases and Ports
 
-Application use cases coordinate the MVP workflow and own the port traits that
+Application use cases coordinate the supported workflow and own the port traits that
 adapters implement.
 
 Responsibilities:
@@ -312,7 +309,7 @@ Core metadata should be conservative:
 - database nullability metadata is used when available.
 - unknown nullability maps to nullable output.
 - precision-sensitive types such as `BIGINT`, `DECIMAL`, and date/time values should
-  avoid lossy JavaScript conversions in the MVP target generator.
+  avoid lossy JavaScript conversions in the TypeScript target generator.
 
 ## Target Generator
 
@@ -321,8 +318,8 @@ should not parse or reinterpret database-specific SQL syntax. The SQL text insid
 generated file may be MySQL or another dialect, but the generator treats that SQL as
 validated text carried by the Core IR.
 
-The MVP target generator emits TypeScript SQL builder code. Generated code returns
-SQL text and parameter arrays, not database execution behavior.
+The supported target generator emits TypeScript SQL builder code. Generated code
+returns SQL text and parameter arrays, not database execution behavior.
 
 Generated TypeScript is emitted per SQL file while preserving the input path
 relative to the directory containing `sqlcomp.config.json`. If one SQL file
@@ -355,13 +352,13 @@ export function listUsers(
 Generated SQL must be emitted as a valid JavaScript string literal. The TypeScript
 target generator should escape the SQL text rather than embedding raw SQL in an
 unescaped template literal, because MySQL backtick identifiers and SQL text
-containing `${...}` must not break generated TypeScript. MVP examples use ordinary
+containing `${...}` must not break generated TypeScript. Examples use ordinary
 double-quoted string literals; multiline SQL may use any representation that is
 semantically equivalent after JavaScript string escaping.
 
-Generated files include a generated-code header. The MVP treats the configured
-output directory as generated output and overwrites same-path files during
-`compile`. Stale generated files are removed only when `compile --clean` is used.
+Generated files include a generated-code header. `compile` treats the configured
+output directory as generated output and overwrites same-path files. Stale generated
+files are removed only when `compile --clean` is used.
 
 ## Development and Integration Checks
 

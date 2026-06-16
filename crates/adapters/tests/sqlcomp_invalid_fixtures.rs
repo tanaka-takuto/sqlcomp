@@ -39,7 +39,7 @@ fn invalid_sql_shape_fixtures_fail_during_dialect_analysis() {
     );
     assert_analysis_error_contains(
         NON_SELECT,
-        "unsupported SQL statement `INSERT`; MVP only supports SELECT queries",
+        "unsupported SQL statement `INSERT`; supported statement kind is `SELECT`",
     );
 }
 

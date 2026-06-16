@@ -24,7 +24,7 @@ Minimal query annotation:
   */
   SELECT id, name FROM users;
 
-MVP query metadata:
+Query metadata:
   type: query is required.
   id is required and must match ^[A-Za-z_][A-Za-z0-9_]*$.
   cardinality is optional: one or many. cardinality: exec is rejected.
@@ -32,8 +32,8 @@ MVP query metadata:
 Directive boundary:
   Compiler directives are @sqlcomp Hjson block comments.
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
-  Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers when dynamic inputs are supported.
-  Slot and Fragment are future work.
+  Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers around a sample expression.
+  Slot and Fragment are not currently supported.
 ";
 
 pub const INIT_HELP: &str = "\

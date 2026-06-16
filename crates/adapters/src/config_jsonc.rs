@@ -66,7 +66,7 @@ impl JsoncConfigLoader {
     /// # Errors
     ///
     /// Returns diagnostics when the content cannot be parsed as JSONC or when
-    /// required MVP fields are missing or unsupported.
+    /// required fields are missing or unsupported.
     pub fn parse_str(source: &str) -> core::DiagnosticResult<core::ProjectConfig> {
         parse_config(source, None, Path::new(".").to_path_buf())
     }
@@ -77,7 +77,7 @@ impl JsoncConfigLoader {
     /// # Errors
     ///
     /// Returns diagnostics when the content cannot be parsed as JSONC or when
-    /// required MVP fields are missing or unsupported.
+    /// required fields are missing or unsupported.
     pub fn parse_str_from_dir(
         source: &str,
         config_dir: impl Into<PathBuf>,
@@ -351,7 +351,7 @@ fn validate_database_dialect(
         push_error(
             diagnostics,
             format!(
-                "unsupported config field `database.dialect` value `{value}`; supported MVP value is `mysql`"
+                "unsupported config field `database.dialect` value `{value}`; supported value is `mysql`"
             ),
             location,
         );
@@ -370,7 +370,7 @@ fn validate_target_language(
         push_error(
             diagnostics,
             format!(
-                "unsupported config field `target.language` value `{value}`; supported MVP value is `typescript`"
+                "unsupported config field `target.language` value `{value}`; supported value is `typescript`"
             ),
             location,
         );
@@ -703,11 +703,11 @@ mod tests {
         let messages = diagnostic_messages(&report);
 
         assert!(
-            messages.contains("unsupported config field `database.dialect` value `postgres`; supported MVP value is `mysql`")
+            messages.contains("unsupported config field `database.dialect` value `postgres`; supported value is `mysql`")
         );
-        assert!(
-            messages.contains("unsupported config field `target.language` value `go`; supported MVP value is `typescript`")
-        );
+        assert!(messages.contains(
+            "unsupported config field `target.language` value `go`; supported value is `typescript`"
+        ));
     }
 
     #[test]

@@ -98,8 +98,9 @@ async fn describe_query_metadata(
 
     let param_usages = describe_param_usages(&mut connection, query).await?;
 
-    // The dialect analyzer has already accepted this query as the MVP's single
-    // SELECT statement shape. sqlx requires the assertion for dynamic SQL text.
+    // The dialect analyzer has already accepted this query as the supported
+    // single-SELECT statement shape. sqlx requires the assertion for dynamic SQL
+    // text.
     let description = connection
         .describe(AssertSqlSafe(query.analysis_sql().to_owned()).into_sql_str())
         .await

@@ -73,7 +73,7 @@ impl CompiledQuery {
         self.source_path.as_deref()
     }
 
-    /// Input fields for the query. MVP queries have an empty input list.
+    /// Input fields for the query. Queries without params have an empty input list.
     #[must_use]
     pub fn input(&self) -> &[InputField] {
         &self.input
@@ -234,7 +234,7 @@ mod tests {
     use crate::{Cardinality, CompiledQuery, CoreType, QueryId, ResultColumn};
 
     #[test]
-    fn compiled_query_represents_empty_mvp_input_and_result_columns() {
+    fn compiled_query_represents_empty_paramless_input_and_result_columns() {
         let query = CompiledQuery::new(
             QueryId::new("listUsers".to_owned()),
             "SELECT id, name FROM users;".to_owned(),

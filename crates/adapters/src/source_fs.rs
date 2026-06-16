@@ -680,12 +680,12 @@ fn parse_cardinality(
         "one" => Ok(Some(core::Cardinality::One)),
         "many" => Ok(Some(core::Cardinality::Many)),
         "exec" => Err(metadata_error(
-            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP",
+            "`cardinality: exec` is reserved for future non-SELECT support and is not currently supported",
             block.payload_range(),
         )),
         _ => Err(metadata_error(
             format!(
-                "unsupported query cardinality `{raw_cardinality}`; supported MVP values are `one` and `many`"
+                "unsupported query cardinality `{raw_cardinality}`; supported values are `one` and `many`"
             ),
             block.payload_range(),
         )),
@@ -2068,7 +2068,7 @@ SELECT id FROM users;
     }
 
     #[test]
-    fn rejects_exec_cardinality_reserved_for_future_mvp_work() {
+    fn rejects_exec_cardinality_reserved_for_future_statement_support() {
         let source = r"
 /* @sqlcomp
 {
@@ -2091,7 +2091,7 @@ SELECT id FROM users;
 
         assert_eq!(
             diagnostic.message(),
-            "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP"
+            "`cardinality: exec` is reserved for future non-SELECT support and is not currently supported"
         );
         assert!(diagnostic.location().is_some());
     }
@@ -2120,7 +2120,7 @@ SELECT id FROM users;
 
         assert_eq!(
             diagnostic.message(),
-            "unsupported query cardinality `maybe`; supported MVP values are `one` and `many`"
+            "unsupported query cardinality `maybe`; supported values are `one` and `many`"
         );
         assert!(diagnostic.location().is_some());
     }
@@ -3016,7 +3016,7 @@ SELECT id FROM archived_users;
         assert_eq!(
             diagnostic_messages(&report),
             [
-                "`cardinality: exec` is reserved for future non-SELECT support and is not supported in the MVP",
+                "`cardinality: exec` is reserved for future non-SELECT support and is not currently supported",
                 "duplicate query id `listUsers`; query IDs must be unique across the full compile run",
                 "first declared here",
             ]

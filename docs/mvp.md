@@ -1,12 +1,16 @@
-# MVP
+# Initial MVP Baseline
 
-The first `sqlcomp` implementation is intentionally small. It should prove the full
+This document records the completed initial MVP baseline. It is historical context,
+not the active scope boundary. For the current supported capability set and
+near-term direction, see [Current Scope](./current-scope.md).
+
+The first `sqlcomp` implementation was intentionally small. It proved the full
 compile path from SQL files to typed TypeScript SQL builders without implementing
 dynamic query composition.
 
 ## Scope
 
-The MVP supports:
+The initial MVP supported:
 
 - MySQL 8.x.
 - TypeScript generation.
@@ -19,7 +23,7 @@ The MVP supports:
 - output TypeScript files generated per SQL file while preserving
   config-file-relative directory structure.
 
-The MVP does not support:
+The initial MVP did not support:
 
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, or multi-statement query blocks.
 - `Param`, `Slot`, or `Fragment`.
@@ -30,7 +34,7 @@ The MVP does not support:
 
 ## CLI Workflow
 
-The MVP exposes three commands:
+The initial MVP exposed three commands:
 
 - `sqlcomp init` creates a `sqlcomp.config.json` template and refuses to overwrite
   an existing config file.
@@ -41,7 +45,7 @@ The MVP exposes three commands:
 Running `sqlcomp` with no arguments prints top-level help and exits successfully.
 `sqlcomp init --help`, `sqlcomp check --help`, and `sqlcomp compile --help` print
 command-specific help with concise examples. Help should show a minimal
-`@sqlcomp` query annotation, supported MVP query metadata keys, the distinction
+`@sqlcomp` query annotation, supported query metadata keys, the distinction
 between `@sqlcomp` Hjson directives and ordinary SQL comments, the raw placeholder
 boundary, output path preservation, and conservative TypeScript type mapping.
 
@@ -68,7 +72,7 @@ directory upward for `sqlcomp.config.json`.
 ## Configuration
 
 `sqlcomp.config.json` is parsed as JSON with comments and trailing commas allowed.
-The MVP configuration shape is:
+The initial configuration shape was:
 
 ```jsonc
 {
@@ -89,7 +93,7 @@ The MVP configuration shape is:
 }
 ```
 
-For the MVP, `source.include`, `output.dir`, `database.dialect`,
+For the initial MVP, `source.include`, `output.dir`, `database.dialect`,
 `database.urlEnv`, and `target.language` are required. `source.exclude` is
 optional.
 
@@ -141,16 +145,16 @@ Valid IDs must match:
 
 `cardinality` is optional.
 
-MVP cardinality inference:
+Initial cardinality inference:
 
 - `SELECT ... LIMIT 1` infers `one`.
 - other `SELECT` statements infer `many`.
 - `one` means `Row | null`.
 - `many` means `Row[]`.
-- `exec` is reserved for future non-SELECT support and must be rejected in the MVP.
+- `exec` is reserved for future non-SELECT support and was rejected.
 
 An explicit `cardinality` value overrides inference when the value is supported by
-the MVP.
+the compiler.
 
 Query IDs must be unique across the full compile run, not only within a single SQL
 file.
@@ -195,11 +199,11 @@ export function listUsers(
 }
 ```
 
-The `input` parameter exists to keep the public shape stable for future `Param`
-support. In the MVP, generated functions should name the unused parameter `_input`
-so projects with `noUnusedParameters` enabled can type-check generated code. Query
-inputs are always `Record<string, never>`, and `params` is always an empty readonly
-tuple.
+The `input` parameter existed to keep the public shape stable for future `Param`
+support. In the initial MVP, generated functions named the unused parameter `_input`
+so projects with `noUnusedParameters` enabled could type-check generated code.
+Query inputs were always `Record<string, never>`, and `params` was always an empty
+readonly tuple.
 
 Generated SQL must be emitted as a valid JavaScript string literal. The generator
 must escape SQL text instead of copying raw SQL into an unescaped template literal,
@@ -228,7 +232,7 @@ The implementation should cover these scenarios:
 - `LIMIT 1` infers `one`.
 - ordinary `SELECT` infers `many`.
 - explicit `cardinality` overrides inference.
-- `cardinality: exec` is rejected in the MVP.
+- `cardinality: exec` is rejected.
 - included SQL files with SQL text but no `@sqlcomp` query annotations warn.
 - MySQL nullable metadata maps to `T | null`.
 - unknown nullability maps to `T | null`.

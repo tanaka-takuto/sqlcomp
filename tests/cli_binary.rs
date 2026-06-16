@@ -88,10 +88,23 @@ fn no_args_prints_top_level_help() {
     );
     assert!(stdout.contains("ordinary SQL comments"), "stdout: {stdout}");
     assert!(stdout.contains("raw `?` placeholders"), "stdout: {stdout}");
+    assert!(stdout.contains("Query metadata:"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("use paired @sqlcomp Param markers around a sample expression"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        !stdout.contains("MVP query metadata"),
+        "stdout should not describe current help as MVP-only: {stdout}"
+    );
+    assert!(
+        !stdout.contains("when dynamic inputs are supported"),
+        "stdout should not describe Param markers as future-only: {stdout}"
+    );
 }
 
 #[test]
-fn help_lists_mvp_commands() {
+fn help_lists_supported_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
         .arg("--help")
         .output()
@@ -510,13 +523,13 @@ fn check_reports_unsupported_config_before_pipeline_skeleton() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains(
-            "unsupported config field `database.dialect` value `postgres`; supported MVP value is `mysql`"
+            "unsupported config field `database.dialect` value `postgres`; supported value is `mysql`"
         ),
         "stderr: {stderr}"
     );
     assert!(
         stderr.contains(
-            "unsupported config field `target.language` value `go`; supported MVP value is `typescript`"
+            "unsupported config field `target.language` value `go`; supported value is `typescript`"
         ),
         "stderr: {stderr}"
     );

@@ -112,7 +112,7 @@ pub trait DialectAnalyzer {
     /// # Errors
     ///
     /// Returns diagnostics when SQL is invalid for the configured dialect or
-    /// outside the supported MVP statement shape.
+    /// outside the supported statement shape.
     fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery>;
 }
 

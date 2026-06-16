@@ -272,7 +272,7 @@ fn compile_clean_writes_generated_files_and_removes_stale_files() {
 }
 
 #[test]
-fn query_compiler_builds_core_ir_with_empty_mvp_input_and_result_columns() {
+fn query_compiler_builds_core_ir_with_empty_paramless_input_and_result_columns() {
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
         "SELECT id, name FROM users;".to_owned(),

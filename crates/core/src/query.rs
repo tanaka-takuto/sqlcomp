@@ -20,7 +20,7 @@ impl QueryId {
     }
 }
 
-/// Metadata parsed from an MVP `type: query` annotation.
+/// Metadata parsed from a `type: query` annotation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryMetadata {
     id: String,

@@ -3,14 +3,16 @@
 SQL Compose & Compile.
 
 `sqlcomp` is a Rust CLI for writing plain SQL files while generating typed target
-language builders. The current MVP focuses on MySQL 8.x `SELECT` queries and
-TypeScript SQL builder generation.
+language builders. The current supported workflow focuses on MySQL 8.x `SELECT`
+queries, inline `Param` value binding, and TypeScript SQL builder generation.
 
-See [`docs/vision.md`](./docs/vision.md),
-[`docs/architecture.md`](./docs/architecture.md), and
-[`docs/mvp.md`](./docs/mvp.md) for the product, architecture, and MVP decisions.
+See [`docs/current-scope.md`](./docs/current-scope.md),
+[`docs/vision.md`](./docs/vision.md), and
+[`docs/architecture.md`](./docs/architecture.md) for the active product direction
+and architecture. The completed initial MVP baseline remains in
+[`docs/mvp.md`](./docs/mvp.md).
 
-## MVP Usage
+## Usage
 
 Create the starter project configuration from the directory that should contain
 `sqlcomp.config.json`:
@@ -20,7 +22,7 @@ sqlcomp init
 ```
 
 `sqlcomp init` writes a starter `sqlcomp.config.json` and refuses to overwrite an
-existing config file. The starter config uses the MVP shape:
+existing config file. The starter config uses the supported project shape:
 
 ```json
 {
@@ -52,9 +54,10 @@ DATABASE_URL='mysql://user:password@host:3306/database' sqlcomp check
 ```
 
 `sqlcomp check` loads the config, reads SQL files, validates MySQL 8.x `SELECT`
-queries, looks up MySQL metadata, and builds generated TypeScript in memory without
-writing files. The database URL is read from the process environment variable named
-by `database.urlEnv`; the CLI does not implicitly load `.env` files.
+queries, resolves inline `Param` inputs, looks up MySQL metadata, and builds
+generated TypeScript in memory without writing files. The database URL is read from
+the process environment variable named by `database.urlEnv`; the CLI does not
+implicitly load `.env` files.
 
 Write generated TypeScript with:
 
@@ -69,10 +72,32 @@ relative to `sqlcomp.config.json`; for example, `sql/books.sql` generates
 overwrites same-path generated files. Use `sqlcomp compile --clean` to also remove
 stale managed generated files.
 
-Generated TypeScript includes a generated-code header, empty MVP input types,
-database-backed row and output types, and builder functions that return SQL text and
-an empty readonly `params` tuple. Generated code does not execute queries or depend
-on a database driver.
+Generated TypeScript includes a generated-code header, input types, database-backed
+row and output types, and builder functions that return SQL text plus a readonly
+`params` tuple. Generated code does not execute queries or depend on a database
+driver.
+
+Dynamic values are written with paired inline `Param` markers around sample SQL
+expressions:
+
+```sql
+/* @sqlcomp
+{
+  type: query
+  id: findBook
+}
+*/
+SELECT b.title
+FROM books AS b
+WHERE b.isbn = /* @sqlcomp { type: param id: isbn } */
+  '9780131103627'
+  /* @sqlcomp { type: paramEnd } */;
+```
+
+Raw `?` placeholders are not accepted in source SQL; use `Param` markers so the SQL
+file remains readable in database tools and the generated builder receives typed
+input. Param type inference uses qualified column context such as `b.isbn`; add a
+`valueType` override when a Param is not next to a supported qualified column.
 
 ## Local MySQL
 
