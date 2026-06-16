@@ -7,6 +7,8 @@ use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
+const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`";
+
 /// `MySQL` dialect analyzer backed by `sqlparser-rs`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MysqlDialectAnalyzer;
@@ -78,10 +80,7 @@ fn reject_unsupported_placeholders(
 
     let param_usage_count = query.param_usages().len();
     if param_usage_count == 0 {
-        return Err(query_error(
-            query,
-            "raw `?` placeholders are not supported; use inline Param markers",
-        ));
+        return Err(query_error(query, RAW_PLACEHOLDER_GUIDANCE));
     }
     if placeholder_count != param_usage_count {
         return Err(query_error(
@@ -372,7 +371,7 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "raw `?` placeholders are not supported; use inline Param markers"
+            "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`"
         );
     }
 

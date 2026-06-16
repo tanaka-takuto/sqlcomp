@@ -10,6 +10,7 @@ use sqlcomp_app::{SourceRead, SourceReader};
 use sqlcomp_core as core;
 
 const SQLCOMP_MARKER: &str = "@sqlcomp";
+const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`";
 const SUPPORTED_PARAM_VALUE_TYPES: [&str; 11] = [
     "bool", "int32", "int64", "float64", "decimal", "string", "bytes", "date", "time", "datetime",
     "json",
@@ -854,7 +855,7 @@ fn append_non_param_sql(
 fn reject_raw_placeholder(source: &str, start: usize, end: usize) -> core::DiagnosticResult<()> {
     if let Some(index) = first_placeholder_index(source, start, end) {
         return Err(metadata_error(
-            "raw `?` placeholders are not supported; use inline Param markers",
+            RAW_PLACEHOLDER_GUIDANCE,
             source_range_for_span(source, index, index + 1),
         ));
     }
@@ -960,8 +961,10 @@ impl SourceReader for FileSystemSourceReader {
         let mut queries = Vec::new();
         let mut diagnostics = core::DiagnosticReport::default();
         let mut fatal_diagnostics = core::DiagnosticReport::default();
+        let source_files = discover_source_files(plan)?;
+        let source_file_count = source_files.len();
 
-        for path in discover_source_files(plan)? {
+        for path in source_files {
             let Some(source_path) = plan.source_relative_path(&path) else {
                 extend_diagnostics(
                     &mut fatal_diagnostics,
@@ -1024,7 +1027,7 @@ impl SourceReader for FileSystemSourceReader {
             return Err(fatal_diagnostics);
         }
 
-        Ok(SourceRead::new(queries, diagnostics))
+        Ok(SourceRead::new(queries, diagnostics).with_source_file_count(source_file_count))
     }
 }
 
@@ -2352,7 +2355,7 @@ SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email valueType
 */
 SELECT id FROM users WHERE email = ?;
 ",
-                "raw `?` placeholders are not supported; use inline Param markers",
+                "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`",
             ),
             (
                 r"
@@ -2615,6 +2618,7 @@ SELECT id FROM users WHERE id = 1;
             .expect("included SQL file should be read");
         let queries = source_read.queries();
 
+        assert_eq!(source_read.source_file_count(), 1);
         assert_eq!(queries.len(), 2);
         assert_eq!(queries[0].metadata().id(), "listUsers");
         assert_eq!(queries[0].metadata().cardinality(), None);

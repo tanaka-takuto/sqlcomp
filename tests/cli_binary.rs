@@ -79,6 +79,15 @@ fn no_args_prints_top_level_help() {
     assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
     assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
     assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
+    assert!(stdout.contains("/* @sqlcomp"), "stdout: {stdout}");
+    assert!(stdout.contains("type: query"), "stdout: {stdout}");
+    assert!(stdout.contains("id: listUsers"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("cardinality: one | many"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("ordinary SQL comments"), "stdout: {stdout}");
+    assert!(stdout.contains("raw `?` placeholders"), "stdout: {stdout}");
 }
 
 #[test]
@@ -142,6 +151,12 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(stdout.contains("database.urlEnv"), "stdout: {stdout}");
+    assert!(stdout.contains("No files are written"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("preserves each input SQL path"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("0 params"), "stdout: {stdout}");
 }
 
 #[test]
@@ -166,6 +181,14 @@ fn compile_help_describes_output_writing_and_clean() {
     );
     assert!(stdout.contains("--clean"), "stdout: {stdout}");
     assert!(stdout.contains("stale generated files"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("preserves each input SQL path"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("BIGINT, DECIMAL, date/time, and enum values map conservatively"),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -283,9 +306,12 @@ fn check_does_not_warn_for_empty_or_comment_only_sql_files() {
 #[test]
 fn check_prints_success_summary_without_implying_writes() {
     let config_dir = unique_temp_dir("sqlcomp-cli-check-success-summary");
-    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    let sql_dir = config_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
     std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
         .expect("temp config should be written");
+    std::fs::write(sql_dir.join("notes.sql"), "-- comment only\n")
+        .expect("comment-only SQL should be written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
         .arg("check")
@@ -299,10 +325,22 @@ fn check_prints_success_summary_without_implying_writes() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "Check passed. No files written.\n"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Check passed."), "stdout: {stdout}");
+    assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
+    assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(
+        stdout.contains(&format!(
+            "Output dir: {}",
+            std::fs::canonicalize(&config_dir)
+                .expect("config dir should canonicalize")
+                .join("src/generated/sqlcomp")
+                .display()
+        )),
+        "stdout: {stdout}"
     );
+    assert!(stdout.contains("No files written."), "stdout: {stdout}");
+    assert!(stdout.contains("Queries: none."), "stdout: {stdout}");
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
 }
@@ -310,9 +348,12 @@ fn check_prints_success_summary_without_implying_writes() {
 #[test]
 fn compile_prints_generated_or_updated_file_count() {
     let config_dir = unique_temp_dir("sqlcomp-cli-compile-success-summary");
-    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    let sql_dir = config_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
     std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
         .expect("temp config should be written");
+    std::fs::write(sql_dir.join("notes.sql"), "-- comment only\n")
+        .expect("comment-only SQL should be written");
 
     let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
         .arg("compile")
@@ -326,9 +367,27 @@ fn compile_prints_generated_or_updated_file_count() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "Compile succeeded. Generated or updated 0 files.\n"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compile succeeded."), "stdout: {stdout}");
+    assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
+    assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Generated or updated 0 files."),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(&format!(
+            "Output dir: {}",
+            std::fs::canonicalize(&config_dir)
+                .expect("config dir should canonicalize")
+                .join("src/generated/sqlcomp")
+                .display()
+        )),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("Generated files: none."),
+        "stdout: {stdout}"
     );
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
@@ -360,9 +419,15 @@ fn compile_clean_prints_removed_stale_generated_file_count() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "Compile succeeded. Generated or updated 0 files. Removed 1 stale generated file.\n"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Compile succeeded."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Generated or updated 0 files."),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("Removed 1 stale generated file."),
+        "stdout: {stdout}"
     );
     assert!(
         !stale_path.exists(),

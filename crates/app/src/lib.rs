@@ -13,7 +13,10 @@ mod query_compiler;
 #[cfg(test)]
 mod tests;
 
-pub use compile::{CompileOutcome, CompilePipeline, CompileUseCasePorts, DefaultCompileUseCase};
+pub use compile::{
+    CheckOutcome, CompileOutcome, CompilePipeline, CompileUseCasePorts, DefaultCompileUseCase,
+    QuerySummary,
+};
 pub use constants::{CONFIG_FILE_NAME, STARTER_CONFIG_TEMPLATE};
 pub use init::DefaultProjectInitializer;
 pub use planning::DefaultCompilationPlanner;

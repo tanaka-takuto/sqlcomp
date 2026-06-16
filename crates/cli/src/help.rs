@@ -13,6 +13,27 @@ Options:
   -h, --help         Print this help.
   --config <path>    Use an explicit config path for check or compile.
   --clean            Remove stale generated files during compile.
+
+Minimal query annotation:
+  /* @sqlcomp
+  {
+    type: query
+    id: listUsers
+    // cardinality: one | many
+  }
+  */
+  SELECT id, name FROM users;
+
+MVP query metadata:
+  type: query is required.
+  id is required and must match ^[A-Za-z_][A-Za-z0-9_]*$.
+  cardinality is optional: one or many. cardinality: exec is rejected.
+
+Directive boundary:
+  Compiler directives are @sqlcomp Hjson block comments.
+  Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
+  Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers when dynamic inputs are supported.
+  Slot and Fragment are future work.
 ";
 
 pub const INIT_HELP: &str = "\
@@ -23,6 +44,7 @@ Usage:
 
 Behavior:
   Writes a starter sqlcomp.config.json in the current directory and refuses to overwrite an existing config file.
+  Prints a minimal @sqlcomp query annotation and the next check command.
 
 Examples:
   sqlcomp init
@@ -38,6 +60,9 @@ Behavior:
   Loads sqlcomp.config.json, reads SQL files, validates MySQL SELECT queries, and renders generated TypeScript output in memory.
   When --config is omitted, searches from the current working directory upward for sqlcomp.config.json.
   Reads the database URL from the environment variable named by database.urlEnv.
+  No files are written.
+  Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
+  The success summary reports matched SQL files, compiled queries, output.dir, and per-query params such as 0 params.
 
 Options:
   -h, --help         Print this help.
@@ -58,6 +83,9 @@ Behavior:
   Loads sqlcomp.config.json, validates SQL sources, and writes generated TypeScript files under output.dir.
   When --config is omitted, searches from the current working directory upward for sqlcomp.config.json.
   Reads the database URL from the environment variable named by database.urlEnv.
+  Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
+  The success summary reports matched SQL files, compiled queries, generated file paths, and stale-file cleanup.
+  TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Options:
   -h, --help         Print this help.
@@ -72,6 +100,9 @@ Examples:
 pub const INIT_NEXT_STEPS: &str = r"
 Next:
   DATABASE_URL=... sqlcomp check
+
+Compiler directives are @sqlcomp Hjson block comments. Ordinary SQL comments such as
+/* @param tenantKey */ are ignored as SQL comments.
 
 Add a query block such as:
 /* @sqlcomp

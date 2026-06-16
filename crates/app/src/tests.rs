@@ -87,10 +87,24 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
         generated_file_writer: &generated_file_writer,
     };
 
-    let diagnostics = DefaultCompileUseCase::check(&config, &pipeline)
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
         .expect("check should dry-run generation successfully");
 
-    assert!(diagnostics.is_empty());
+    assert!(outcome.diagnostics().is_empty());
+    assert_eq!(outcome.source_file_count(), 1);
+    assert_eq!(outcome.query_count(), 1);
+    assert_eq!(
+        outcome.output_dir(),
+        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp")
+    );
+    assert_eq!(
+        outcome.query_summaries(),
+        [crate::QuerySummary::new(
+            "listUsers".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            0
+        )]
+    );
     assert_eq!(
         calls.entries(),
         ["read", "analyze", "describe", "compile", "generate"]
@@ -131,7 +145,27 @@ fn compile_writes_generated_files_from_the_shared_pipeline() {
         .expect("compile should write generated files");
 
     assert!(outcome.diagnostics().is_empty());
+    assert_eq!(outcome.source_file_count(), 1);
+    assert_eq!(outcome.query_count(), 1);
     assert_eq!(outcome.generated_file_count(), 1);
+    assert_eq!(
+        outcome.output_dir(),
+        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp")
+    );
+    assert_eq!(
+        outcome.generated_file_paths(),
+        [PathBuf::from(
+            "/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"
+        )]
+    );
+    assert_eq!(
+        outcome.query_summaries(),
+        [crate::QuerySummary::new(
+            "listUsers".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            0
+        )]
+    );
     assert_eq!(outcome.stale_file_removal_count(), None);
     assert_eq!(
         calls.entries(),
@@ -579,7 +613,7 @@ impl SourceReader for FakeSourceReader {
     fn read(&self, _plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead> {
         self.calls.push("read");
 
-        Ok(SourceRead::from_queries(vec![raw_query()]))
+        Ok(SourceRead::from_queries(vec![raw_query()]).with_source_file_count(1))
     }
 }
 

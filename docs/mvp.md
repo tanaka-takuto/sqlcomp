@@ -40,14 +40,20 @@ The MVP exposes three commands:
 
 Running `sqlcomp` with no arguments prints top-level help and exits successfully.
 `sqlcomp init --help`, `sqlcomp check --help`, and `sqlcomp compile --help` print
-command-specific help with concise examples.
+command-specific help with concise examples. Help should show a minimal
+`@sqlcomp` query annotation, supported MVP query metadata keys, the distinction
+between `@sqlcomp` Hjson directives and ordinary SQL comments, the raw placeholder
+boundary, output path preservation, and conservative TypeScript type mapping.
 
-After a successful `sqlcomp check`, the CLI prints that the check passed and that
-no files were written.
+After a successful `sqlcomp check`, the CLI prints that the check passed, the number
+of matched SQL files, the compiled query count, the configured output directory,
+that no files were written, and per-query parameter counts.
 
-After a successful `sqlcomp compile`, the CLI prints how many files were generated
-or updated. When `--clean` runs, the success summary also includes how many stale
-generated files were removed.
+After a successful `sqlcomp compile`, the CLI prints the number of matched SQL
+files, the compiled query count, how many files were generated or updated, the
+configured output directory, generated file paths, and per-query parameter counts.
+When `--clean` runs, the success summary also includes how many stale generated
+files were removed.
 
 After a successful `sqlcomp init`, the CLI prints the created config filename, a
 `DATABASE_URL=... sqlcomp check` next command example, and a minimal
@@ -153,6 +159,12 @@ file.
 
 Generated TypeScript uses the query `id` exactly as written. It does not convert
 between camelCase, PascalCase, or snake_case.
+
+TypeScript type mapping is conservative. Precision-sensitive MySQL values such as
+`BIGINT`, `DECIMAL`, and date/time values map to `string` in TypeScript. MySQL
+`ENUM` and `SET` values map to `string`. Binary values map to `Uint8Array`, and
+JSON or unknown database metadata maps to `unknown`. Nullable database metadata maps
+to `T | null`.
 
 For `id: listUsers`, generated symbols are:
 
