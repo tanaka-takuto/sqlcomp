@@ -1,0 +1,16 @@
+name: "[coverage] Push"
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  coverage:
+    name: Call coverage check
+    uses: ./.github/workflows/_coverage-check.yml
