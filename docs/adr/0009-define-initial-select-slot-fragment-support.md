@@ -139,8 +139,17 @@ Slot queries generate runtime SQL branches using `sqlParts.push(...)` and
 `sqlParts.join("")`. Generated builders do not perform runtime validation. Generated
 switch statements do not include a default case for unknown `$fragment` values.
 
+Generated builders append `params` values in the exact order their corresponding
+`?` placeholders appear in the expanded SQL. Direct query Params and selected
+fragment Params are therefore interleaved according to SQL emission order, not
+grouped by source unit. When one repeated slot input is inserted at multiple slot
+occurrences, the same input value is appended at each selected fragment placeholder
+occurrence in expanded-SQL placeholder order. Unselected slots append no params.
+
 Because selected branches can change the Param tuple shape at runtime, slot queries
-return `params: readonly SqlParam[]` and generate a private helper alias:
+return `params: readonly SqlParam[]`. A generated TypeScript file that contains at
+least one slot query emits one private file-level helper alias, shared by all slot
+queries in that file:
 
 ```ts
 type SqlParam = unknown;
