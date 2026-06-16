@@ -50,7 +50,9 @@ When `--config` is not provided, `sqlcomp` searches from the current working
 directory upward for `sqlcomp.config.json`. Paths inside the configuration are
 resolved relative to the directory containing that configuration file. Generated
 TypeScript files preserve the input SQL path relative to that same configuration
-directory.
+directory. Matched source files must stay inside the configuration directory;
+projects with SQL files in sibling directories should place `sqlcomp.config.json`
+at their common project root.
 
 The MVP exposes three commands:
 
@@ -77,6 +79,9 @@ MySQL-backed integration checks in CI before the MVP is considered complete.
 - TypeScript users see a familiar JSON-style configuration file rather than TOML.
 - Output path behavior is deterministic because the config file location is the
   path base.
+- Nested alternate configs cannot include `../sql/**` from outside their
+  configuration directory without a later design change to the path-safety and
+  output-relative-path model.
 - Users must keep `output.dir` dedicated to generated files if they rely on the
   default overwrite behavior.
 - Local `.env` loading can be added later only by explicit design decision.

@@ -1275,7 +1275,7 @@ impl SourceReader for FileSystemSourceReader {
                     &mut fatal_diagnostics,
                     file_error(
                         format!(
-                            "source file `{}` is outside the configuration directory `{}`",
+                            "source file `{}` is outside the configuration directory `{}`; source.include paths are resolved from the config file directory and must stay inside it so generated paths can be preserved relative to that directory under output.dir. Move sqlcomp.config.json to a common project root when SQL lives in sibling directories.",
                             path.display(),
                             plan.config_dir().display()
                         ),

@@ -45,7 +45,10 @@ existing config file. The starter config uses the supported project shape:
 
 The config is parsed as JSON with comments and trailing commas allowed. Source and
 output paths are resolved relative to the directory containing
-`sqlcomp.config.json`.
+`sqlcomp.config.json`. Matched SQL files must remain inside that configuration
+directory so generated paths can be preserved relative to it. Place
+`sqlcomp.config.json` at the project root when source SQL lives in sibling
+directories such as `sql/` next to `configs/`.
 
 Run a database-backed dry run with:
 
@@ -67,7 +70,7 @@ DATABASE_URL='mysql://user:password@host:3306/database' sqlcomp compile
 
 `sqlcomp compile` runs the same pipeline as `check` and writes TypeScript SQL
 builder files under `output.dir`. Generated paths preserve each input SQL path
-relative to `sqlcomp.config.json`; for example, `sql/books.sql` generates
+relative to the configuration directory; for example, `sql/books.sql` generates
 `src/generated/sqlcomp/sql/books.ts` with the starter config. Normal `compile`
 overwrites same-path generated files. Use `sqlcomp compile --clean` to also remove
 stale managed generated files.
