@@ -1163,7 +1163,12 @@ impl SourceReader for FileSystemSourceReader {
                     attach_fragment_path(fragment, &path).with_source_path(source_path.clone())
                 })
                 .collect::<Vec<_>>();
-            collect_duplicate_query_ids(&file_queries, &mut seen_ids, &mut fatal_diagnostics);
+            collect_duplicate_source_unit_ids(
+                &file_queries,
+                &file_fragments,
+                &mut seen_ids,
+                &mut fatal_diagnostics,
+            );
             queries.extend(file_queries);
             fragments.extend(file_fragments);
         }
@@ -1480,45 +1485,100 @@ struct RawSqlcompParamMetadata {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct QueryDeclaration {
+struct SourceUnitDeclaration {
+    kind: SourceUnitKind,
     location: Option<core::SourceLocation>,
 }
 
-type SeenQueryIds = HashMap<String, QueryDeclaration>;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SourceUnitKind {
+    Query,
+    Fragment,
+}
 
-fn collect_duplicate_query_ids(
+type SeenSourceUnitIds = HashMap<String, SourceUnitDeclaration>;
+
+fn collect_duplicate_source_unit_ids(
     queries: &[core::RawQuery],
-    seen_ids: &mut SeenQueryIds,
+    fragments: &[core::RawFragment],
+    seen_ids: &mut SeenSourceUnitIds,
     diagnostics: &mut core::DiagnosticReport,
 ) {
     for query in queries {
-        let declaration = QueryDeclaration {
-            location: query.source_location().cloned(),
-        };
+        collect_duplicate_source_unit_id(
+            query.metadata().id(),
+            SourceUnitKind::Query,
+            query.source_location().cloned(),
+            seen_ids,
+            diagnostics,
+        );
+    }
 
-        if let Some(first_declaration) = seen_ids.get(query.metadata().id()) {
-            diagnostics.push(
-                core::Diagnostic::error(format!(
-                    "duplicate query id `{}`; query IDs must be unique across the full compile run",
-                    query.metadata().id()
-                ))
-                .with_location(
-                    query
-                        .source_location()
-                        .cloned()
-                        .unwrap_or_else(core::SourceLocation::unknown),
-                ),
-            );
-            diagnostics.push(
-                core::Diagnostic::note("first declared here").with_location(
-                    first_declaration
-                        .location
-                        .clone()
-                        .unwrap_or_else(core::SourceLocation::unknown),
-                ),
-            );
-        } else {
-            seen_ids.insert(query.metadata().id().to_owned(), declaration);
+    for fragment in fragments {
+        collect_duplicate_source_unit_id(
+            fragment.metadata().id(),
+            SourceUnitKind::Fragment,
+            fragment.source_location().cloned(),
+            seen_ids,
+            diagnostics,
+        );
+    }
+}
+
+fn collect_duplicate_source_unit_id(
+    id: &str,
+    kind: SourceUnitKind,
+    location: Option<core::SourceLocation>,
+    seen_ids: &mut SeenSourceUnitIds,
+    diagnostics: &mut core::DiagnosticReport,
+) {
+    let declaration = SourceUnitDeclaration {
+        kind,
+        location: location.clone(),
+    };
+
+    if let Some(first_declaration) = seen_ids.get(id) {
+        diagnostics.push(
+            core::Diagnostic::error(duplicate_source_unit_message(
+                id,
+                kind,
+                first_declaration.kind,
+            ))
+            .with_location(location.unwrap_or_else(core::SourceLocation::unknown)),
+        );
+        diagnostics.push(
+            core::Diagnostic::note("first declared here").with_location(
+                first_declaration
+                    .location
+                    .clone()
+                    .unwrap_or_else(core::SourceLocation::unknown),
+            ),
+        );
+    } else {
+        seen_ids.insert(id.to_owned(), declaration);
+    }
+}
+
+fn duplicate_source_unit_message(
+    id: &str,
+    duplicate_kind: SourceUnitKind,
+    first_kind: SourceUnitKind,
+) -> String {
+    match (first_kind, duplicate_kind) {
+        (SourceUnitKind::Query, SourceUnitKind::Query) => {
+            format!(
+                "duplicate query id `{id}`; query IDs must be unique across the full compile run"
+            )
+        }
+        (SourceUnitKind::Fragment, SourceUnitKind::Fragment) => {
+            format!(
+                "duplicate fragment id `{id}`; query and fragment IDs must be unique across the full compile run"
+            )
+        }
+        _ => {
+            format!(
+                "duplicate source unit id `{id}`; query and fragment IDs must be unique across the full compile run"
+            )
         }
     }
 }
@@ -3447,6 +3507,100 @@ SELECT id FROM archived_users;
     }
 
     #[test]
+    fn source_reader_rejects_duplicate_fragment_ids_across_files() {
+        let project_dir = test_project_dir("duplicate-fragments-across-files");
+        let first_path = project_dir.join("sql").join("01_first.sql");
+        let second_path = project_dir.join("sql").join("02_second.sql");
+        write_sql(
+            &first_path,
+            r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND u.active = 1
+",
+        );
+        write_sql(
+            &second_path,
+            r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND u.deleted_at IS NULL
+",
+        );
+        let plan = compilation_plan(
+            &project_dir,
+            vec![project_dir.join("sql/**/*.sql")],
+            Vec::new(),
+        );
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("duplicate fragment ids should be rejected");
+
+        assert_duplicate_source_unit_report(
+            &report,
+            &second_path,
+            "duplicate fragment id `activeOnly`; query and fragment IDs must be unique across the full compile run",
+        );
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
+    fn source_reader_rejects_query_and_fragment_id_collisions_across_files() {
+        let project_dir = test_project_dir("duplicate-query-fragment-across-files");
+        let query_path = project_dir.join("sql").join("01_query.sql");
+        let fragment_path = project_dir.join("sql").join("02_fragment.sql");
+        write_sql(
+            &query_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: activeOnly
+}
+*/
+SELECT id FROM users;
+",
+        );
+        write_sql(
+            &fragment_path,
+            r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND u.active = 1
+",
+        );
+        let plan = compilation_plan(
+            &project_dir,
+            vec![project_dir.join("sql/**/*.sql")],
+            Vec::new(),
+        );
+
+        let report = FileSystemSourceReader
+            .read(&plan)
+            .expect_err("query and fragment id collisions should be rejected");
+
+        assert_duplicate_source_unit_report(
+            &report,
+            &fragment_path,
+            "duplicate source unit id `activeOnly`; query and fragment IDs must be unique across the full compile run",
+        );
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
     fn source_reader_collects_independent_source_intake_diagnostics_across_files() {
         let project_dir = test_project_dir("aggregates-source-intake-diagnostics");
         let exec_path = project_dir.join("sql").join("01_exec_cardinality.sql");
@@ -3530,11 +3684,20 @@ SELECT id FROM archived_users;
     }
 
     fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path: &Path) {
-        assert_eq!(report.diagnostics().len(), 2);
-        assert_eq!(
-            report.diagnostics()[0].message(),
-            "duplicate query id `listUsers`; query IDs must be unique across the full compile run"
+        assert_duplicate_source_unit_report(
+            report,
+            duplicate_path,
+            "duplicate query id `listUsers`; query IDs must be unique across the full compile run",
         );
+    }
+
+    fn assert_duplicate_source_unit_report(
+        report: &core::DiagnosticReport,
+        duplicate_path: &Path,
+        expected_message: &str,
+    ) {
+        assert_eq!(report.diagnostics().len(), 2);
+        assert_eq!(report.diagnostics()[0].message(), expected_message);
         assert_eq!(
             report.diagnostics()[0]
                 .location()
