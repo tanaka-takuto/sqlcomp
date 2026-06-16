@@ -52,6 +52,7 @@ pub trait SourceReader {
 pub struct SourceRead {
     queries: Vec<core::RawQuery>,
     diagnostics: core::DiagnosticReport,
+    source_file_count: usize,
 }
 
 impl SourceRead {
@@ -61,6 +62,7 @@ impl SourceRead {
         Self {
             queries,
             diagnostics,
+            source_file_count: 0,
         }
     }
 
@@ -73,6 +75,13 @@ impl SourceRead {
         )
     }
 
+    /// Attach the number of SQL files matched by source discovery.
+    #[must_use]
+    pub const fn with_source_file_count(mut self, source_file_count: usize) -> Self {
+        self.source_file_count = source_file_count;
+        self
+    }
+
     /// Query blocks found in included SQL sources.
     #[must_use]
     pub fn queries(&self) -> &[core::RawQuery] {
@@ -83,6 +92,12 @@ impl SourceRead {
     #[must_use]
     pub const fn diagnostics(&self) -> &core::DiagnosticReport {
         &self.diagnostics
+    }
+
+    /// Number of SQL source files matched by the compilation plan.
+    #[must_use]
+    pub const fn source_file_count(&self) -> usize {
+        self.source_file_count
     }
 
     pub(super) fn into_parts(self) -> (Vec<core::RawQuery>, core::DiagnosticReport) {

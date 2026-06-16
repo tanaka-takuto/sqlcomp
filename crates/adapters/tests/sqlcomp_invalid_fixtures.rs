@@ -47,7 +47,7 @@ fn invalid_sql_shape_fixtures_fail_during_dialect_analysis() {
 fn invalid_param_source_fixtures_fail_during_source_intake() {
     assert_source_error_contains(
         PARAM_RAW_PLACEHOLDER,
-        "raw `?` placeholders are not supported; use inline Param markers",
+        "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers",
     );
     assert_source_error_contains(
         PARAM_SAMPLE_PLACEHOLDER,
