@@ -1206,7 +1206,7 @@ fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::Di
             SqlcompAnnotation::ParamEnd => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
-                        "`paramEnd` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+                        "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -3496,7 +3496,7 @@ SELECT id FROM users;
 */
 SELECT id FROM users;
 ",
-                "`paramEnd` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+                "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
             ),
             (
                 r"
