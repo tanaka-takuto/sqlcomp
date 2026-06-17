@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+focus: balanced
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary_in_walkthrough: true
+  path_filters:
+    - "!Cargo.lock"
+    - "!package-lock.json"
+    - "!examples/bookstore/generated/**"
+    - "!fixtures/sql/generated/**"
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "crates/**"
+      instructions: >-
+        Review Rust changes against the crate dependency boundaries in
+        docs/architecture.md. Inner crates must not depend on outer crates. Keep
+        diagnostics structured at the application/core boundary and keep CLI
+        formatting concerns at the CLI boundary.
+    - path: "tests/**"
+      instructions: >-
+        Check that tests cover the behavior being changed and use the existing
+        integration-test style. Prefer focused coverage for changed CLI,
+        diagnostics, config-loading, parsing, planning, and generation behavior.
+    - path: "docs/**"
+      instructions: >-
+        Treat docs/current-scope.md, docs/vision.md, docs/architecture.md, and
+        accepted ADRs as the source of truth. Flag documentation changes that
+        contradict accepted scope or architecture without adding or updating an
+        ADR.
+    - path: "**/*.sql"
+      instructions: >-
+        Review SQL fixtures and examples against the current supported scope:
+        MySQL 8.x, query-only SELECT statements, inline Param markers for value
+        binding, no raw placeholders, no multi-statement blocks, and no
+        unsupported Slot or Fragment end-to-end behavior.
+    - path: "examples/**"
+      instructions: >-
+        Examples are executable user-facing coverage. When SQL, config, or
+        generated TypeScript behavior changes, check that examples remain aligned
+        with README.md and docs/current-scope.md.
+    - path: "fixtures/**"
+      instructions: >-
+        Fixtures define expected compiler behavior. When source fixtures change,
+        check whether matching generated TypeScript artifacts and assertion files
+        also need updates.
+    - path: "script/**"
+      instructions: >-
+        Shell scripts should remain portable, explicit, and consistent with
+        CONTRIBUTING.md. Check quoting, exit handling, environment variable use,
+        and MySQL setup assumptions.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Workflows should preserve the trigger, reusable workflow, and composite
+        action layering described in CONTRIBUTING.md. Check pinned actions,
+        permissions, service health checks, and consistency between pull-request
+        and push workflows.
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: >-
+        Use a concise, descriptive title that matches the repository's
+        contribution style. Conventional Commit wording is preferred when it fits
+        the change.
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+    custom_checks:
+      - name: Scope and ADR consistency
+        mode: warning
+        instructions: >-
+          Pass only when the PR is consistent with docs/current-scope.md,
+          docs/vision.md, docs/architecture.md, and accepted ADRs. If the PR
+          changes supported SQL input, CLI behavior, config shape/defaults,
+          generated TypeScript, or architecture boundaries, it should update the
+          relevant documentation or add a new ADR.
+      - name: Generated artifacts
+        mode: warning
+        instructions: >-
+          Pass only when changes that affect generated TypeScript output also
+          update the committed generated artifacts under examples/bookstore/generated
+          or fixtures/sql/generated, or clearly explain why no generated artifact
+          update is required.
+      - name: Relevant checks documented
+        mode: warning
+        instructions: >-
+          Pass only when the PR description documents the relevant checks for the
+          changed area, such as script/check-baseline.sh, script/check-examples.sh,
+          script/check-mysql-fixtures.sh, npm run typecheck:examples, or npm run
+          typecheck:fixtures. If checks were not run, the PR should say why.
+  tools:
+    clippy:
+      enabled: true
+    shellcheck:
+      enabled: true
+    sqlfluff:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 900000
+    osvScanner:
+      enabled: true
+    semgrep:
+      enabled: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - AGENTS.md
+      - docs/current-scope.md
+      - docs/vision.md
+      - docs/architecture.md
+      - docs/mvp.md
+      - docs/adr/*.md
