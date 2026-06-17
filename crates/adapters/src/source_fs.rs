@@ -1159,6 +1159,11 @@ fn first_statement_separator_index(source: &str, start: usize, end: usize) -> Op
     StatementSeparatorScanner::new(source, start, end).next_separator_index()
 }
 
+/// Validates the structural constraints of inline `@sqlcomp` markers.
+///
+/// Ensures that `param` and `paramEnd` markers are paired without nesting, that inline
+/// markers appear only inside query or fragment bodies, that `slot` markers are used only
+/// in query bodies, and that `slot` markers do not nest within `param` ranges.
 fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::DiagnosticResult<()> {
     let mut context = InlineMarkerContext::OutsideSourceUnit;
     let mut open_param_block: Option<&SqlcompBlock> = None;
@@ -1186,7 +1191,7 @@ fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::Di
             SqlcompAnnotation::Param(_) => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
-                        "Param markers must appear inside a query or fragment body",
+                        "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -1201,7 +1206,7 @@ fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::Di
             SqlcompAnnotation::ParamEnd => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
-                        "Param markers must appear inside a query or fragment body",
+                        "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -1216,13 +1221,13 @@ fn validate_inline_markers(parsed_blocks: &[ParsedSqlcompBlock<'_>]) -> core::Di
                 match context {
                     InlineMarkerContext::OutsideSourceUnit => {
                         return Err(metadata_error(
-                            "Slot markers must appear inside a query body",
+                            "`slot` markers must appear inside a query body; top-level Slot markers are not supported",
                             parsed_block.block.payload_range(),
                         ));
                     }
                     InlineMarkerContext::FragmentBody => {
                         return Err(metadata_error(
-                            "Slot markers are not supported inside fragment bodies",
+                            "slot markers inside fragments are not supported yet; define slots in query bodies for the initial Slot/Fragment release",
                             parsed_block.block.payload_range(),
                         ));
                     }
@@ -3196,7 +3201,7 @@ SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [activeOnly] re
 */
 SELECT id FROM users;
 ",
-                "Slot markers must appear inside a query body",
+                "`slot` markers must appear inside a query body; top-level Slot markers are not supported",
             ),
             (
                 r"
@@ -3209,7 +3214,7 @@ SELECT id FROM users;
 /* @sqlcomp { type: slot id: filter targets: [byEmail] } */
 AND u.active = 1
 ",
-                "Slot markers are not supported inside fragment bodies",
+                "slot markers inside fragments are not supported yet; define slots in query bodies for the initial Slot/Fragment release",
             ),
             (
                 r"
@@ -3478,7 +3483,61 @@ WHERE email = /* @sqlcomp { type: param id: email } */
 */
 SELECT id FROM users;
 ",
-                "Param markers must appear inside a query or fragment body",
+                "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+            ),
+            (
+                r"
+/* @sqlcomp { type: paramEnd } */
+/* @sqlcomp
+{
+  type: query
+  id: findUserByEmail
+}
+*/
+SELECT id FROM users;
+",
+                "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
+  1
+",
+                "`param` marker is missing a matching `paramEnd` marker",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND tenant_id = 1
+  /* @sqlcomp { type: paramEnd } */
+",
+                "`paramEnd` marker has no matching `param` marker",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
+  COALESCE(/* @sqlcomp { type: param id: fallbackTenantId valueType: int64 } */ 1
+  /* @sqlcomp { type: paramEnd } */)
+  /* @sqlcomp { type: paramEnd } */
+",
+                "nested Param ranges are not supported",
             ),
         ] {
             let source = source
