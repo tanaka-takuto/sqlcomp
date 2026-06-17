@@ -34,6 +34,20 @@ fn mysql_fixture_check_typechecks_temporary_generated_project() {
 }
 
 #[test]
+fn coverage_check_uses_line_percent_threshold_and_writes_lcov() {
+    let fixture = ScriptFixture::new("sqlcomp-check-coverage");
+
+    let output = fixture.run_script("script/check-coverage.sh");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn fake_npm_rejects_committed_tsconfig_paths() {
     let fixture = ScriptFixture::new("sqlcomp-check-scripts");
 
@@ -141,6 +155,17 @@ case "$1" in
     copy_generated "$SQLCOMP_REPO_ROOT/fixtures/sql/generated" "$project_dir"
     ;;
   test)
+    ;;
+  llvm-cov)
+    if [ "$#" -eq 2 ] && [ "$2" = "--version" ]; then
+      exit 0
+    fi
+
+    expected_args="llvm-cov --workspace --all-targets --all-features --fail-under-lines 85 --lcov --output-path coverage/lcov.info"
+    if [ "$*" != "$expected_args" ]; then
+      echo "expected cargo coverage args: $expected_args, got: $*" >&2
+      exit 64
+    fi
     ;;
   *)
     echo "unexpected cargo args: $*" >&2

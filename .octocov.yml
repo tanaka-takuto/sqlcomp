@@ -1,0 +1,18 @@
+coverage:
+  paths:
+    - coverage/lcov.info
+  acceptable: 85%
+comment:
+  if: is_pull_request
+  updatePrevious: true
+  hideFooterLink: true
+summary:
+  if: true
+  hideFooterLink: true
+report:
+  if: is_default_branch
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}
+diff:
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}
