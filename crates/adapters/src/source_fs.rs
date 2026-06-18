@@ -1057,6 +1057,7 @@ fn replace_inline_markers(
                 let sample_end = end_block.block.comment_start_index();
                 reject_sample_placeholder(source, sample_start, sample_end)?;
 
+                let placeholder_index = analysis_sql.len();
                 analysis_sql.push('?');
                 param_usages.push(
                     core::ParamUsage::new(
@@ -1069,6 +1070,7 @@ fn replace_inline_markers(
                             end_block.block.comment_end_index(),
                         )),
                     )
+                    .with_placeholder_index(placeholder_index)
                     .with_sample_sql(source[sample_start..sample_end].to_owned()),
                 );
 

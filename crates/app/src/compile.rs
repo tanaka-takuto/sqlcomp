@@ -394,16 +394,33 @@ where
     let mut used_fragment_ids = HashSet::new();
 
     for query in &raw_queries {
-        let analysis = analyze_query_variants(
+        let analyzed_variants = analyze_query_variants(
             query,
             &fragments_by_id,
             &mut used_fragment_ids,
             pipeline.dialect_analyzer,
         )?;
-        let metadata = pipeline.metadata_provider.describe(query, &analysis)?;
-        let compiled = pipeline
-            .query_compiler
-            .compile(query, &analysis, &metadata)?;
+        let Some(base_variant) = analyzed_variants.first() else {
+            return Err(query_error(
+                query,
+                "Slot expansion produced no validation variants",
+            ));
+        };
+        let metadata = pipeline
+            .metadata_provider
+            .describe(&base_variant.query, &base_variant.analysis)
+            .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
+        for variant in analyzed_variants.iter().skip(1) {
+            pipeline
+                .metadata_provider
+                .describe(&variant.query, &variant.analysis)
+                .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
+        }
+        let compiled = pipeline.query_compiler.compile(
+            &base_variant.query,
+            &base_variant.analysis,
+            &metadata,
+        )?;
         compiled_queries.push(compiled);
     }
 
@@ -431,31 +448,39 @@ fn analyze_query_variants<D>(
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     used_fragment_ids: &mut HashSet<String>,
     dialect_analyzer: &D,
-) -> core::DiagnosticResult<core::AnalyzedQuery>
+) -> core::DiagnosticResult<Vec<AnalyzedQueryVariant>>
 where
     D: DialectAnalyzer,
 {
     if query.slot_usages().is_empty() {
-        return dialect_analyzer.analyze(query);
+        return Ok(vec![AnalyzedQueryVariant {
+            query: query.clone(),
+            analysis: dialect_analyzer.analyze(query)?,
+            context: None,
+        }]);
     }
 
     let variants = slot_validation_queries(query, fragments_by_id, used_fragment_ids)?;
-    let mut analyses = variants
-        .iter()
-        .map(|variant| dialect_analyzer.analyze(variant));
-    let Some(base_analysis) = analyses.next() else {
-        return Err(query_error(
-            query,
-            "Slot expansion produced no validation variants",
-        ));
-    };
-    let base_analysis = base_analysis?;
-
-    for analysis in analyses {
-        analysis?;
+    let mut analyzed_variants = Vec::with_capacity(variants.len());
+    for variant in variants {
+        let analysis = dialect_analyzer
+            .analyze(&variant.query)
+            .map_err(|report| with_slot_variant_context(report, Some(&variant.context)))?;
+        analyzed_variants.push(AnalyzedQueryVariant {
+            query: variant.query,
+            analysis,
+            context: Some(variant.context),
+        });
     }
 
-    Ok(base_analysis)
+    Ok(analyzed_variants)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AnalyzedQueryVariant {
+    query: core::RawQuery,
+    analysis: core::AnalyzedQuery,
+    context: Option<SlotExpansionContext>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -465,11 +490,68 @@ struct SlotSpec {
     source_location: core::SourceLocation,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SlotExpansionVariant {
+    query: core::RawQuery,
+    context: SlotExpansionContext,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SlotExpansionContext {
+    query_id: String,
+    selections: Vec<SlotSelectionContext>,
+}
+
+impl SlotExpansionContext {
+    fn diagnostics(&self) -> Vec<core::Diagnostic> {
+        let selection_summary = self
+            .selections
+            .iter()
+            .map(|selection| {
+                let target = selection.target_id.as_deref().unwrap_or("<unselected>");
+                format!("{}={target}", selection.slot_id)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut diagnostics = vec![core::Diagnostic::note(format!(
+            "while validating Slot expansion variant for query `{}` with selections: {selection_summary}",
+            self.query_id
+        ))];
+
+        for selection in &self.selections {
+            let target = selection.target_id.as_deref().unwrap_or("<unselected>");
+            diagnostics.push(
+                core::Diagnostic::note(format!(
+                    "Slot `{}` selected `{target}` in this variant",
+                    selection.slot_id
+                ))
+                .with_location(selection.slot_location.clone()),
+            );
+            if let Some(fragment_location) = &selection.fragment_location {
+                diagnostics.push(
+                    core::Diagnostic::note(format!("selected fragment `{target}` is defined here"))
+                        .with_location(fragment_location.clone()),
+                );
+            }
+        }
+
+        diagnostics
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SlotSelectionContext {
+    slot_id: String,
+    target_id: Option<String>,
+    slot_location: core::SourceLocation,
+    fragment_location: Option<core::SourceLocation>,
+}
+
 fn slot_validation_queries(
     query: &core::RawQuery,
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     used_fragment_ids: &mut HashSet<String>,
-) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+) -> core::DiagnosticResult<Vec<SlotExpansionVariant>> {
     let slot_specs = unique_slot_specs(query)?;
     reject_direct_param_slot_collisions(query, &slot_specs)?;
     let variant_choices =
@@ -611,7 +693,7 @@ fn build_slot_variant_query(
     query: &core::RawQuery,
     slot_specs: &[SlotSpec],
     choices: &[Option<&core::RawFragment>],
-) -> core::DiagnosticResult<core::RawQuery> {
+) -> core::DiagnosticResult<SlotExpansionVariant> {
     let choices_by_slot = slot_specs
         .iter()
         .zip(choices.iter().copied())
@@ -619,7 +701,8 @@ fn build_slot_variant_query(
         .collect::<HashMap<_, _>>();
     let mut analysis_sql = String::with_capacity(query.analysis_sql().len());
     let mut cursor = 0;
-    let mut param_usages = query.param_usages().to_vec();
+    let mut query_param_cursor = 0;
+    let mut param_usages = Vec::new();
 
     for usage in query.slot_usages() {
         let insertion_index = usage.insertion_index();
@@ -634,28 +717,164 @@ fn build_slot_variant_query(
             ));
         }
 
+        let segment_output_start = analysis_sql.len();
         analysis_sql.push_str(&query.analysis_sql()[cursor..insertion_index]);
+        push_query_params_before_index(
+            query,
+            cursor,
+            segment_output_start,
+            insertion_index,
+            &mut query_param_cursor,
+            &mut param_usages,
+        )?;
         if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
+            let fragment_output_start = analysis_sql.len();
             analysis_sql.push_str(fragment.analysis_sql());
-            param_usages.extend(fragment.param_usages().iter().cloned());
+            push_fragment_params(fragment, fragment_output_start, &mut param_usages, query)?;
         }
         cursor = insertion_index;
     }
+    let segment_output_start = analysis_sql.len();
     analysis_sql.push_str(&query.analysis_sql()[cursor..]);
+    push_query_params_before_index(
+        query,
+        cursor,
+        segment_output_start,
+        query.analysis_sql().len(),
+        &mut query_param_cursor,
+        &mut param_usages,
+    )?;
 
-    let mut expanded = core::RawQuery::new(query.metadata().clone(), query.sql().to_owned())
+    let mut expanded_query = core::RawQuery::new(query.metadata().clone(), query.sql().to_owned())
         .with_analysis_sql(analysis_sql)
-        .with_param_usages(param_usages)
-        .with_slot_usages(query.slot_usages().to_vec());
+        .with_param_usages(param_usages);
 
     if let Some(source_path) = query.source_path() {
-        expanded = expanded.with_source_path(source_path.to_path_buf());
+        expanded_query = expanded_query.with_source_path(source_path.to_path_buf());
     }
     if let Some(source_location) = query.source_location() {
-        expanded = expanded.with_source_location(source_location.clone());
+        expanded_query = expanded_query.with_source_location(source_location.clone());
     }
 
-    Ok(expanded)
+    Ok(SlotExpansionVariant {
+        query: expanded_query,
+        context: slot_expansion_context(query, slot_specs, choices),
+    })
+}
+
+fn slot_expansion_context(
+    query: &core::RawQuery,
+    slot_specs: &[SlotSpec],
+    choices: &[Option<&core::RawFragment>],
+) -> SlotExpansionContext {
+    let selections = slot_specs
+        .iter()
+        .zip(choices.iter().copied())
+        .map(|(slot, choice)| SlotSelectionContext {
+            slot_id: slot.id.clone(),
+            target_id: choice.map(|fragment| fragment.metadata().id().to_owned()),
+            slot_location: slot.source_location.clone(),
+            fragment_location: choice.and_then(|fragment| fragment.source_location().cloned()),
+        })
+        .collect();
+
+    SlotExpansionContext {
+        query_id: query.metadata().id().to_owned(),
+        selections,
+    }
+}
+
+fn push_query_params_before_index(
+    query: &core::RawQuery,
+    segment_start: usize,
+    segment_output_start: usize,
+    limit: usize,
+    query_param_cursor: &mut usize,
+    param_usages: &mut Vec<core::ParamUsage>,
+) -> core::DiagnosticResult<()> {
+    while let Some(usage) = query.param_usages().get(*query_param_cursor) {
+        let placeholder_index = query_param_placeholder_index(query, usage)?;
+        if placeholder_index >= limit {
+            break;
+        }
+        if placeholder_index < segment_start {
+            return Err(param_usage_error(
+                query,
+                usage,
+                format!(
+                    "Param `{}` placeholder index {placeholder_index} appears before the current Slot expansion cursor {segment_start}",
+                    usage.id()
+                ),
+            ));
+        }
+
+        param_usages.push(
+            usage
+                .clone()
+                .with_placeholder_index(segment_output_start + placeholder_index - segment_start),
+        );
+        *query_param_cursor += 1;
+    }
+
+    Ok(())
+}
+
+fn push_fragment_params(
+    fragment: &core::RawFragment,
+    fragment_output_start: usize,
+    param_usages: &mut Vec<core::ParamUsage>,
+    query: &core::RawQuery,
+) -> core::DiagnosticResult<()> {
+    for usage in fragment.param_usages() {
+        let Some(placeholder_index) = usage.placeholder_index() else {
+            return Err(query_error(
+                query,
+                format!(
+                    "Param `{}` in fragment `{}` is missing placeholder position metadata",
+                    usage.id(),
+                    fragment.metadata().id()
+                ),
+            ));
+        };
+
+        param_usages.push(
+            usage
+                .clone()
+                .with_placeholder_index(fragment_output_start + placeholder_index),
+        );
+    }
+
+    Ok(())
+}
+
+fn query_param_placeholder_index(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+) -> core::DiagnosticResult<usize> {
+    usage.placeholder_index().ok_or_else(|| {
+        param_usage_error(
+            query,
+            usage,
+            format!(
+                "Param `{}` in query `{}` is missing placeholder position metadata",
+                usage.id(),
+                query.metadata().id()
+            ),
+        )
+    })
+}
+
+fn with_slot_variant_context(
+    report: core::DiagnosticReport,
+    context: Option<&SlotExpansionContext>,
+) -> core::DiagnosticReport {
+    let Some(context) = context else {
+        return report;
+    };
+
+    let mut diagnostics = report.into_diagnostics();
+    diagnostics.extend(context.diagnostics());
+    core::DiagnosticReport::from_diagnostics(diagnostics)
 }
 
 fn push_unused_fragment_warnings(
@@ -691,6 +910,24 @@ fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::Diag
 fn slot_usage_error(
     query: &core::RawQuery,
     usage: &core::SlotUsage,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
+    let location =
+        if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
+            usage.source_location().clone()
+        } else {
+            query
+                .source_location()
+                .cloned()
+                .unwrap_or_else(core::SourceLocation::unknown)
+        };
+
+    location_error(location, message)
+}
+
+fn param_usage_error(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
     message: impl Into<String>,
 ) -> core::DiagnosticReport {
     let location =
