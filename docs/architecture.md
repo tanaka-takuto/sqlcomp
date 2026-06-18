@@ -203,10 +203,14 @@ placeholders are rejected in fragment bodies just as they are in query bodies.
 For initial `Slot` intake, query-local `type: slot` markers are parsed, validated,
 recorded as zero-width insertion points, and removed from the SQL text used for
 downstream analysis. During `check` and `compile`, application validation enumerates
-the optional Slot replacement variants defined by ADR 0009 and sends each expanded
-SQL string to dialect analysis without adding, trimming, or normalizing whitespace.
-Later ADR 0009 slices still need to complete row-shape validation, generated Slot
-input types, runtime SQL branch generation, and CLI summaries.
+the optional Slot replacement variants defined by ADR 0009, resolves each Slot
+target against global fragments collected from the same compile run, and sends each
+expanded SQL string to dialect analysis without adding, trimming, or normalizing
+whitespace. Unknown targets and duplicate target IDs inside one `targets` array are
+rejected before dialect analysis. Fragments that are not referenced by any Slot
+target produce non-fatal warnings. Later ADR 0009 slices still need to complete
+row-shape validation, generated Slot input types, runtime SQL branch generation,
+and CLI summaries.
 
 ## Dialect Analyzer
 

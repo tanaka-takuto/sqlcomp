@@ -253,6 +253,225 @@ fn check_reports_token_adjacent_slot_replacement_from_dialect_validation() {
 }
 
 #[test]
+fn check_rejects_unknown_slot_target_with_slot_context() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [missingFilter] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["missingFilter".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let source_read = SourceRead::from_queries(vec![query]).with_source_file_count(1);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("unknown Slot targets should be rejected before dialect validation");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "unknown Slot target `missingFilter` in Slot `filter`; no fragment with that id was found"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
+fn check_rejects_duplicate_targets_within_one_slot() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeOnly".to_owned(), "activeOnly".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("duplicate Slot targets should be rejected before variant validation");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "duplicate Slot target `activeOnly` in Slot `filter`; each target must appear at most once in `targets`"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
+fn check_preserves_slot_target_order_across_fragment_files() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeOnly".to_owned(), "byEmail".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let active_only = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned())
+    .with_source_path("sql/fragments/active.sql");
+    let by_email = core::RawFragment::new(
+        core::FragmentMetadata::new("byEmail".to_owned()),
+        "\nAND u.email IS NOT NULL".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.email IS NOT NULL".to_owned())
+    .with_source_path("sql/fragments/email.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![by_email, active_only])
+        .with_source_file_count(3);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("slot target resolution should work across included files");
+
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.active = 1;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.email IS NOT NULL;",
+        ]
+    );
+}
+
+#[test]
+fn check_warns_for_unused_fragments() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeOnly".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let active_only = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned())
+    .with_source_path("sql/fragments/active.sql");
+    let unused = core::RawFragment::new(
+        core::FragmentMetadata::new("unusedFilter".to_owned()),
+        "\nAND u.deleted_at IS NULL".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.deleted_at IS NULL".to_owned())
+    .with_source_path("sql/fragments/unused.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![active_only, unused])
+        .with_source_file_count(3);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("unused fragments should produce non-fatal diagnostics");
+
+    assert_eq!(outcome.diagnostics().diagnostics().len(), 1);
+    assert_eq!(
+        outcome.diagnostics().diagnostics()[0].severity(),
+        core::DiagnosticSeverity::Warning
+    );
+    assert_eq!(
+        diagnostic_messages(outcome.diagnostics()),
+        "unused fragment `unusedFilter`; no Slot target references this fragment"
+    );
+}
+
+#[test]
 fn check_rejects_slot_expansion_above_variant_limit() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
