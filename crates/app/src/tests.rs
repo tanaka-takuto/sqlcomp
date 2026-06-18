@@ -416,18 +416,18 @@ fn check_enumerates_multiple_slot_expansion_variants_in_stable_order() {
     let query_prefix = "SELECT u.id FROM users AS u WHERE 1 = 1";
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: tenant targets: [tenantOnly] } */ ORDER BY u.id;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: zFilter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: aTenant targets: [tenantOnly] } */ ORDER BY u.id;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1 ORDER BY u.id;".to_owned())
     .with_slot_usages(vec![
         core::SlotUsage::new(
-            "filter".to_owned(),
+            "zFilter".to_owned(),
             vec!["activeOnly".to_owned(), "byEmail".to_owned()],
             query_prefix.len(),
             core::SourceLocation::unknown(),
         ),
         core::SlotUsage::new(
-            "tenant".to_owned(),
+            "aTenant".to_owned(),
             vec!["tenantOnly".to_owned()],
             query_prefix.len(),
             core::SourceLocation::unknown(),
