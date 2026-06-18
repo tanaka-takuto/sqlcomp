@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sqlcomp_core as core;
@@ -6,6 +7,8 @@ use crate::{
     CompilationPlanner, DialectAnalyzer, GeneratedFileCleaner, GeneratedFileWriter,
     MetadataProvider, QueryCompiler, SourceReader, TargetGenerator,
 };
+
+const SLOT_VARIANT_LIMIT: usize = 256;
 
 /// Application service for compile-like CLI commands.
 #[derive(Clone, Copy, Debug, Default)]
@@ -382,11 +385,15 @@ where
 {
     let source_read = pipeline.source_reader.read(plan)?;
     let source_file_count = source_read.source_file_count();
-    let (raw_queries, diagnostics) = source_read.into_parts();
+    let (raw_queries, raw_fragments, diagnostics) = source_read.into_parts();
+    let fragments_by_id = raw_fragments
+        .iter()
+        .map(|fragment| (fragment.metadata().id(), fragment))
+        .collect::<HashMap<_, _>>();
     let mut compiled_queries = Vec::with_capacity(raw_queries.len());
 
     for query in &raw_queries {
-        let analysis = pipeline.dialect_analyzer.analyze(query)?;
+        let analysis = analyze_query_variants(query, &fragments_by_id, pipeline.dialect_analyzer)?;
         let metadata = pipeline.metadata_provider.describe(query, &analysis)?;
         let compiled = pipeline
             .query_compiler
@@ -409,6 +416,211 @@ where
         output_dir: plan.output_dir().to_path_buf(),
         query_summaries,
     })
+}
+
+fn analyze_query_variants<D>(
+    query: &core::RawQuery,
+    fragments_by_id: &HashMap<&str, &core::RawFragment>,
+    dialect_analyzer: &D,
+) -> core::DiagnosticResult<core::AnalyzedQuery>
+where
+    D: DialectAnalyzer,
+{
+    if query.slot_usages().is_empty() {
+        return dialect_analyzer.analyze(query);
+    }
+
+    let variants = slot_validation_queries(query, fragments_by_id)?;
+    let mut analyses = variants
+        .iter()
+        .map(|variant| dialect_analyzer.analyze(variant));
+    let Some(base_analysis) = analyses.next() else {
+        return Err(query_error(
+            query,
+            "Slot expansion produced no validation variants",
+        ));
+    };
+    let base_analysis = base_analysis?;
+
+    for analysis in analyses {
+        analysis?;
+    }
+
+    Ok(base_analysis)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SlotSpec {
+    id: String,
+    targets: Vec<String>,
+    source_location: core::SourceLocation,
+}
+
+fn slot_validation_queries(
+    query: &core::RawQuery,
+    fragments_by_id: &HashMap<&str, &core::RawFragment>,
+) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+    let slot_specs = unique_slot_specs(query)?;
+    let variant_choices = slot_variant_choices(query, &slot_specs, fragments_by_id)?;
+
+    variant_choices
+        .iter()
+        .map(|choices| build_slot_variant_query(query, &slot_specs, choices))
+        .collect()
+}
+
+fn unique_slot_specs(query: &core::RawQuery) -> core::DiagnosticResult<Vec<SlotSpec>> {
+    let mut slot_specs = Vec::<SlotSpec>::new();
+
+    for usage in query.slot_usages() {
+        if let Some(existing) = slot_specs.iter().find(|slot| slot.id == usage.id()) {
+            if existing.targets != usage.targets() {
+                return Err(slot_usage_error(
+                    query,
+                    usage,
+                    format!(
+                        "conflicting Slot `{}` targets: repeated Slot IDs must use the same `targets` values in the same order",
+                        usage.id()
+                    ),
+                ));
+            }
+            continue;
+        }
+
+        slot_specs.push(SlotSpec {
+            id: usage.id().to_owned(),
+            targets: usage.targets().to_vec(),
+            source_location: usage.source_location().clone(),
+        });
+    }
+
+    Ok(slot_specs)
+}
+
+fn slot_variant_choices<'a>(
+    query: &core::RawQuery,
+    slot_specs: &[SlotSpec],
+    fragments_by_id: &HashMap<&str, &'a core::RawFragment>,
+) -> core::DiagnosticResult<Vec<Vec<Option<&'a core::RawFragment>>>> {
+    let mut variants = vec![Vec::new()];
+
+    for slot in slot_specs {
+        let mut choices = Vec::with_capacity(slot.targets.len() + 1);
+        choices.push(None);
+        for target in &slot.targets {
+            let Some(fragment) = fragments_by_id.get(target.as_str()).copied() else {
+                return Err(location_error(
+                    slot.source_location.clone(),
+                    format!("unknown Slot target `{target}`; no fragment with that id was found"),
+                ));
+            };
+            choices.push(Some(fragment));
+        }
+
+        if variants.len().saturating_mul(choices.len()) > SLOT_VARIANT_LIMIT {
+            return Err(query_error(
+                query,
+                format!("Slot expansion would produce more than {SLOT_VARIANT_LIMIT} SQL variants"),
+            ));
+        }
+
+        let mut next_variants = Vec::with_capacity(variants.len() * choices.len());
+        for variant in &variants {
+            for choice in &choices {
+                let mut next_variant = variant.clone();
+                next_variant.push(*choice);
+                next_variants.push(next_variant);
+            }
+        }
+        variants = next_variants;
+    }
+
+    Ok(variants)
+}
+
+fn build_slot_variant_query(
+    query: &core::RawQuery,
+    slot_specs: &[SlotSpec],
+    choices: &[Option<&core::RawFragment>],
+) -> core::DiagnosticResult<core::RawQuery> {
+    let choices_by_slot = slot_specs
+        .iter()
+        .zip(choices.iter().copied())
+        .map(|(slot, choice)| (slot.id.as_str(), choice))
+        .collect::<HashMap<_, _>>();
+    let mut analysis_sql = String::with_capacity(query.analysis_sql().len());
+    let mut cursor = 0;
+    let mut param_usages = query.param_usages().to_vec();
+
+    for usage in query.slot_usages() {
+        let insertion_index = usage.insertion_index();
+        if insertion_index < cursor || insertion_index > query.analysis_sql().len() {
+            return Err(slot_usage_error(
+                query,
+                usage,
+                format!(
+                    "invalid Slot `{}` insertion index {insertion_index} for query analysis SQL",
+                    usage.id()
+                ),
+            ));
+        }
+
+        analysis_sql.push_str(&query.analysis_sql()[cursor..insertion_index]);
+        if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
+            analysis_sql.push_str(fragment.analysis_sql());
+            param_usages.extend(fragment.param_usages().iter().cloned());
+        }
+        cursor = insertion_index;
+    }
+    analysis_sql.push_str(&query.analysis_sql()[cursor..]);
+
+    let mut expanded = core::RawQuery::new(query.metadata().clone(), query.sql().to_owned())
+        .with_analysis_sql(analysis_sql)
+        .with_param_usages(param_usages)
+        .with_slot_usages(query.slot_usages().to_vec());
+
+    if let Some(source_path) = query.source_path() {
+        expanded = expanded.with_source_path(source_path.to_path_buf());
+    }
+    if let Some(source_location) = query.source_location() {
+        expanded = expanded.with_source_location(source_location.clone());
+    }
+
+    Ok(expanded)
+}
+
+fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {
+    let mut diagnostic = core::Diagnostic::error(message);
+    if let Some(location) = query.source_location() {
+        diagnostic = diagnostic.with_location(location.clone());
+    }
+
+    core::DiagnosticReport::new(diagnostic)
+}
+
+fn slot_usage_error(
+    query: &core::RawQuery,
+    usage: &core::SlotUsage,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
+    let location =
+        if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
+            usage.source_location().clone()
+        } else {
+            query
+                .source_location()
+                .cloned()
+                .unwrap_or_else(core::SourceLocation::unknown)
+        };
+
+    location_error(location, message)
+}
+
+fn location_error(
+    location: core::SourceLocation,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
+    core::DiagnosticReport::new(core::Diagnostic::error(message).with_location(location))
 }
 
 /// Dummy port bundle showing dependencies required by compile-like use cases.

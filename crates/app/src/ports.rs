@@ -115,8 +115,14 @@ impl SourceRead {
         self.source_file_count
     }
 
-    pub(super) fn into_parts(self) -> (Vec<core::RawQuery>, core::DiagnosticReport) {
-        (self.queries, self.diagnostics)
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Vec<core::RawQuery>,
+        Vec<core::RawFragment>,
+        core::DiagnosticReport,
+    ) {
+        (self.queries, self.fragments, self.diagnostics)
     }
 }
 

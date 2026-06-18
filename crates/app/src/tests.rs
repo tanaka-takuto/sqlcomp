@@ -133,6 +133,186 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
 }
 
 #[test]
+fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeOnly".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\n-- keep this ordinary SQL comment\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\n-- keep this ordinary SQL comment\nAND u.active = 1".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("slot SQL variants should validate successfully");
+
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\n-- keep this ordinary SQL comment\nAND u.active = 1;",
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "describe", "compile", "generate"
+        ]
+    );
+}
+
+#[test]
+fn check_reports_token_adjacent_slot_replacement_from_dialect_validation() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeOnly".to_owned()],
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "AND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("AND u.active = 1".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer =
+        FakeDialectAnalyzer::new(calls.clone()).with_sql_failure("1AND u.active");
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("token-adjacent selected slot SQL should fail dialect validation");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "failed to parse MySQL SQL: token-adjacent slot replacement"
+    );
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1AND u.active = 1;",
+        ]
+    );
+    assert_eq!(calls.entries(), ["read", "analyze", "analyze"]);
+}
+
+#[test]
+fn check_rejects_slot_expansion_above_variant_limit() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let targets = (0..256)
+        .map(|index| format!("fragment{index}"))
+        .collect::<Vec<_>>();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [fragment0] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        targets.clone(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragments = targets
+        .iter()
+        .map(|target| {
+            core::RawFragment::new(
+                core::FragmentMetadata::new(target.clone()),
+                "\nAND u.active = 1".to_owned(),
+            )
+            .with_analysis_sql("\nAND u.active = 1".to_owned())
+            .with_source_path("sql/fragments.sql")
+        })
+        .collect::<Vec<_>>();
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(fragments)
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("slot variant limit should be enforced before dialect validation");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion would produce more than 256 SQL variants"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
 fn compile_writes_generated_files_from_the_shared_pipeline() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let generated_files = core::GeneratedFiles::new(vec![core::GeneratedFile::new(
@@ -617,11 +797,20 @@ impl PipelineFailure {
 #[derive(Clone, Debug)]
 struct FakeSourceReader {
     calls: CallLog,
+    source_read: SourceRead,
 }
 
 impl FakeSourceReader {
-    const fn new(calls: CallLog) -> Self {
-        Self { calls }
+    fn new(calls: CallLog) -> Self {
+        Self {
+            calls,
+            source_read: SourceRead::from_queries(vec![raw_query()]).with_source_file_count(1),
+        }
+    }
+
+    fn with_source_read(mut self, source_read: SourceRead) -> Self {
+        self.source_read = source_read;
+        self
     }
 }
 
@@ -629,7 +818,7 @@ impl SourceReader for FakeSourceReader {
     fn read(&self, _plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead> {
         self.calls.push("read");
 
-        Ok(SourceRead::from_queries(vec![raw_query()]).with_source_file_count(1))
+        Ok(self.source_read.clone())
     }
 }
 
@@ -637,13 +826,17 @@ impl SourceReader for FakeSourceReader {
 struct FakeDialectAnalyzer {
     calls: CallLog,
     failure: Option<PipelineFailure>,
+    sql_failure: Option<&'static str>,
+    analyzed_sql: Rc<RefCell<Vec<String>>>,
 }
 
 impl FakeDialectAnalyzer {
-    const fn new(calls: CallLog) -> Self {
+    fn new(calls: CallLog) -> Self {
         Self {
             calls,
             failure: None,
+            sql_failure: None,
+            analyzed_sql: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -654,11 +847,32 @@ impl FakeDialectAnalyzer {
 
         self
     }
+
+    const fn with_sql_failure(mut self, sql_fragment: &'static str) -> Self {
+        self.sql_failure = Some(sql_fragment);
+        self
+    }
+
+    fn analyzed_sql(&self) -> Vec<String> {
+        self.analyzed_sql.borrow().clone()
+    }
 }
 
 impl DialectAnalyzer for FakeDialectAnalyzer {
-    fn analyze(&self, _query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
+    fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
         self.calls.push("analyze");
+        self.analyzed_sql
+            .borrow_mut()
+            .push(query.analysis_sql().to_owned());
+
+        if self
+            .sql_failure
+            .is_some_and(|sql_fragment| query.analysis_sql().contains(sql_fragment))
+        {
+            return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+                "failed to parse MySQL SQL: token-adjacent slot replacement",
+            )));
+        }
 
         if let Some(failure) = self.failure {
             return Err(failure.report());

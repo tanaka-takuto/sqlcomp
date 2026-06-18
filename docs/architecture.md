@@ -196,14 +196,17 @@ recognized inside query and fragment bodies as defined by
 
 For initial `Fragment` intake, `type: fragment` starts a global source unit with an
 explicit `id` and a body that ends before the next global `query` or `fragment`
-annotation. Fragment source units are parsed and retained for the ADR 0009
-implementation slices, but end-to-end Slot/Fragment composition remains unsupported
-until the later resolution, validation, and generation slices land.
+annotation. Fragment source units preserve their raw SQL body exactly and also carry
+analysis SQL where `@sqlcomp` Param ranges are replaced with placeholders. Raw `?`
+placeholders are rejected in fragment bodies just as they are in query bodies.
 
 For initial `Slot` intake, query-local `type: slot` markers are parsed, validated,
 recorded as zero-width insertion points, and removed from the SQL text used for
-downstream analysis. Slot target resolution and SQL expansion remain later ADR 0009
-implementation slices.
+downstream analysis. During `check` and `compile`, application validation enumerates
+the optional Slot replacement variants defined by ADR 0009 and sends each expanded
+SQL string to dialect analysis without adding, trimming, or normalizing whitespace.
+Later ADR 0009 slices still need to complete row-shape validation, generated Slot
+input types, runtime SQL branch generation, and CLI summaries.
 
 ## Dialect Analyzer
 

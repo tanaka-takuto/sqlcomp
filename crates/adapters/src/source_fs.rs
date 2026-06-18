@@ -959,8 +959,14 @@ fn split_sqlcomp_source_units_from_scan(
             }
             SqlcompAnnotation::Fragment(metadata) => {
                 reject_fragment_statement_separator(source, body_start, body_end)?;
+                let replacement =
+                    replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
+                debug_assert!(replacement.slot_usages.is_empty());
                 fragments.push(
-                    core::RawFragment::new(metadata.clone(), sql).with_source_location(location),
+                    core::RawFragment::new(metadata.clone(), sql)
+                        .with_analysis_sql(replacement.analysis_sql)
+                        .with_param_usages(replacement.param_usages)
+                        .with_source_location(location),
                 );
             }
             SqlcompAnnotation::Param(_)
@@ -1394,12 +1400,20 @@ fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFr
     let range = fragment
         .source_location()
         .and_then(core::SourceLocation::range);
+    let param_usages = fragment
+        .param_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_param_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
-    if let Some(range) = range {
+    let fragment = if let Some(range) = range {
         fragment.with_source_location(core::SourceLocation::at_range(path, range))
     } else {
         fragment.with_source_location(core::SourceLocation::for_path(path))
-    }
+    };
+
+    fragment.with_param_usages(param_usages)
 }
 
 fn attach_param_usage_path(usage: core::ParamUsage, path: &Path) -> core::ParamUsage {
@@ -2805,6 +2819,23 @@ SELECT u.id FROM users AS u;
             source_units.fragments()[0].sql(),
             "\n-- ordinary SQL comment stays in the fragment body\nAND u.active = 1\n/* @sqlcomp { type: param id: tenantId valueType: int64 } */\n42\n/* @sqlcomp { type: paramEnd } */\n"
         );
+        assert_eq!(
+            source_units.fragments()[0].analysis_sql(),
+            "\n-- ordinary SQL comment stays in the fragment body\nAND u.active = 1\n?\n"
+        );
+        assert_eq!(source_units.fragments()[0].param_usages().len(), 1);
+        assert_eq!(
+            source_units.fragments()[0].param_usages()[0].id(),
+            "tenantId"
+        );
+        assert_eq!(
+            source_units.fragments()[0].param_usages()[0].value_type_override(),
+            Some(core::CoreType::Int64)
+        );
+        assert_eq!(
+            source_units.fragments()[0].param_usages()[0].sample_sql(),
+            "\n42\n"
+        );
         assert_eq!(source_units.queries().len(), 1);
         assert_eq!(source_units.queries()[0].metadata().id(), "listUsers");
         assert_eq!(
@@ -2910,6 +2941,48 @@ AND u.label = ';'
             source_units.fragments()[0].sql(),
             "\nAND u.label = ';'\n-- semicolon in comment ;\n/* ordinary block comment ; */\n"
         );
+    }
+
+    #[test]
+    fn rejects_raw_or_sample_placeholders_in_fragment_bodies() {
+        for (source, expected_message) in [
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: byEmail
+}
+*/
+AND u.email = ?
+",
+                "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`",
+            ),
+            (
+                r"
+/* @sqlcomp
+{
+  type: fragment
+  id: byEmail
+}
+*/
+AND u.email = /* @sqlcomp { type: param id: email valueType: string } */ ? /* @sqlcomp { type: paramEnd } */
+",
+                "`?` placeholders are not allowed inside Param sample expressions",
+            ),
+        ] {
+            let source = source
+                .strip_prefix('\n')
+                .expect("raw SQL test source should start with a newline");
+            let report = split_sqlcomp_source_units(source)
+                .expect_err("fragment placeholders should be rejected");
+
+            assert_eq!(diagnostic_messages(&report), [expected_message]);
+            assert!(
+                report.diagnostics()[0].location().is_some(),
+                "diagnostic should point to the SQL source"
+            );
+        }
     }
 
     #[test]

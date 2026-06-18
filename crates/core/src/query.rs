@@ -179,6 +179,10 @@ impl SlotUsage {
     }
 
     /// Byte index in `RawQuery::analysis_sql()` where the slot marker was removed.
+    ///
+    /// `RawQuery::slot_usages()` must expose Slot usages in ascending insertion-index
+    /// order. Application Slot expansion validates and rebuilds SQL with a cursor that
+    /// relies on this ordering contract from source intake.
     #[must_use]
     pub const fn insertion_index(&self) -> usize {
         self.insertion_index
@@ -203,6 +207,8 @@ impl SlotUsage {
 pub struct RawFragment {
     metadata: FragmentMetadata,
     sql: String,
+    analysis_sql: String,
+    param_usages: Vec<ParamUsage>,
     source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
@@ -210,13 +216,31 @@ pub struct RawFragment {
 impl RawFragment {
     /// Build a raw fragment from parsed metadata and SQL text.
     #[must_use]
-    pub const fn new(metadata: FragmentMetadata, sql: String) -> Self {
+    pub fn new(metadata: FragmentMetadata, sql: String) -> Self {
+        let analysis_sql = sql.clone();
+
         Self {
             metadata,
             sql,
+            analysis_sql,
+            param_usages: Vec::new(),
             source_path: None,
             source_location: None,
         }
+    }
+
+    /// Attach SQL text used when the fragment is inserted into a query variant.
+    #[must_use]
+    pub fn with_analysis_sql(mut self, sql: String) -> Self {
+        self.analysis_sql = sql;
+        self
+    }
+
+    /// Attach inline Param usage occurrences in fragment source order.
+    #[must_use]
+    pub fn with_param_usages(mut self, usages: Vec<ParamUsage>) -> Self {
+        self.param_usages = usages;
+        self
     }
 
     /// Attach the source SQL path relative to the configuration directory.
@@ -243,6 +267,18 @@ impl RawFragment {
     #[must_use]
     pub fn sql(&self) -> &str {
         &self.sql
+    }
+
+    /// SQL text used when this fragment is inserted into a query variant.
+    #[must_use]
+    pub fn analysis_sql(&self) -> &str {
+        &self.analysis_sql
+    }
+
+    /// Inline Param occurrences in fragment source order.
+    #[must_use]
+    pub fn param_usages(&self) -> &[ParamUsage] {
+        &self.param_usages
     }
 
     /// Source SQL path relative to the configuration directory, when known.
@@ -500,6 +536,33 @@ mod tests {
         assert_eq!(fragment.sql(), "\nAND u.active = 1\n");
         assert_eq!(fragment.source_path(), Some(Path::new("sql/fragments.sql")));
         assert_eq!(fragment.source_location(), Some(&location));
+    }
+
+    #[test]
+    fn raw_fragment_can_carry_analysis_sql_and_param_usages() {
+        let location = SourceLocation::from_range(SourceRange::point(
+            SourcePosition::one_based(8, 15).expect("test position should be valid"),
+        ));
+        let fragment = RawFragment::new(
+            FragmentMetadata::new("byEmail".to_owned()),
+            "\nAND u.email = /* @sqlcomp { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */\n".to_owned(),
+        )
+        .with_analysis_sql("\nAND u.email = ?\n".to_owned())
+        .with_param_usages(vec![crate::ParamUsage::new(
+            "email".to_owned(),
+            Some(crate::CoreType::String),
+            false,
+            location.clone(),
+        )]);
+
+        assert_eq!(fragment.analysis_sql(), "\nAND u.email = ?\n");
+        assert_eq!(fragment.param_usages().len(), 1);
+        assert_eq!(fragment.param_usages()[0].id(), "email");
+        assert_eq!(
+            fragment.param_usages()[0].value_type_override(),
+            Some(crate::CoreType::String)
+        );
+        assert_eq!(fragment.param_usages()[0].source_location(), &location);
     }
 
     #[test]
