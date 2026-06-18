@@ -410,6 +410,89 @@ fn check_preserves_slot_target_order_across_fragment_files() {
 }
 
 #[test]
+fn check_enumerates_multiple_slot_expansion_variants_in_stable_order() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query_prefix = "SELECT u.id FROM users AS u WHERE 1 = 1";
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: tenant targets: [tenantOnly] } */ ORDER BY u.id;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1 ORDER BY u.id;".to_owned())
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "filter".to_owned(),
+            vec!["activeOnly".to_owned(), "byEmail".to_owned()],
+            query_prefix.len(),
+            core::SourceLocation::unknown(),
+        ),
+        core::SlotUsage::new(
+            "tenant".to_owned(),
+            vec!["tenantOnly".to_owned()],
+            query_prefix.len(),
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let tenant_only = core::RawFragment::new(
+        core::FragmentMetadata::new("tenantOnly".to_owned()),
+        "\nAND u.tenant_id = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.tenant_id = 1".to_owned());
+    let by_email = core::RawFragment::new(
+        core::FragmentMetadata::new("byEmail".to_owned()),
+        "\nAND u.email IS NOT NULL".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.email IS NOT NULL".to_owned());
+    let active_only = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned());
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![tenant_only, by_email, active_only])
+        .with_source_file_count(4);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("all slot expansion variants should validate in stable order");
+
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1 ORDER BY u.id;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.tenant_id = 1 ORDER BY u.id;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.active = 1 ORDER BY u.id;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.active = 1\nAND u.tenant_id = 1 ORDER BY u.id;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.email IS NOT NULL ORDER BY u.id;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.email IS NOT NULL\nAND u.tenant_id = 1 ORDER BY u.id;",
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "analyze", "analyze", "analyze", "analyze", "describe",
+            "compile", "generate"
+        ]
+    );
+}
+
+#[test]
 fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
@@ -722,7 +805,7 @@ fn check_rejects_slot_expansion_above_variant_limit() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Slot expansion would produce more than 256 SQL variants"
+        "Slot expansion for query `listUsers` would produce 257 SQL variants, exceeding the 256 variant limit"
     );
     assert_eq!(calls.entries(), ["read"]);
 }

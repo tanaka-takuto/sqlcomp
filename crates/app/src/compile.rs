@@ -582,14 +582,18 @@ fn slot_variant_choices<'a>(
             choices.push(Some(fragment));
         }
 
-        if variants.len().saturating_mul(choices.len()) > SLOT_VARIANT_LIMIT {
+        let variant_count = variants.len().saturating_mul(choices.len());
+        if variant_count > SLOT_VARIANT_LIMIT {
             return Err(query_error(
                 query,
-                format!("Slot expansion would produce more than {SLOT_VARIANT_LIMIT} SQL variants"),
+                format!(
+                    "Slot expansion for query `{}` would produce {variant_count} SQL variants, exceeding the {SLOT_VARIANT_LIMIT} variant limit",
+                    query.metadata().id()
+                ),
             ));
         }
 
-        let mut next_variants = Vec::with_capacity(variants.len() * choices.len());
+        let mut next_variants = Vec::with_capacity(variant_count);
         for variant in &variants {
             for choice in &choices {
                 let mut next_variant = variant.clone();
