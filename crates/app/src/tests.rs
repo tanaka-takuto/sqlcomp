@@ -410,6 +410,202 @@ fn check_preserves_slot_target_order_across_fragment_files() {
 }
 
 #[test]
+fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let first_insertion = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
+    let second_insertion =
+        "SELECT u.id FROM users AS u WHERE 1 = 1 AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id"
+            .len();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: userFilter targets: [activeUser] } */ AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id/* @sqlcomp { type: slot id: userFilter targets: [activeUser] } */);".to_owned(),
+    )
+    .with_analysis_sql(
+        "SELECT u.id FROM users AS u WHERE 1 = 1 AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id);"
+            .to_owned(),
+    )
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "userFilter".to_owned(),
+            vec!["activeUser".to_owned()],
+            first_insertion,
+            core::SourceLocation::unknown(),
+        ),
+        core::SlotUsage::new(
+            "userFilter".to_owned(),
+            vec!["activeUser".to_owned()],
+            second_insertion,
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let active_user = core::RawFragment::new(
+        core::FragmentMetadata::new("activeUser".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned())
+    .with_source_path("sql/fragments/users.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![active_user])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("repeated Slot IDs with matching targets should share one selection");
+
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1 AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id);",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.active = 1 AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id\nAND u.active = 1);",
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "describe", "compile", "generate"
+        ]
+    );
+}
+
+#[test]
+fn check_rejects_repeated_slot_id_with_different_target_order() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: filter targets: [byEmail, activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "filter".to_owned(),
+            vec!["activeOnly".to_owned(), "byEmail".to_owned()],
+            "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+            core::SourceLocation::unknown(),
+        ),
+        core::SlotUsage::new(
+            "filter".to_owned(),
+            vec!["byEmail".to_owned(), "activeOnly".to_owned()],
+            "SELECT u.id FROM users AS u WHERE 1 = 1".len(),
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let active_only = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned());
+    let by_email = core::RawFragment::new(
+        core::FragmentMetadata::new("byEmail".to_owned()),
+        "\nAND u.email IS NOT NULL".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.email IS NOT NULL".to_owned());
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![active_only, by_email])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("repeated Slot IDs with different target order should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Slot `filter` targets in query `listUsers`: first occurrence uses [activeOnly, byEmail] but conflicting occurrence uses [byEmail, activeOnly]; repeated Slot IDs must use the same `targets` values in the same order"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
+fn check_rejects_slot_id_collision_with_query_direct_param_id() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE u.email = ?/* @sqlcomp { type: slot id: email targets: [activeOnly] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE u.email = ?;".to_owned())
+    .with_param_usages(vec![core::ParamUsage::new(
+        "email".to_owned(),
+        None,
+        false,
+        core::SourceLocation::unknown(),
+    )])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "email".to_owned(),
+        vec!["activeOnly".to_owned()],
+        "SELECT u.id FROM users AS u WHERE u.email = ?".len(),
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let active_only = core::RawFragment::new(
+        core::FragmentMetadata::new("activeOnly".to_owned()),
+        "\nAND u.active = 1".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.active = 1".to_owned());
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![active_only])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("Slot IDs must not collide with query direct Param IDs");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot `email` in query `listUsers` conflicts with query direct Param `email`; query direct Param IDs and Slot IDs share the generated input namespace"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
 fn check_warns_for_unused_fragments() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();

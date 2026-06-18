@@ -207,10 +207,14 @@ the optional Slot replacement variants defined by ADR 0009, resolves each Slot
 target against global fragments collected from the same compile run, and sends each
 expanded SQL string to dialect analysis without adding, trimming, or normalizing
 whitespace. Unknown targets and duplicate target IDs inside one `targets` array are
-rejected before dialect analysis. Fragments that are not referenced by any Slot
-target produce non-fatal warnings. Later ADR 0009 slices still need to complete
-row-shape validation, generated Slot input types, runtime SQL branch generation,
-and CLI summaries.
+rejected before dialect analysis. Repeated Slot IDs in one query are accepted only
+when their `targets` arrays match exactly, including order; validation enumerates
+variants per unique Slot ID rather than per marker occurrence. Query direct Param
+IDs and Slot IDs are rejected when they collide because they share the generated
+input namespace. Fragments that are not referenced by any Slot target produce
+non-fatal warnings. Later ADR 0009 slices still need to complete row-shape
+validation, generated Slot input types, runtime SQL branch generation, and CLI
+summaries.
 
 ## Dialect Analyzer
 

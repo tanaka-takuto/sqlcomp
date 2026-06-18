@@ -471,6 +471,7 @@ fn slot_validation_queries(
     used_fragment_ids: &mut HashSet<String>,
 ) -> core::DiagnosticResult<Vec<core::RawQuery>> {
     let slot_specs = unique_slot_specs(query)?;
+    reject_direct_param_slot_collisions(query, &slot_specs)?;
     let variant_choices =
         slot_variant_choices(query, &slot_specs, fragments_by_id, used_fragment_ids)?;
 
@@ -504,8 +505,11 @@ fn unique_slot_specs(query: &core::RawQuery) -> core::DiagnosticResult<Vec<SlotS
                     query,
                     usage,
                     format!(
-                        "conflicting Slot `{}` targets: repeated Slot IDs must use the same `targets` values in the same order",
-                        usage.id()
+                        "conflicting Slot `{}` targets in query `{}`: first occurrence uses {} but conflicting occurrence uses {}; repeated Slot IDs must use the same `targets` values in the same order",
+                        usage.id(),
+                        query.metadata().id(),
+                        format_slot_targets(&existing.targets),
+                        format_slot_targets(usage.targets()),
                     ),
                 ));
             }
@@ -520,6 +524,37 @@ fn unique_slot_specs(query: &core::RawQuery) -> core::DiagnosticResult<Vec<SlotS
     }
 
     Ok(slot_specs)
+}
+
+fn reject_direct_param_slot_collisions(
+    query: &core::RawQuery,
+    slot_specs: &[SlotSpec],
+) -> core::DiagnosticResult<()> {
+    let direct_param_ids = query
+        .param_usages()
+        .iter()
+        .map(core::ParamUsage::id)
+        .collect::<HashSet<_>>();
+
+    for slot in slot_specs {
+        if direct_param_ids.contains(slot.id.as_str()) {
+            return Err(location_error(
+                slot.source_location.clone(),
+                format!(
+                    "Slot `{}` in query `{}` conflicts with query direct Param `{}`; query direct Param IDs and Slot IDs share the generated input namespace",
+                    slot.id,
+                    query.metadata().id(),
+                    slot.id
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn format_slot_targets(targets: &[String]) -> String {
+    format!("[{}]", targets.join(", "))
 }
 
 fn slot_variant_choices<'a>(
