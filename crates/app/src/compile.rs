@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use sqlcomp_core as core;
@@ -385,21 +385,29 @@ where
 {
     let source_read = pipeline.source_reader.read(plan)?;
     let source_file_count = source_read.source_file_count();
-    let (raw_queries, raw_fragments, diagnostics) = source_read.into_parts();
+    let (raw_queries, raw_fragments, mut diagnostics) = source_read.into_parts();
     let fragments_by_id = raw_fragments
         .iter()
         .map(|fragment| (fragment.metadata().id(), fragment))
         .collect::<HashMap<_, _>>();
     let mut compiled_queries = Vec::with_capacity(raw_queries.len());
+    let mut used_fragment_ids = HashSet::new();
 
     for query in &raw_queries {
-        let analysis = analyze_query_variants(query, &fragments_by_id, pipeline.dialect_analyzer)?;
+        let analysis = analyze_query_variants(
+            query,
+            &fragments_by_id,
+            &mut used_fragment_ids,
+            pipeline.dialect_analyzer,
+        )?;
         let metadata = pipeline.metadata_provider.describe(query, &analysis)?;
         let compiled = pipeline
             .query_compiler
             .compile(query, &analysis, &metadata)?;
         compiled_queries.push(compiled);
     }
+
+    push_unused_fragment_warnings(&raw_fragments, &used_fragment_ids, &mut diagnostics);
 
     let generated_files = pipeline
         .target_generator
@@ -421,6 +429,7 @@ where
 fn analyze_query_variants<D>(
     query: &core::RawQuery,
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
+    used_fragment_ids: &mut HashSet<String>,
     dialect_analyzer: &D,
 ) -> core::DiagnosticResult<core::AnalyzedQuery>
 where
@@ -430,7 +439,7 @@ where
         return dialect_analyzer.analyze(query);
     }
 
-    let variants = slot_validation_queries(query, fragments_by_id)?;
+    let variants = slot_validation_queries(query, fragments_by_id, used_fragment_ids)?;
     let mut analyses = variants
         .iter()
         .map(|variant| dialect_analyzer.analyze(variant));
@@ -459,9 +468,11 @@ struct SlotSpec {
 fn slot_validation_queries(
     query: &core::RawQuery,
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
+    used_fragment_ids: &mut HashSet<String>,
 ) -> core::DiagnosticResult<Vec<core::RawQuery>> {
     let slot_specs = unique_slot_specs(query)?;
-    let variant_choices = slot_variant_choices(query, &slot_specs, fragments_by_id)?;
+    let variant_choices =
+        slot_variant_choices(query, &slot_specs, fragments_by_id, used_fragment_ids)?;
 
     variant_choices
         .iter()
@@ -473,6 +484,20 @@ fn unique_slot_specs(query: &core::RawQuery) -> core::DiagnosticResult<Vec<SlotS
     let mut slot_specs = Vec::<SlotSpec>::new();
 
     for usage in query.slot_usages() {
+        let mut seen_targets = HashSet::new();
+        for target in usage.targets() {
+            if !seen_targets.insert(target.as_str()) {
+                return Err(slot_usage_error(
+                    query,
+                    usage,
+                    format!(
+                        "duplicate Slot target `{target}` in Slot `{}`; each target must appear at most once in `targets`",
+                        usage.id()
+                    ),
+                ));
+            }
+        }
+
         if let Some(existing) = slot_specs.iter().find(|slot| slot.id == usage.id()) {
             if existing.targets != usage.targets() {
                 return Err(slot_usage_error(
@@ -501,6 +526,7 @@ fn slot_variant_choices<'a>(
     query: &core::RawQuery,
     slot_specs: &[SlotSpec],
     fragments_by_id: &HashMap<&str, &'a core::RawFragment>,
+    used_fragment_ids: &mut HashSet<String>,
 ) -> core::DiagnosticResult<Vec<Vec<Option<&'a core::RawFragment>>>> {
     let mut variants = vec![Vec::new()];
 
@@ -511,9 +537,13 @@ fn slot_variant_choices<'a>(
             let Some(fragment) = fragments_by_id.get(target.as_str()).copied() else {
                 return Err(location_error(
                     slot.source_location.clone(),
-                    format!("unknown Slot target `{target}`; no fragment with that id was found"),
+                    format!(
+                        "unknown Slot target `{target}` in Slot `{}`; no fragment with that id was found",
+                        slot.id
+                    ),
                 ));
             };
+            used_fragment_ids.insert(target.clone());
             choices.push(Some(fragment));
         }
 
@@ -587,6 +617,27 @@ fn build_slot_variant_query(
     }
 
     Ok(expanded)
+}
+
+fn push_unused_fragment_warnings(
+    fragments: &[core::RawFragment],
+    used_fragment_ids: &HashSet<String>,
+    diagnostics: &mut core::DiagnosticReport,
+) {
+    for fragment in fragments {
+        if used_fragment_ids.contains(fragment.metadata().id()) {
+            continue;
+        }
+
+        let mut diagnostic = core::Diagnostic::warning(format!(
+            "unused fragment `{}`; no Slot target references this fragment",
+            fragment.metadata().id()
+        ));
+        if let Some(location) = fragment.source_location() {
+            diagnostic = diagnostic.with_location(location.clone());
+        }
+        diagnostics.push(diagnostic);
+    }
 }
 
 fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {

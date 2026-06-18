@@ -3712,6 +3712,62 @@ AND u.active = 1
     }
 
     #[test]
+    fn filesystem_source_reader_does_not_collect_fragments_from_excluded_files() {
+        let project_dir = test_project_dir("excludes-fragment-files");
+        let query_path = project_dir.join("sql").join("users.sql");
+        let fragment_path = project_dir
+            .join("sql")
+            .join("private")
+            .join("fragments.sql");
+        write_sql(
+            &query_path,
+            r"
+/* @sqlcomp
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT u.id
+FROM users AS u
+WHERE 1 = 1
+/* @sqlcomp { type: slot id: filter targets: [privateFilter] } */;
+",
+        );
+        write_sql(
+            &fragment_path,
+            r"
+/* @sqlcomp
+{
+  type: fragment
+  id: privateFilter
+}
+*/
+AND u.private = 0
+",
+        );
+        let plan = compilation_plan(
+            &project_dir,
+            vec![project_dir.join("sql/**/*.sql")],
+            vec![project_dir.join("sql/private/**/*.sql")],
+        );
+
+        let source_read = FileSystemSourceReader
+            .read(&plan)
+            .expect("excluded fragment files should not be read");
+
+        assert_eq!(source_read.source_file_count(), 1);
+        assert_eq!(source_read.queries().len(), 1);
+        assert!(source_read.fragments().is_empty());
+        assert_eq!(
+            source_read.queries()[0].slot_usages()[0].targets(),
+            ["privateFilter"]
+        );
+
+        fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+    }
+
+    #[test]
     fn filesystem_source_reader_attaches_file_path_to_query_locations() {
         let project_dir = test_project_dir("attaches-query-locations");
         let sql_dir = project_dir.join("sql");
