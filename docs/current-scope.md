@@ -94,10 +94,11 @@ normalization and preserve expanded-SQL Param ordering. Validation rejects queri
 that would produce more than 256 variants, unknown Slot targets, or duplicate Slot
 targets before dialect analysis. Validation also rejects expanded variants whose
 effective cardinality, after any explicit query metadata override is applied, or
-result row shape differs from the all-slots-unselected base variant. End-to-end
-Slot/Fragment generated TypeScript support remains incomplete
-until the remaining ADR 0009 slices land. CLI success summaries now report
-Fragment, unique Slot, and validated variant counts for the validation slices.
+result row shape differs from the all-slots-unselected base variant, and repeated
+Slot occurrences whose selected Fragment Param type or nullability conflicts.
+End-to-end Slot/Fragment generated TypeScript support remains incomplete until the
+remaining ADR 0009 slices land. CLI success summaries now report Fragment, unique
+Slot, and validated variant counts for the validation slices.
 
 ## Defining ADRs
 
@@ -120,8 +121,9 @@ The following remain intentionally unsupported:
   validation slices. The current validation slices reject unknown Slot targets,
   duplicate Slot targets, queries that would produce more than 256 variants before
   dialect analysis, and variants whose effective cardinality or result row shape
-  differs from the base variant; generated Slot input types and runtime SQL branch
-  generation remain follow-up work.
+  differs from the base variant, as well as repeated Slot occurrences whose selected
+  Fragment Param type or nullability conflicts; generated Slot input types and
+  runtime SQL branch generation remain follow-up work.
 - optional input properties that would require SQL structure changes.
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
 - multi-statement query blocks.
