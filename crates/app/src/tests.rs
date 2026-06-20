@@ -117,7 +117,9 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
             0,
-            0
+            0,
+            0,
+            1
         )]
     );
     assert_eq!(
@@ -174,9 +176,23 @@ fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
         generated_file_writer: &generated_file_writer,
     };
 
-    DefaultCompileUseCase::check(&config, &pipeline)
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
         .expect("slot SQL variants should validate successfully");
 
+    assert_eq!(outcome.fragment_count(), 1);
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        outcome.query_summaries(),
+        [crate::QuerySummary::new(
+            "listUsers".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            0,
+            0,
+            1,
+            2
+        )]
+    );
     assert_eq!(
         dialect_analyzer.analyzed_sql(),
         [
@@ -706,6 +722,87 @@ fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_sc
             vec!["kind".to_owned()],
             vec!["kind".to_owned(), "kind".to_owned()],
         ]
+    );
+}
+
+#[test]
+fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let base_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
+    let slot_index = base_sql
+        .find(';')
+        .expect("Slot insertion point exists before statement terminator");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: mode targets: [numericContext] } *//* @sqlcomp { type: slot id: kindFilter targets: [byKind] } */;".to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "mode".to_owned(),
+            vec!["numericContext".to_owned()],
+            slot_index,
+            core::SourceLocation::unknown(),
+        ),
+        core::SlotUsage::new(
+            "kindFilter".to_owned(),
+            vec!["byKind".to_owned()],
+            slot_index,
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let numeric_context = core::RawFragment::new(
+        core::FragmentMetadata::new("numericContext".to_owned()),
+        " /* numeric context */".to_owned(),
+    )
+    .with_analysis_sql(" /* numeric context */".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let by_kind_sql = " AND x.kind = ?";
+    let by_kind = core::RawFragment::new(
+        core::FragmentMetadata::new("byKind".to_owned()),
+        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+    )
+    .with_analysis_sql(by_kind_sql.to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "kind",
+        by_kind_sql
+            .find('?')
+            .expect("fragment Param placeholder exists"),
+    )])
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![numeric_context, by_kind])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone())
+        .with_param_type_before_placeholder("WHERE 1 = 1 AND x.kind = ", core::CoreType::String)
+        .with_param_type_before_placeholder(
+            "WHERE 1 = 1 /* numeric context */ AND x.kind = ",
+            core::CoreType::Int64,
+        );
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("same slot branch Param type conflicts across variants should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Param `kind` types: first occurrence resolved to String but later occurrence resolved to Int64\nwhile validating Slot expansion variant for query `listUsers` with selections: mode=numericContext, kindFilter=byKind\nSlot `mode` selected `numericContext` in this variant\nSlot `kindFilter` selected `byKind` in this variant"
     );
 }
 
@@ -1340,7 +1437,9 @@ fn compile_writes_generated_files_from_the_shared_pipeline() {
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
             0,
-            0
+            0,
+            0,
+            1
         )]
     );
     assert_eq!(outcome.stale_file_removal_count(), None);

@@ -21,6 +21,7 @@ pub struct CheckOutcome {
     source_file_count: usize,
     output_dir: PathBuf,
     query_summaries: Vec<QuerySummary>,
+    fragment_count: usize,
 }
 
 impl CheckOutcome {
@@ -31,12 +32,14 @@ impl CheckOutcome {
         source_file_count: usize,
         output_dir: PathBuf,
         query_summaries: Vec<QuerySummary>,
+        fragment_count: usize,
     ) -> Self {
         Self {
             diagnostics,
             source_file_count,
             output_dir,
             query_summaries,
+            fragment_count,
         }
     }
 
@@ -69,6 +72,30 @@ impl CheckOutcome {
     pub fn query_summaries(&self) -> &[QuerySummary] {
         &self.query_summaries
     }
+
+    /// Number of global Fragment source units resolved in this run.
+    #[must_use]
+    pub const fn fragment_count(&self) -> usize {
+        self.fragment_count
+    }
+
+    /// Number of unique query-local Slots resolved across compiled queries.
+    #[must_use]
+    pub fn unique_slot_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::slot_count)
+            .sum()
+    }
+
+    /// Number of SQL variants validated across compiled queries.
+    #[must_use]
+    pub fn variant_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::variant_count)
+            .sum()
+    }
 }
 
 /// Successful `compile` command outcome.
@@ -80,6 +107,7 @@ pub struct CompileOutcome {
     query_summaries: Vec<QuerySummary>,
     generated_file_paths: Vec<PathBuf>,
     stale_file_removal_count: Option<usize>,
+    fragment_count: usize,
 }
 
 impl CompileOutcome {
@@ -92,6 +120,7 @@ impl CompileOutcome {
         query_summaries: Vec<QuerySummary>,
         generated_file_paths: Vec<PathBuf>,
         stale_file_removal_count: Option<usize>,
+        fragment_count: usize,
     ) -> Self {
         Self {
             diagnostics,
@@ -100,6 +129,7 @@ impl CompileOutcome {
             query_summaries,
             generated_file_paths,
             stale_file_removal_count,
+            fragment_count,
         }
     }
 
@@ -150,6 +180,30 @@ impl CompileOutcome {
     pub const fn stale_file_removal_count(&self) -> Option<usize> {
         self.stale_file_removal_count
     }
+
+    /// Number of global Fragment source units resolved in this run.
+    #[must_use]
+    pub const fn fragment_count(&self) -> usize {
+        self.fragment_count
+    }
+
+    /// Number of unique query-local Slots resolved across compiled queries.
+    #[must_use]
+    pub fn unique_slot_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::slot_count)
+            .sum()
+    }
+
+    /// Number of SQL variants validated across compiled queries.
+    #[must_use]
+    pub fn variant_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::variant_count)
+            .sum()
+    }
 }
 
 /// Query-level success summary data.
@@ -159,6 +213,8 @@ pub struct QuerySummary {
     source_path: Option<PathBuf>,
     param_count: usize,
     input_field_count: usize,
+    slot_count: usize,
+    variant_count: usize,
 }
 
 impl QuerySummary {
@@ -169,12 +225,16 @@ impl QuerySummary {
         source_path: Option<PathBuf>,
         param_count: usize,
         input_field_count: usize,
+        slot_count: usize,
+        variant_count: usize,
     ) -> Self {
         Self {
             id,
             source_path,
             param_count,
             input_field_count,
+            slot_count,
+            variant_count,
         }
     }
 
@@ -202,12 +262,30 @@ impl QuerySummary {
         self.input_field_count
     }
 
-    fn from_compiled_query(query: &core::CompiledQuery) -> Self {
+    /// Number of unique query-local Slots resolved for this query.
+    #[must_use]
+    pub const fn slot_count(&self) -> usize {
+        self.slot_count
+    }
+
+    /// Number of SQL variants validated for this query.
+    #[must_use]
+    pub const fn variant_count(&self) -> usize {
+        self.variant_count
+    }
+
+    fn from_compiled_query(
+        query: &core::CompiledQuery,
+        slot_count: usize,
+        variant_count: usize,
+    ) -> Self {
         Self::new(
             query.id().as_str().to_owned(),
             query.source_path().map(Path::to_path_buf),
             query.params().len(),
             query.input().len(),
+            slot_count,
+            variant_count,
         )
     }
 }
@@ -235,12 +313,14 @@ mod tests {
             core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
         ]);
 
-        let summary = QuerySummary::from_compiled_query(&query);
+        let summary = QuerySummary::from_compiled_query(&query, 2, 6);
 
         assert_eq!(summary.id(), "filterUsers");
         assert_eq!(summary.source_path(), Some(Path::new("sql/users.sql")));
         assert_eq!(summary.param_count(), 3);
         assert_eq!(summary.input_field_count(), 2);
+        assert_eq!(summary.slot_count(), 2);
+        assert_eq!(summary.variant_count(), 6);
     }
 }
 
@@ -302,6 +382,7 @@ impl DefaultCompileUseCase {
             output.source_file_count,
             output.output_dir,
             output.query_summaries,
+            output.fragment_count,
         ))
     }
 
@@ -357,6 +438,7 @@ impl DefaultCompileUseCase {
             output.query_summaries,
             generated_file_paths,
             stale_file_removal_count,
+            output.fragment_count,
         ))
     }
 }
@@ -368,6 +450,7 @@ struct GeneratedPipelineOutput {
     source_file_count: usize,
     output_dir: PathBuf,
     query_summaries: Vec<QuerySummary>,
+    fragment_count: usize,
 }
 
 fn generate_files<P, S, D, M, Q, T, W>(
@@ -386,11 +469,13 @@ where
     let source_read = pipeline.source_reader.read(plan)?;
     let source_file_count = source_read.source_file_count();
     let (raw_queries, raw_fragments, mut diagnostics) = source_read.into_parts();
+    let fragment_count = raw_fragments.len();
     let fragments_by_id = raw_fragments
         .iter()
         .map(|fragment| (fragment.metadata().id(), fragment))
         .collect::<HashMap<_, _>>();
     let mut compiled_queries = Vec::with_capacity(raw_queries.len());
+    let mut query_summaries = Vec::with_capacity(raw_queries.len());
     let mut used_fragment_ids = HashSet::new();
 
     for query in &raw_queries {
@@ -400,31 +485,49 @@ where
             &mut used_fragment_ids,
             pipeline.dialect_analyzer,
         )?;
-        let Some(base_variant) = analyzed_variants.first() else {
+        let unique_slot_count = analyzed_variants.unique_slot_count;
+        let variant_count = analyzed_variants.variants.len();
+        let Some(base_variant) = analyzed_variants.variants.first() else {
             return Err(query_error(
                 query,
                 "Slot expansion produced no validation variants",
             ));
         };
-        validate_variant_cardinality(&analyzed_variants)?;
+        validate_variant_cardinality(&analyzed_variants.variants)?;
         let base_metadata = pipeline
             .metadata_provider
             .describe(&base_variant.query, &base_variant.analysis)
             .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
-        for variant in analyzed_variants.iter().skip(1) {
+        let mut scoped_param_bindings = Vec::<ScopedParamBinding>::new();
+        validate_expanded_variant_param_bindings(
+            base_variant,
+            &base_metadata,
+            &mut scoped_param_bindings,
+        )
+        .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
+        for variant in analyzed_variants.variants.iter().skip(1) {
             let metadata = pipeline
                 .metadata_provider
                 .describe(&variant.query, &variant.analysis)
                 .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
             validate_variant_row_shape(&base_metadata, variant, &metadata)?;
-            validate_expanded_variant_param_bindings(variant, &metadata)
-                .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
+            validate_expanded_variant_param_bindings(
+                variant,
+                &metadata,
+                &mut scoped_param_bindings,
+            )
+            .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
         }
         let compiled = pipeline.query_compiler.compile(
             &base_variant.query,
             &base_variant.analysis,
             &base_metadata,
         )?;
+        query_summaries.push(QuerySummary::from_compiled_query(
+            &compiled,
+            unique_slot_count,
+            variant_count,
+        ));
         compiled_queries.push(compiled);
     }
 
@@ -433,10 +536,6 @@ where
     let generated_files = pipeline
         .target_generator
         .generate(plan, &compiled_queries)?;
-    let query_summaries = compiled_queries
-        .iter()
-        .map(QuerySummary::from_compiled_query)
-        .collect();
 
     Ok(GeneratedPipelineOutput {
         generated_files,
@@ -444,7 +543,14 @@ where
         source_file_count,
         output_dir: plan.output_dir().to_path_buf(),
         query_summaries,
+        fragment_count,
     })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AnalyzedQueryVariants {
+    variants: Vec<AnalyzedQueryVariant>,
+    unique_slot_count: usize,
 }
 
 fn analyze_query_variants<D>(
@@ -452,24 +558,29 @@ fn analyze_query_variants<D>(
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     used_fragment_ids: &mut HashSet<String>,
     dialect_analyzer: &D,
-) -> core::DiagnosticResult<Vec<AnalyzedQueryVariant>>
+) -> core::DiagnosticResult<AnalyzedQueryVariants>
 where
     D: DialectAnalyzer,
 {
     if query.slot_usages().is_empty() {
-        return Ok(vec![AnalyzedQueryVariant {
-            query: query.clone(),
-            analysis: dialect_analyzer.analyze(query)?,
-            context: None,
-            param_scopes: query
-                .param_usages()
-                .iter()
-                .map(|_| ExpandedParamScope::QueryDirect)
-                .collect(),
-        }]);
+        return Ok(AnalyzedQueryVariants {
+            variants: vec![AnalyzedQueryVariant {
+                query: query.clone(),
+                analysis: dialect_analyzer.analyze(query)?,
+                context: None,
+                param_scopes: query
+                    .param_usages()
+                    .iter()
+                    .map(|_| ExpandedParamScope::QueryDirect)
+                    .collect(),
+            }],
+            unique_slot_count: 0,
+        });
     }
 
-    let variants = slot_validation_queries(query, fragments_by_id, used_fragment_ids)?;
+    let slot_specs = unique_slot_specs(query)?;
+    reject_direct_param_slot_collisions(query, &slot_specs)?;
+    let variants = slot_validation_queries(query, &slot_specs, fragments_by_id, used_fragment_ids)?;
     let mut analyzed_variants = Vec::with_capacity(variants.len());
     for variant in variants {
         let analysis = dialect_analyzer
@@ -483,7 +594,10 @@ where
         });
     }
 
-    Ok(analyzed_variants)
+    Ok(AnalyzedQueryVariants {
+        variants: analyzed_variants,
+        unique_slot_count: slot_specs.len(),
+    })
 }
 
 fn validate_variant_cardinality(variants: &[AnalyzedQueryVariant]) -> core::DiagnosticResult<()> {
@@ -695,17 +809,16 @@ struct SlotSelectionContext {
 
 fn slot_validation_queries(
     query: &core::RawQuery,
+    slot_specs: &[SlotSpec],
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     used_fragment_ids: &mut HashSet<String>,
 ) -> core::DiagnosticResult<Vec<SlotExpansionVariant>> {
-    let slot_specs = unique_slot_specs(query)?;
-    reject_direct_param_slot_collisions(query, &slot_specs)?;
     let variant_choices =
-        slot_variant_choices(query, &slot_specs, fragments_by_id, used_fragment_ids)?;
+        slot_variant_choices(query, slot_specs, fragments_by_id, used_fragment_ids)?;
 
     variant_choices
         .iter()
-        .map(|choices| build_slot_variant_query(query, &slot_specs, choices))
+        .map(|choices| build_slot_variant_query(query, slot_specs, choices))
         .collect()
 }
 
@@ -1015,6 +1128,7 @@ fn push_fragment_params(
 fn validate_expanded_variant_param_bindings(
     variant: &AnalyzedQueryVariant,
     metadata: &core::DbQueryMetadata,
+    scoped_bindings: &mut Vec<ScopedParamBinding>,
 ) -> core::DiagnosticResult<()> {
     let query = &variant.query;
     if query.param_usages().len() != metadata.param_usages().len() {
@@ -1038,7 +1152,6 @@ fn validate_expanded_variant_param_bindings(
         ));
     }
 
-    let mut scoped_bindings = Vec::<ScopedParamBinding>::new();
     for ((source_usage, resolved_usage), scope) in query
         .param_usages()
         .iter()

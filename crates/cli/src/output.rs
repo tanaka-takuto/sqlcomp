@@ -29,11 +29,17 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
         ConfiguredCommandOutcome::Check(outcome) => {
             writeln!(
                 &mut output,
-                "Check passed. Matched {} SQL {}. Compiled {} {}. Output dir: {}. No files written.",
+                "Check passed. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Validated {} {}. Output dir: {}. No files written.",
                 outcome.source_file_count(),
                 pluralize(outcome.source_file_count(), "file", "files"),
                 outcome.query_count(),
                 pluralize(outcome.query_count(), "query", "queries"),
+                outcome.fragment_count(),
+                pluralize(outcome.fragment_count(), "fragment", "fragments"),
+                outcome.unique_slot_count(),
+                pluralize(outcome.unique_slot_count(), "slot", "slots"),
+                outcome.variant_count(),
+                pluralize(outcome.variant_count(), "variant", "variants"),
                 outcome.output_dir().display()
             )
             .expect("writing to String cannot fail");
@@ -42,11 +48,17 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
         ConfiguredCommandOutcome::Compile(outcome) => {
             write!(
                 &mut output,
-                "Compile succeeded. Matched {} SQL {}. Compiled {} {}. Generated or updated {} {}.",
+                "Compile succeeded. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Validated {} {}. Generated or updated {} {}.",
                 outcome.source_file_count(),
                 pluralize(outcome.source_file_count(), "file", "files"),
                 outcome.query_count(),
                 pluralize(outcome.query_count(), "query", "queries"),
+                outcome.fragment_count(),
+                pluralize(outcome.fragment_count(), "fragment", "fragments"),
+                outcome.unique_slot_count(),
+                pluralize(outcome.unique_slot_count(), "slot", "slots"),
+                outcome.variant_count(),
+                pluralize(outcome.variant_count(), "variant", "variants"),
                 outcome.generated_file_count(),
                 pluralize(outcome.generated_file_count(), "file", "files")
             )
@@ -105,27 +117,35 @@ fn append_query_summaries(output: &mut String, summaries: &[app::QuerySummary]) 
             "  - {} ({}): {}",
             summary.id(),
             display_source_path(summary.source_path()),
-            format_parameter_summary(summary)
+            format_query_detail_summary(summary)
         )
         .expect("writing to String cannot fail");
     }
 }
 
-fn format_parameter_summary(summary: &app::QuerySummary) -> String {
-    if summary.param_count() == 0 {
-        return "no parameters".to_owned();
-    }
+fn format_query_detail_summary(summary: &app::QuerySummary) -> String {
+    let parameter_summary = if summary.param_count() == 0 {
+        "no parameters".to_owned()
+    } else {
+        format!(
+            "{} {}, {} {}",
+            summary.param_count(),
+            pluralize(
+                summary.param_count(),
+                "parameter placeholder",
+                "parameter placeholders"
+            ),
+            summary.input_field_count(),
+            pluralize(summary.input_field_count(), "input field", "input fields")
+        )
+    };
 
     format!(
-        "{} {}, {} {}",
-        summary.param_count(),
-        pluralize(
-            summary.param_count(),
-            "parameter placeholder",
-            "parameter placeholders"
-        ),
-        summary.input_field_count(),
-        pluralize(summary.input_field_count(), "input field", "input fields")
+        "{parameter_summary}, {} {}, {} {}",
+        summary.slot_count(),
+        pluralize(summary.slot_count(), "slot", "slots"),
+        summary.variant_count(),
+        pluralize(summary.variant_count(), "variant", "variants")
     )
 }
 
@@ -154,14 +174,19 @@ mod tests {
                     Some(PathBuf::from("sql/users.sql")),
                     0,
                     0,
+                    0,
+                    1,
                 ),
                 app::QuerySummary::new(
                     "filterUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
                     3,
                     2,
+                    0,
+                    1,
                 ),
             ],
+            0,
         ));
 
         let summary = format_success_summary(&outcome);
@@ -169,12 +194,15 @@ mod tests {
         assert!(summary.contains("Check passed."));
         assert!(summary.contains("Matched 2 SQL files."));
         assert!(summary.contains("Compiled 2 queries."));
+        assert!(summary.contains("Resolved 0 fragments."));
+        assert!(summary.contains("Resolved 0 unique slots."));
+        assert!(summary.contains("Validated 2 variants."));
         assert!(summary.contains("Output dir: /tmp/project/src/generated/sqlcomp"));
         assert!(summary.contains("No files written."));
-        assert!(summary.contains("- listUsers (sql/users.sql): no parameters"));
+        assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
         assert!(
             summary.contains(
-                "- filterUsers (sql/users.sql): 3 parameter placeholders, 2 input fields"
+                "- filterUsers (sql/users.sql): 3 parameter placeholders, 2 input fields, 0 slots, 1 variant"
             )
         );
     }
@@ -190,11 +218,14 @@ mod tests {
                 Some(PathBuf::from("sql/users.sql")),
                 0,
                 0,
+                0,
+                1,
             )],
             vec![PathBuf::from(
                 "/tmp/project/src/generated/sqlcomp/sql/users.ts",
             )],
             Some(1),
+            0,
         ));
 
         let summary = format_success_summary(&outcome);
@@ -202,10 +233,13 @@ mod tests {
         assert!(summary.contains("Compile succeeded."));
         assert!(summary.contains("Matched 1 SQL file."));
         assert!(summary.contains("Compiled 1 query."));
+        assert!(summary.contains("Resolved 0 fragments."));
+        assert!(summary.contains("Resolved 0 unique slots."));
+        assert!(summary.contains("Validated 1 variant."));
         assert!(summary.contains("Generated or updated 1 file."));
         assert!(summary.contains("Removed 1 stale generated file."));
         assert!(summary.contains("Generated files:"));
         assert!(summary.contains("- /tmp/project/src/generated/sqlcomp/sql/users.ts"));
-        assert!(summary.contains("- listUsers (sql/users.sql): no parameters"));
+        assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
     }
 }

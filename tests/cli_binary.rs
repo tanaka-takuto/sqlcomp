@@ -240,7 +240,11 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("parameter placeholders and input fields"),
+        stdout.contains("Fragment, Slot, variant counts"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("per-query Param, Slot, and variant counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -314,7 +318,11 @@ fn compile_help_describes_output_writing_and_clean() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("parameter placeholders and input fields"),
+        stdout.contains("Fragment, Slot, variant counts"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("per-query Param, Slot, and variant counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -558,6 +566,12 @@ fn check_prints_success_summary_without_implying_writes() {
     assert!(stdout.contains("Check passed."), "stdout: {stdout}");
     assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
     assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(stdout.contains("Resolved 0 fragments."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Resolved 0 unique slots."),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("Validated 0 variants."), "stdout: {stdout}");
     assert!(
         stdout.contains(&format!(
             "Output dir: {}",
@@ -600,6 +614,12 @@ fn compile_prints_generated_or_updated_file_count() {
     assert!(stdout.contains("Compile succeeded."), "stdout: {stdout}");
     assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
     assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(stdout.contains("Resolved 0 fragments."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Resolved 0 unique slots."),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("Validated 0 variants."), "stdout: {stdout}");
     assert!(
         stdout.contains("Generated or updated 0 files."),
         "stdout: {stdout}"
