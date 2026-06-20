@@ -747,7 +747,7 @@ fn check_rejects_slot_variant_cardinality_mismatch_without_override() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Slot expansion variant for query `listUsers` resolved cardinality `one`, but the base variant resolved cardinality `many`; all variants must have matching cardinality after query metadata override\nwhile validating Slot expansion variant for query `listUsers` with selections: limiter=limitOne\nSlot `limiter` selected `limitOne` in this variant"
+        "Slot expansion variant for query `listUsers` resolved effective cardinality `one`, but the base variant resolved effective cardinality `many`; all variants must have matching effective cardinality, using an explicit query metadata `cardinality` override when present and dialect analysis otherwise\nwhile validating Slot expansion variant for query `listUsers` with selections: limiter=limitOne\nSlot `limiter` selected `limitOne` in this variant"
     );
     assert_eq!(calls.entries(), ["read", "analyze", "analyze"]);
 }

@@ -492,7 +492,7 @@ fn validate_variant_cardinality(variants: &[AnalyzedQueryVariant]) -> core::Diag
                 query_error(
                     &variant.query,
                     format!(
-                        "Slot expansion variant for query `{}` resolved cardinality `{}`, but the base variant resolved cardinality `{}`; all variants must have matching cardinality after query metadata override",
+                        "Slot expansion variant for query `{}` resolved effective cardinality `{}`, but the base variant resolved effective cardinality `{}`; all variants must have matching effective cardinality, using an explicit query metadata `cardinality` override when present and dialect analysis otherwise",
                         variant.query.metadata().id(),
                         format_cardinality(variant_cardinality),
                         format_cardinality(base_cardinality),
