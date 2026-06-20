@@ -86,8 +86,14 @@ in a sibling directory such as `sql/` next to `configs/`, place
 from a nested config file.
 
 The initial SELECT `Slot`/`Fragment` design is captured in
-[ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md). It remains
-unsupported until the implementation slices for that ADR land.
+[ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md). The current
+implementation has started landing validation slices for that ADR: query-local
+Slots and global Fragments can be resolved into concrete validation variants during
+`check` and `compile`; variants use source-authored whitespace without compiler
+normalization and preserve expanded-SQL Param ordering. Validation rejects queries
+that would produce more than 256 variants, unknown Slot targets, or duplicate Slot
+targets before dialect analysis. End-to-end Slot/Fragment generated TypeScript
+support remains incomplete until the remaining ADR 0009 slices land.
 
 ## Defining ADRs
 
@@ -106,8 +112,12 @@ The current scope is defined by these accepted ADRs:
 
 The following remain intentionally unsupported:
 
-- `Slot` and `Fragment` dynamic SQL composition until the ADR 0009 implementation
-  slices land.
+- End-to-end `Slot` and `Fragment` dynamic SQL generation beyond the current
+  validation slices. The current validation slices reject unknown Slot targets,
+  duplicate Slot targets, and queries that would produce more than 256 variants
+  before dialect analysis; row-shape validation, generated Slot input types,
+  runtime SQL branch generation, and Slot/Fragment CLI summaries remain follow-up
+  work.
 - optional input properties that would require SQL structure changes.
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
 - multi-statement query blocks.

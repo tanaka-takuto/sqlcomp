@@ -187,7 +187,7 @@ fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
     assert_eq!(
         calls.entries(),
         [
-            "read", "analyze", "analyze", "describe", "compile", "generate"
+            "read", "analyze", "analyze", "describe", "describe", "compile", "generate"
         ]
     );
 }
@@ -240,7 +240,7 @@ fn check_reports_token_adjacent_slot_replacement_from_dialect_validation() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "failed to parse MySQL SQL: token-adjacent slot replacement"
+        "failed to parse MySQL SQL: token-adjacent slot replacement\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=activeOnly\nSlot `filter` selected `activeOnly` in this variant"
     );
     assert_eq!(
         dialect_analyzer.analyzed_sql(),
@@ -487,7 +487,7 @@ fn check_enumerates_multiple_slot_expansion_variants_in_stable_order() {
         calls.entries(),
         [
             "read", "analyze", "analyze", "analyze", "analyze", "analyze", "analyze", "describe",
-            "compile", "generate"
+            "describe", "describe", "describe", "describe", "describe", "compile", "generate"
         ]
     );
 }
@@ -562,8 +562,140 @@ fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
     assert_eq!(
         calls.entries(),
         [
-            "read", "analyze", "analyze", "describe", "compile", "generate"
+            "read", "analyze", "analyze", "describe", "describe", "compile", "generate"
         ]
+    );
+}
+
+#[test]
+fn check_describes_expanded_slot_variants_with_sql_ordered_params() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let (query, fragment) = slot_param_order_fixture();
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("expanded Slot variants should be described successfully");
+
+    assert_eq!(
+        metadata_provider.described_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1 AND u.email = ?;",
+            "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1\nAND u.active = ? AND u.role_id = ? AND u.email = ?;",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [
+            vec!["tenantId".to_owned(), "email".to_owned()],
+            vec![
+                "tenantId".to_owned(),
+                "active".to_owned(),
+                "roleId".to_owned(),
+                "email".to_owned(),
+            ],
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "describe", "describe", "compile", "generate"
+        ]
+    );
+}
+
+#[test]
+fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let base_sql = "SELECT u.id FROM users AS u WHERE u.email = ?;";
+    let slot_index = base_sql
+        .find(';')
+        .expect("Slot insertion point exists before statement terminator");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE u.email = /* @sqlcomp { type: param id: filter valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } *//* @sqlcomp { type: slot id: extraFilter targets: [byId] } */;".to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "filter".to_owned(),
+            Some(core::CoreType::String),
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_placeholder_index(base_sql.find('?').expect("query Param placeholder exists")),
+    ])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "extraFilter".to_owned(),
+        vec!["byId".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = " AND u.id = ?";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byId".to_owned()),
+        " AND u.id = /* @sqlcomp { type: param id: filter valueType: int64 } */ 1 /* @sqlcomp { type: paramEnd } */".to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "filter".to_owned(),
+            Some(core::CoreType::Int64),
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_placeholder_index(
+            fragment_sql
+                .find('?')
+                .expect("fragment Param placeholder exists"),
+        ),
+    ]);
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("Param type conflicts in selected Slot variants should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Param `filter` types: first occurrence resolved to String but later occurrence resolved to Int64\nwhile validating Slot expansion variant for query `listUsers` with selections: extraFilter=byId\nSlot `extraFilter` selected `byId` in this variant"
     );
 }
 
@@ -1224,6 +1356,64 @@ fn compile_query(
         .expect("query compiler should resolve cardinality")
 }
 
+fn slot_param_order_fixture() -> (core::RawQuery, core::RawFragment) {
+    let base_sql = "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1 AND u.email = ?;";
+    let slot_index = base_sql
+        .find(" AND u.email")
+        .expect("Slot insertion point exists before email predicate");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeAndRole] } */ AND u.email = ?;"
+            .to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_param_usages(vec![
+        test_param_usage(
+            "tenantId",
+            base_sql
+                .find('?')
+                .expect("tenant Param placeholder exists"),
+        ),
+        test_param_usage("email", base_sql.rfind('?').expect("email Param placeholder exists")),
+    ])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["activeAndRole".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+
+    let fragment_sql = "\nAND u.active = ? AND u.role_id = ?";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("activeAndRole".to_owned()),
+        fragment_sql.to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![
+        test_param_usage(
+            "active",
+            fragment_sql
+                .find('?')
+                .expect("active Param placeholder exists"),
+        ),
+        test_param_usage(
+            "roleId",
+            fragment_sql
+                .rfind('?')
+                .expect("role Param placeholder exists"),
+        ),
+    ])
+    .with_source_path("sql/fragments.sql");
+
+    (query, fragment)
+}
+
+fn test_param_usage(id: &str, placeholder_index: usize) -> core::ParamUsage {
+    core::ParamUsage::new(id.to_owned(), None, false, core::SourceLocation::unknown())
+        .with_placeholder_index(placeholder_index)
+}
+
 fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
     report
         .diagnostics()
@@ -1338,7 +1528,7 @@ impl FakeDialectAnalyzer {
         }
     }
 
-    const fn with_failure(mut self, failure: PipelineFailure) -> Self {
+    fn with_failure(mut self, failure: PipelineFailure) -> Self {
         if matches!(failure, PipelineFailure::Dialect) {
             self.failure = Some(failure);
         }
@@ -1384,13 +1574,17 @@ impl DialectAnalyzer for FakeDialectAnalyzer {
 struct FakeMetadataProvider {
     calls: CallLog,
     failure: Option<PipelineFailure>,
+    described_sql: Rc<RefCell<Vec<String>>>,
+    described_param_ids: Rc<RefCell<Vec<Vec<String>>>>,
 }
 
 impl FakeMetadataProvider {
-    const fn new(calls: CallLog) -> Self {
+    fn new(calls: CallLog) -> Self {
         Self {
             calls,
             failure: None,
+            described_sql: Rc::new(RefCell::new(Vec::new())),
+            described_param_ids: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -1401,21 +1595,51 @@ impl FakeMetadataProvider {
 
         self
     }
+
+    fn described_sql(&self) -> Vec<String> {
+        self.described_sql.borrow().clone()
+    }
+
+    fn described_param_ids(&self) -> Vec<Vec<String>> {
+        self.described_param_ids.borrow().clone()
+    }
 }
 
 impl MetadataProvider for FakeMetadataProvider {
     fn describe(
         &self,
-        _query: &core::RawQuery,
+        query: &core::RawQuery,
         _analysis: &core::AnalyzedQuery,
     ) -> core::DiagnosticResult<core::DbQueryMetadata> {
         self.calls.push("describe");
+        self.described_sql
+            .borrow_mut()
+            .push(query.analysis_sql().to_owned());
+        let param_ids = query
+            .param_usages()
+            .iter()
+            .map(|usage| usage.id().to_owned())
+            .collect::<Vec<_>>();
+        self.described_param_ids.borrow_mut().push(param_ids);
 
         if let Some(failure) = self.failure {
             return Err(failure.report());
         }
 
-        Ok(metadata())
+        let param_usages = query
+            .param_usages()
+            .iter()
+            .map(|usage| {
+                core::DbParamUsage::new(
+                    usage.id().to_owned(),
+                    usage
+                        .value_type_override()
+                        .unwrap_or(core::CoreType::String),
+                )
+            })
+            .collect();
+
+        Ok(metadata().with_param_usages(param_usages))
     }
 }
 

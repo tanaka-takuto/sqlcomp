@@ -74,6 +74,7 @@ pub struct ParamUsage {
     value_type_override: Option<CoreType>,
     nullable_override: bool,
     sample_sql: String,
+    placeholder_index: Option<usize>,
     source_location: SourceLocation,
 }
 
@@ -91,6 +92,7 @@ impl ParamUsage {
             value_type_override,
             nullable_override,
             sample_sql: String::new(),
+            placeholder_index: None,
             source_location,
         }
     }
@@ -99,6 +101,13 @@ impl ParamUsage {
     #[must_use]
     pub fn with_sample_sql(mut self, sample_sql: String) -> Self {
         self.sample_sql = sample_sql;
+        self
+    }
+
+    /// Attach the byte index of this Param's generated `?` in `analysis_sql`.
+    #[must_use]
+    pub const fn with_placeholder_index(mut self, index: usize) -> Self {
+        self.placeholder_index = Some(index);
         self
     }
 
@@ -124,6 +133,12 @@ impl ParamUsage {
     #[must_use]
     pub fn sample_sql(&self) -> &str {
         &self.sample_sql
+    }
+
+    /// Byte index of this Param's generated `?` in the owning analysis SQL.
+    #[must_use]
+    pub const fn placeholder_index(&self) -> Option<usize> {
+        self.placeholder_index
     }
 
     /// Source location for the Param range.

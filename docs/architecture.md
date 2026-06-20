@@ -205,11 +205,14 @@ recorded as zero-width insertion points, and removed from the SQL text used for
 downstream analysis. During `check` and `compile`, application validation enumerates
 the optional Slot replacement variants defined by ADR 0009, resolves each Slot
 target against global fragments collected from the same compile run, and sends each
-expanded SQL string to dialect analysis without adding, trimming, or normalizing
-whitespace. Variant enumeration follows unique Slot ID first-seen order, treats
-each unique Slot as one unselected choice plus one choice per target, and rejects
-queries that would produce more than 256 variants. Unknown targets and duplicate
-target IDs inside one `targets` array are rejected before dialect analysis.
+expanded SQL string to dialect analysis and metadata lookup without adding,
+trimming, or normalizing whitespace. Expanded variants carry Param usages in
+expanded-SQL left-to-right placeholder order, including fragment Params once for
+each selected Slot occurrence. Variant enumeration follows unique Slot ID first-seen
+order, treats each unique Slot as one unselected choice plus one choice per target,
+and rejects queries that would produce more than 256 variants. Unknown targets and
+duplicate target IDs inside one `targets` array are rejected before dialect
+analysis.
 Repeated Slot IDs in one query are accepted only when their `targets` arrays match
 exactly, including order; validation enumerates variants per unique Slot ID rather
 than per marker occurrence. Query direct Param IDs and Slot IDs are rejected when
