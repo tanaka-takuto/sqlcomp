@@ -103,8 +103,14 @@ pub fn render_generated_file_contents(queries: &[core::CompiledQuery]) -> String
 fn render_generated_file_contents_from_iter<'a>(
     queries: impl IntoIterator<Item = &'a core::CompiledQuery>,
 ) -> String {
+    let queries = queries.into_iter().collect::<Vec<_>>();
     let mut contents = String::from(core::GENERATED_FILE_HEADER);
     contents.push_str("\n\n");
+
+    if queries.iter().any(|query| is_slot_query(query)) {
+        contents.push_str("type SqlParam = unknown;\n\n");
+    }
+
     let mut is_first_query = true;
 
     for query in queries {
@@ -156,21 +162,110 @@ pub fn render_query(query: &core::CompiledQuery) -> String {
     writeln!(
         &mut output,
         "): {{ sql: string; params: {} }} {{",
-        typescript_params_tuple_type(query.params())
+        typescript_params_type(query)
     )
     .expect("writing to String cannot fail");
+    if let Some(dynamic_body) = query.dynamic_body() {
+        render_dynamic_builder_body(&mut output, query, dynamic_body);
+    } else {
+        render_static_builder_body(&mut output, query);
+    }
+    output.push_str("}\n");
+
+    output
+}
+
+fn render_static_builder_body(output: &mut String, query: &core::CompiledQuery) {
     output.push_str("  return {\n");
-    writeln!(&mut output, "{}", render_sql_property(query)).expect("writing to String cannot fail");
+    writeln!(output, "{}", render_sql_property(query)).expect("writing to String cannot fail");
     writeln!(
-        &mut output,
+        output,
         "    params: {} as const,",
         typescript_params_expression(query.params())
     )
     .expect("writing to String cannot fail");
     output.push_str("  };\n");
-    output.push_str("}\n");
+}
 
-    output
+fn render_dynamic_builder_body(
+    output: &mut String,
+    query: &core::CompiledQuery,
+    dynamic_body: &core::CompiledDynamicQuery,
+) {
+    let input_name = function_input_name(query);
+
+    output.push_str("  const sqlParts: string[] = [];\n");
+    output.push_str("  const params: SqlParam[] = [];\n\n");
+
+    for (index, segment) in dynamic_body.base_segments().iter().enumerate() {
+        render_dynamic_sql_segment(output, "  ", segment, |param| {
+            input_param_access(input_name, param.input_name())
+        });
+
+        if let Some(occurrence) = dynamic_body.slot_occurrences().get(index) {
+            let slot = dynamic_body
+                .slots()
+                .iter()
+                .find(|slot| slot.id() == occurrence.slot_id())
+                .expect("compiled dynamic query Slot occurrence must have a Slot definition");
+            render_slot_switch(output, input_name, slot);
+        }
+    }
+
+    output.push('\n');
+    output.push_str("  return {\n");
+    output.push_str("    sql: sqlParts.join(\"\"),\n");
+    output.push_str("    params,\n");
+    output.push_str("  };\n");
+}
+
+fn render_slot_switch(output: &mut String, input_name: &str, slot: &core::CompiledSlotDefinition) {
+    writeln!(
+        output,
+        "  switch ({}?.$fragment) {{",
+        input_param_access(input_name, slot.id())
+    )
+    .expect("writing to String cannot fail");
+
+    for branch in slot.branches() {
+        writeln!(
+            output,
+            "    case {}:",
+            typescript_string_literal(branch.target_id())
+        )
+        .expect("writing to String cannot fail");
+        for segment in branch.segments() {
+            render_dynamic_sql_segment(output, "      ", segment, |param| {
+                nested_slot_param_access(input_name, slot.id(), param.input_name())
+            });
+        }
+        output.push_str("      break;\n");
+    }
+
+    output.push_str("  }\n");
+}
+
+fn render_dynamic_sql_segment<F>(
+    output: &mut String,
+    indent: &str,
+    segment: &core::CompiledSqlSegment,
+    param_access: F,
+) where
+    F: Fn(&core::ParamBinding) -> String,
+{
+    if !segment.sql().is_empty() {
+        writeln!(
+            output,
+            "{indent}sqlParts.push({});",
+            typescript_string_literal(segment.sql())
+        )
+        .expect("writing to String cannot fail");
+    }
+
+    for param in segment.params() {
+        writeln!(output, "{indent}params.push({});", param_access(param))
+            .expect("writing to String cannot fail");
+    }
 }
 
 fn render_input_type_alias(
@@ -211,6 +306,10 @@ fn has_slot_inputs(query: &core::CompiledQuery) -> bool {
     query
         .dynamic_body()
         .is_some_and(|dynamic_body| !dynamic_body.slots().is_empty())
+}
+
+const fn is_slot_query(query: &core::CompiledQuery) -> bool {
+    query.dynamic_body().is_some()
 }
 
 fn render_slot_input_field(output: &mut String, slot: &core::CompiledSlotDefinition) {
@@ -289,6 +388,14 @@ fn render_function_input_parameter(
     }
 }
 
+fn function_input_name(query: &core::CompiledQuery) -> &'static str {
+    if query.input().is_empty() {
+        "_input"
+    } else {
+        "input"
+    }
+}
+
 fn typescript_output_type(symbols: &QuerySymbols, cardinality: core::Cardinality) -> String {
     let row_type = symbols.row_type_name();
 
@@ -358,6 +465,14 @@ fn typescript_params_tuple_type(params: &[core::ParamBinding]) -> String {
     }
 }
 
+fn typescript_params_type(query: &core::CompiledQuery) -> String {
+    if is_slot_query(query) {
+        "readonly SqlParam[]".to_owned()
+    } else {
+        typescript_params_tuple_type(query.params())
+    }
+}
+
 fn typescript_params_expression(params: &[core::ParamBinding]) -> String {
     if params.is_empty() {
         "[]".to_owned()
@@ -370,6 +485,22 @@ fn typescript_params_expression(params: &[core::ParamBinding]) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         )
+    }
+}
+
+fn input_param_access(input_name: &str, param_name: &str) -> String {
+    typescript_property_access(input_name, param_name)
+}
+
+fn nested_slot_param_access(input_name: &str, slot_id: &str, param_name: &str) -> String {
+    typescript_property_access(&typescript_property_access(input_name, slot_id), param_name)
+}
+
+fn typescript_property_access(base: &str, property: &str) -> String {
+    if is_simple_typescript_identifier(property) {
+        format!("{base}.{property}")
+    } else {
+        format!("{base}[{}]", typescript_string_literal(property))
     }
 }
 
@@ -811,8 +942,62 @@ export function findCustomerActivity(
         ));
     }
 
+    const SLOT_QUERY_RUNTIME_BRANCHES: &str = r#"export type listUsers_Input = {
+  status: string;
+  filter?: { $fragment: "activeOnly" } | {
+    $fragment: "byEmail";
+    email: string;
+  } | {
+    $fragment: "createdSince";
+    since: string | null;
+  };
+  sort?: { $fragment: "orderByName" };
+};
+
+export type listUsers_Row = {
+  id: string;
+};
+
+export type listUsers_Output = listUsers_Row[];
+
+export function listUsers(
+  input: listUsers_Input,
+): { sql: string; params: readonly SqlParam[] } {
+  const sqlParts: string[] = [];
+  const params: SqlParam[] = [];
+
+  sqlParts.push("SELECT id FROM users WHERE status = ?");
+  params.push(input.status);
+  switch (input.filter?.$fragment) {
+    case "activeOnly":
+      sqlParts.push(" AND active = 1");
+      break;
+    case "byEmail":
+      sqlParts.push(" AND email = ?");
+      params.push(input.filter.email);
+      break;
+    case "createdSince":
+      sqlParts.push(" AND created_at >= ?");
+      params.push(input.filter.since);
+      break;
+  }
+  sqlParts.push(" ");
+  switch (input.sort?.$fragment) {
+    case "orderByName":
+      sqlParts.push(" ORDER BY name");
+      break;
+  }
+  sqlParts.push(";");
+
+  return {
+    sql: sqlParts.join(""),
+    params,
+  };
+}
+"#;
+
     #[test]
-    fn renders_slot_input_types_with_fragment_discriminants() {
+    fn renders_slot_query_runtime_branches_with_params_in_sql_order() {
         let dynamic_body = core::CompiledDynamicQuery::new(
             vec![
                 sql_segment(
@@ -867,40 +1052,11 @@ export function findCustomerActivity(
         .with_params(vec![param("status", core::CoreType::String, false)])
         .with_dynamic_body(dynamic_body);
 
-        assert_eq!(
-            render_query(&query),
-            r#"export type listUsers_Input = {
-  status: string;
-  filter?: { $fragment: "activeOnly" } | {
-    $fragment: "byEmail";
-    email: string;
-  } | {
-    $fragment: "createdSince";
-    since: string | null;
-  };
-  sort?: { $fragment: "orderByName" };
-};
-
-export type listUsers_Row = {
-  id: string;
-};
-
-export type listUsers_Output = listUsers_Row[];
-
-export function listUsers(
-  input: listUsers_Input,
-): { sql: string; params: readonly [string] } {
-  return {
-    sql: "SELECT id FROM users WHERE status = ?;",
-    params: [input.status] as const,
-  };
-}
-"#
-        );
+        assert_eq!(render_query(&query), SLOT_QUERY_RUNTIME_BRANCHES);
     }
 
     #[test]
-    fn renders_slot_only_queries_as_input_objects() {
+    fn renders_slot_only_query_input_with_empty_object_default() {
         let dynamic_body = core::CompiledDynamicQuery::new(
             vec![
                 sql_segment("SELECT id FROM users WHERE 1 = 1", Vec::new()),
@@ -929,14 +1085,70 @@ export function listUsers(
         )
         .with_dynamic_body(dynamic_body);
 
-        assert!(render_query(&query).contains(
+        assert_eq!(
+            render_query(&query),
             r#"export type searchUsers_Input = {
   filter?: {
     $fragment: "byEmail";
     email: string;
   };
-};"#
+};
+
+export type searchUsers_Row = {
+  id: string;
+};
+
+export type searchUsers_Output = searchUsers_Row[];
+
+export function searchUsers(
+  _input: searchUsers_Input = {},
+): { sql: string; params: readonly SqlParam[] } {
+  const sqlParts: string[] = [];
+  const params: SqlParam[] = [];
+
+  sqlParts.push("SELECT id FROM users WHERE 1 = 1");
+  switch (_input.filter?.$fragment) {
+    case "byEmail":
+      sqlParts.push(" AND email = ?");
+      params.push(_input.filter.email);
+      break;
+  }
+  sqlParts.push(";");
+
+  return {
+    sql: sqlParts.join(""),
+    params,
+  };
+}
+"#
+        );
+    }
+
+    #[test]
+    fn generated_file_with_slot_query_includes_private_sql_param_alias() {
+        let dynamic_body = core::CompiledDynamicQuery::new(
+            vec![
+                sql_segment("SELECT id FROM users WHERE 1 = 1", Vec::new()),
+                sql_segment(";", Vec::new()),
+            ],
+            vec![core::CompiledSlotOccurrence::new("filter".to_owned())],
+            vec![slot_definition(
+                "filter",
+                vec![slot_branch("activeOnly", " AND active = 1", Vec::new())],
+            )],
+        );
+        let slot_query = compiled_query("listUsers", "SELECT id FROM users WHERE 1 = 1;")
+            .with_dynamic_body(dynamic_body);
+        let static_query = compiled_query("listRoles", "SELECT id FROM roles;");
+
+        let contents = render_generated_file_contents(&[slot_query, static_query]);
+
+        assert!(contents.starts_with(
+            "// @generated by sqlcomp. Do not edit.\n\n\
+type SqlParam = unknown;\n\n\
+export type listUsers_Input"
         ));
+        assert_eq!(contents.matches("type SqlParam = unknown;").count(), 1);
     }
 
     #[test]

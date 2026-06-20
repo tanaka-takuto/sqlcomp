@@ -33,7 +33,7 @@ Directive boundary:
   Compiler directives are @sqlcomp Hjson block comments.
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
   Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers around a sample expression.
-  Slot and Fragment validation slices are available; generated runtime Slot branches are not complete yet.
+  Slot and Fragment composition is available for optional single-select query-local slots.
 
 Config path boundary:
   source.include paths must stay inside the config directory.

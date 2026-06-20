@@ -27,6 +27,7 @@ const QUERY_FIXTURES: &[&str] = &[
     include_str!("../../../fixtures/sql/valid/generation_surface.sql"),
     include_str!("../../../fixtures/sql/valid/nested/path_mapping.sql"),
     include_str!("../../../fixtures/sql/valid/param_bindings.sql"),
+    include_str!("../../../fixtures/sql/valid/slot_runtime.sql"),
 ];
 
 const VALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.valid.config.json");
@@ -753,6 +754,7 @@ fn mysql_fixtures_use_sql_valid_invalid_layout() {
         "fixtures/sql/valid/type_metadata_matrix.sql",
         "fixtures/sql/valid/generation_surface.sql",
         "fixtures/sql/valid/param_bindings.sql",
+        "fixtures/sql/valid/slot_runtime.sql",
         "fixtures/sql/valid/nested/path_mapping.sql",
         "fixtures/sql/invalid/non_select.sql",
         "fixtures/sql/invalid/param_raw_placeholder.sql",

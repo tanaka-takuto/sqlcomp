@@ -30,6 +30,14 @@ import {
   paramValueTypeOverride,
 } from "./generated/valid/param_bindings";
 import {
+  type slotRuntimeOptionalFilter_Input,
+  type slotRuntimeOptionalFilter_Output,
+  type slotRuntimeSearch_Input,
+  type slotRuntimeSearch_Output,
+  slotRuntimeOptionalFilter,
+  slotRuntimeSearch,
+} from "./generated/valid/slot_runtime";
+import {
   type typeMetadataAggregateExpressions_Output,
   type typeMetadataDirectColumns_Output,
   type typeMetadataExpressions_Output,
@@ -118,6 +126,32 @@ const inListParamQuery = paramInListMarkers(inListParamInput);
 const inListParamParams: readonly [string, string] = inListParamQuery.params;
 const inListParamOutput: paramInListMarkers_Output = [];
 
+const slotRuntimeSearchInput: slotRuntimeSearch_Input = {
+  minId: "1",
+  state: "state_a",
+  filter: {
+    $fragment: "slotRuntimeByVarchar",
+    varcharFilter: "varchar-320-a",
+  },
+};
+const slotRuntimeSearchQuery = slotRuntimeSearch(slotRuntimeSearchInput);
+const slotRuntimeSearchParams: readonly unknown[] = slotRuntimeSearchQuery.params;
+const slotRuntimeSearchOutput: slotRuntimeSearch_Output = [];
+
+const slotRuntimeOptionalFilterQuery = slotRuntimeOptionalFilter();
+const slotRuntimeOptionalFilterInput: slotRuntimeOptionalFilter_Input = {
+  filter: {
+    $fragment: "slotRuntimeByChildAmount",
+    minAmount: "10.00",
+  },
+};
+const slotRuntimeOptionalFilterSelectedQuery = slotRuntimeOptionalFilter(
+  slotRuntimeOptionalFilterInput,
+);
+const slotRuntimeOptionalFilterParams: readonly unknown[] =
+  slotRuntimeOptionalFilterSelectedQuery.params;
+const slotRuntimeOptionalFilterOutput: slotRuntimeOptionalFilter_Output = [];
+
 void directColumnsQuery;
 void directColumnsOutput;
 void joinColumnsQuery;
@@ -152,3 +186,8 @@ void repeatedParamParams;
 void repeatedParamOutput;
 void inListParamParams;
 void inListParamOutput;
+void slotRuntimeSearchParams;
+void slotRuntimeSearchOutput;
+void slotRuntimeOptionalFilterQuery;
+void slotRuntimeOptionalFilterParams;
+void slotRuntimeOptionalFilterOutput;

@@ -22,6 +22,9 @@ where near-term work should point. The original MVP remains documented in
 - `init`, `check`, and `compile` CLI commands.
 - SELECT value binding with paired inline `Param` markers as defined by
   [ADR 0008](./adr/0008-define-select-param-support.md).
+- Initial SELECT `Slot`/`Fragment` composition as defined by
+  [ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md), including
+  validation variants, Slot input types, and runtime TypeScript SQL branch builders.
 
 Generated TypeScript builders return SQL text and parameter arrays. They do not
 execute queries and do not depend on a database driver.
@@ -98,9 +101,9 @@ result row shape differs from the all-slots-unselected base variant, and repeate
 Slot occurrences whose selected Fragment Param type or nullability conflicts.
 TypeScript generation now includes Slot input types with optional `$fragment`
 discriminated branch objects, nesting Fragment Params inside the selected Slot
-branch. End-to-end Slot/Fragment generated TypeScript support remains incomplete
-until runtime SQL branch generation lands. CLI success summaries now report Fragment,
-unique Slot, and validated variant counts for the validation slices.
+branch, and runtime builders that assemble selected SQL segments and Params in
+expanded SQL order. CLI success summaries report Fragment, unique Slot, and
+validated variant counts.
 
 ## Defining ADRs
 
@@ -119,13 +122,9 @@ The current scope is defined by these accepted ADRs:
 
 The following remain intentionally unsupported:
 
-- End-to-end `Slot` and `Fragment` dynamic SQL generation beyond the current
-  validation slices. The current validation slices reject unknown Slot targets,
-  duplicate Slot targets, queries that would produce more than 256 variants before
-  dialect analysis, and variants whose effective cardinality or result row shape
-  differs from the base variant, as well as repeated Slot occurrences whose selected
-  Fragment Param type or nullability conflicts; generated Slot input types are
-  available, while runtime SQL branch generation remains follow-up work.
+- `Slot` and `Fragment` features outside the initial ADR 0009 design, including
+  required slots, default fragments, multi-select slots, fragment-local slots,
+  fragment include or alias, and result-shape-changing variants.
 - optional direct Param input properties that would require SQL structure changes.
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
 - multi-statement query blocks.

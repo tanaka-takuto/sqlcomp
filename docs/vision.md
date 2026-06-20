@@ -52,8 +52,8 @@ generate nested object graphs or ORM-style models.
 
 The current implementation supports query metadata, result type extraction, SELECT
 value binding through inline `Param` markers, TypeScript SQL builder output, and
-initial `Slot`/`Fragment` validation with generated Slot input types. Runtime Slot
-SQL branch generation remains incomplete.
+initial `Slot`/`Fragment` validation with generated Slot input types and runtime SQL
+branch builders.
 
 Non-SELECT statements, generated database execution functions, additional SQL
 dialects, and additional target generators require separate design decisions before
