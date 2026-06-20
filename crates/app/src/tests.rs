@@ -700,6 +700,113 @@ fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
 }
 
 #[test]
+fn check_rejects_slot_variant_cardinality_mismatch_without_override() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let slot_index = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "limiter".to_owned(),
+        vec!["limitOne".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("limitOne".to_owned()),
+        "\nLIMIT 1".to_owned(),
+    )
+    .with_analysis_sql("\nLIMIT 1".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone()).with_limit_one_inference();
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("cardinality-changing Slot variants should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` resolved cardinality `one`, but the base variant resolved cardinality `many`; all variants must have matching cardinality after query metadata override\nwhile validating Slot expansion variant for query `listUsers` with selections: limiter=limitOne\nSlot `limiter` selected `limitOne` in this variant"
+    );
+    assert_eq!(calls.entries(), ["read", "analyze", "analyze"]);
+}
+
+#[test]
+fn check_applies_explicit_cardinality_override_before_slot_variant_comparison() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let slot_index = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), Some(core::Cardinality::Many)),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
+    )
+    .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "limiter".to_owned(),
+        vec!["limitOne".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("limitOne".to_owned()),
+        "\nLIMIT 1".to_owned(),
+    )
+    .with_analysis_sql("\nLIMIT 1".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone()).with_limit_one_inference();
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("explicit cardinality override should stabilize Slot variants");
+
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "describe", "describe", "compile", "generate"
+        ]
+    );
+}
+
+#[test]
 fn check_rejects_repeated_slot_id_with_different_target_order() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
@@ -1515,6 +1622,7 @@ struct FakeDialectAnalyzer {
     calls: CallLog,
     failure: Option<PipelineFailure>,
     sql_failure: Option<&'static str>,
+    infer_limit_one: bool,
     analyzed_sql: Rc<RefCell<Vec<String>>>,
 }
 
@@ -1524,6 +1632,7 @@ impl FakeDialectAnalyzer {
             calls,
             failure: None,
             sql_failure: None,
+            infer_limit_one: false,
             analyzed_sql: Rc::new(RefCell::new(Vec::new())),
         }
     }
@@ -1538,6 +1647,11 @@ impl FakeDialectAnalyzer {
 
     const fn with_sql_failure(mut self, sql_fragment: &'static str) -> Self {
         self.sql_failure = Some(sql_fragment);
+        self
+    }
+
+    const fn with_limit_one_inference(mut self) -> Self {
+        self.infer_limit_one = true;
         self
     }
 
@@ -1566,7 +1680,13 @@ impl DialectAnalyzer for FakeDialectAnalyzer {
             return Err(failure.report());
         }
 
-        Ok(core::AnalyzedQuery::new(core::Cardinality::Many))
+        let cardinality = if self.infer_limit_one && query.analysis_sql().contains("LIMIT 1") {
+            core::Cardinality::One
+        } else {
+            core::Cardinality::Many
+        };
+
+        Ok(core::AnalyzedQuery::new(cardinality))
     }
 }
 
