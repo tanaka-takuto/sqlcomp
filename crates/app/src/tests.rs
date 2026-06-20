@@ -807,6 +807,77 @@ fn check_applies_explicit_cardinality_override_before_slot_variant_comparison() 
 }
 
 #[test]
+fn check_rejects_slot_variant_row_shape_column_count_mismatch() {
+    let (report, calls) = row_shape_mismatch_report(vec![
+        core::DbResultColumn::new("id".to_owned(), core::CoreType::Int64, Some(false)),
+        core::DbResultColumn::new("email".to_owned(), core::CoreType::String, Some(false)),
+    ]);
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` returned 2 result columns, but the base variant returned 1; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+    assert_eq!(
+        calls,
+        ["read", "analyze", "analyze", "describe", "describe"]
+    );
+}
+
+#[test]
+fn check_rejects_slot_variant_row_shape_column_name_mismatch() {
+    let (report, calls) = row_shape_mismatch_report(vec![core::DbResultColumn::new(
+        "user_id".to_owned(),
+        core::CoreType::Int64,
+        Some(false),
+    )]);
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` result column 1 name `user_id` does not match base column name `id`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+    assert_eq!(
+        calls,
+        ["read", "analyze", "analyze", "describe", "describe"]
+    );
+}
+
+#[test]
+fn check_rejects_slot_variant_row_shape_core_type_mismatch() {
+    let (report, calls) = row_shape_mismatch_report(vec![core::DbResultColumn::new(
+        "id".to_owned(),
+        core::CoreType::String,
+        Some(false),
+    )]);
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` result column 1 CoreType `String` does not match base CoreType `Int64`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+    assert_eq!(
+        calls,
+        ["read", "analyze", "analyze", "describe", "describe"]
+    );
+}
+
+#[test]
+fn check_rejects_slot_variant_row_shape_nullability_mismatch() {
+    let (report, calls) = row_shape_mismatch_report(vec![core::DbResultColumn::new(
+        "id".to_owned(),
+        core::CoreType::Int64,
+        Some(true),
+    )]);
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` result column 1 nullability `nullable` does not match base nullability `not nullable`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+    assert_eq!(
+        calls,
+        ["read", "analyze", "analyze", "describe", "describe"]
+    );
+}
+
+#[test]
 fn check_rejects_repeated_slot_id_with_different_target_order() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
@@ -1516,6 +1587,60 @@ fn slot_param_order_fixture() -> (core::RawQuery, core::RawFragment) {
     (query, fragment)
 }
 
+fn row_shape_mismatch_report(
+    variant_columns: Vec<core::DbResultColumn>,
+) -> (core::DiagnosticReport, Vec<&'static str>) {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
+    let slot_index = query_sql
+        .find(';')
+        .expect("Slot insertion point exists before statement terminator");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [shapeChanger] } */;".to_owned(),
+    )
+    .with_analysis_sql(query_sql.to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["shapeChanger".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("shapeChanger".to_owned()),
+        "\nAND u.email IS NOT NULL".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.email IS NOT NULL".to_owned())
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone())
+        .with_columns_for_sql("\nAND u.email IS NOT NULL", variant_columns);
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("row-shape-changing Slot variants should be rejected");
+
+    (report, calls.entries())
+}
+
 fn test_param_usage(id: &str, placeholder_index: usize) -> core::ParamUsage {
     core::ParamUsage::new(id.to_owned(), None, false, core::SourceLocation::unknown())
         .with_placeholder_index(placeholder_index)
@@ -1543,10 +1668,30 @@ fn fake_dialect_analyzer_matches_limit_one_case_insensitively_and_exactly() {
             "SELECT id FROM users LIMIT 1 OFFSET 5;".to_owned(),
         ))
         .expect("limit one with additional clause should be analyzed");
+    let limit_one_lowercase_offset = analyzer
+        .analyze(&core::RawQuery::new(
+            core::QueryMetadata::new("limitOneLowercaseOffset".to_owned(), None),
+            "SELECT id FROM users LIMIT 1 offset 5;".to_owned(),
+        ))
+        .expect("limit one with lowercase offset should be analyzed");
+    let limit_one_mixed_case_offset = analyzer
+        .analyze(&core::RawQuery::new(
+            core::QueryMetadata::new("limitOneMixedCaseOffset".to_owned(), None),
+            "SELECT id FROM users LIMIT 1 OffSeT 5;".to_owned(),
+        ))
+        .expect("limit one with mixed-case offset should be analyzed");
 
     assert_eq!(limit_one.cardinality(), core::Cardinality::One);
     assert_eq!(limit_ten.cardinality(), core::Cardinality::Many);
-    assert_eq!(limit_one_offset.cardinality(), core::Cardinality::Many);
+    assert_eq!(limit_one_offset.cardinality(), core::Cardinality::One);
+    assert_eq!(
+        limit_one_lowercase_offset.cardinality(),
+        core::Cardinality::One
+    );
+    assert_eq!(
+        limit_one_mixed_case_offset.cardinality(),
+        core::Cardinality::One
+    );
 }
 
 fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
@@ -1733,7 +1878,10 @@ fn analysis_sql_has_limit_one(sql: &str) -> bool {
             }
             "1" => {
                 return index + 2 == tokens.len()
-                    || (tokens.get(index + 2) == Some(&";") && index + 3 == tokens.len());
+                    || (tokens.get(index + 2) == Some(&";") && index + 3 == tokens.len())
+                    || tokens
+                        .get(index + 2)
+                        .is_some_and(|token| token.eq_ignore_ascii_case("OFFSET"));
             }
             _ => {}
         }
@@ -1746,6 +1894,7 @@ fn analysis_sql_has_limit_one(sql: &str) -> bool {
 struct FakeMetadataProvider {
     calls: CallLog,
     failure: Option<PipelineFailure>,
+    columns_by_sql_fragment: Vec<(&'static str, Vec<core::DbResultColumn>)>,
     described_sql: Rc<RefCell<Vec<String>>>,
     described_param_ids: Rc<RefCell<Vec<Vec<String>>>>,
 }
@@ -1755,6 +1904,7 @@ impl FakeMetadataProvider {
         Self {
             calls,
             failure: None,
+            columns_by_sql_fragment: Vec::new(),
             described_sql: Rc::new(RefCell::new(Vec::new())),
             described_param_ids: Rc::new(RefCell::new(Vec::new())),
         }
@@ -1765,6 +1915,15 @@ impl FakeMetadataProvider {
             self.failure = Some(failure);
         }
 
+        self
+    }
+
+    fn with_columns_for_sql(
+        mut self,
+        sql_fragment: &'static str,
+        columns: Vec<core::DbResultColumn>,
+    ) -> Self {
+        self.columns_by_sql_fragment.push((sql_fragment, columns));
         self
     }
 
@@ -1811,7 +1970,16 @@ impl MetadataProvider for FakeMetadataProvider {
             })
             .collect();
 
-        Ok(metadata().with_param_usages(param_usages))
+        let columns = self
+            .columns_by_sql_fragment
+            .iter()
+            .find(|(sql_fragment, _)| query.analysis_sql().contains(sql_fragment))
+            .map_or_else(
+                || metadata().columns().to_vec(),
+                |(_, columns)| columns.clone(),
+            );
+
+        Ok(core::DbQueryMetadata::new(columns).with_param_usages(param_usages))
     }
 }
 
