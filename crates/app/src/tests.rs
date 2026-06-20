@@ -726,6 +726,96 @@ fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_sc
 }
 
 #[test]
+fn check_rejects_fragment_param_type_conflicts_across_repeated_slot_occurrences() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let base_sql = "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id);";
+    let user_slot_index = base_sql
+        .find(") OR EXISTS")
+        .expect("first Slot insertion point exists before first EXISTS closes");
+    let account_slot_index = base_sql
+        .find(");")
+        .expect("second Slot insertion point exists before statement terminator");
+    let first_slot_location = core::SourceLocation::at_position(
+        "sql/users.sql",
+        core::SourcePosition::one_based(8, 88).expect("test position should be valid"),
+    );
+    let second_slot_location = core::SourceLocation::at_position(
+        "sql/users.sql",
+        core::SourcePosition::one_based(9, 96).expect("test position should be valid"),
+    );
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlcomp { type: slot id: filter targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlcomp { type: slot id: filter targets: [byKind] } */);"
+            .to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "filter".to_owned(),
+            vec!["byKind".to_owned()],
+            user_slot_index,
+            first_slot_location,
+        ),
+        core::SlotUsage::new(
+            "filter".to_owned(),
+            vec!["byKind".to_owned()],
+            account_slot_index,
+            second_slot_location,
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = " AND x.kind = ?";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byKind".to_owned()),
+        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "kind",
+        fragment_sql
+            .find('?')
+            .expect("fragment Param placeholder exists"),
+    )])
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone())
+        .with_param_type_before_placeholder(
+            "FROM users AS x WHERE x.id = u.id AND x.kind = ",
+            core::CoreType::String,
+        )
+        .with_param_type_before_placeholder(
+            "FROM accounts AS x WHERE x.user_id = u.id AND x.kind = ",
+            core::CoreType::Int64,
+        );
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("same repeated Slot branch Param conflicts should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Fragment Param `kind` type in query `listUsers`, Slot `filter`, Fragment `byKind`: occurrence 1 resolved to String but occurrence 2 resolved to Int64; repeated Slot occurrences that select the same Fragment must resolve matching Param type and nullability\nfirst occurrence of Slot `filter` selecting Fragment `byKind` is here\nconflicting occurrence of Slot `filter` selecting Fragment `byKind` is here\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=byKind\nSlot `filter` selected `byKind` in this variant"
+    );
+}
+
+#[test]
 fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();

@@ -574,6 +574,11 @@ where
                     .iter()
                     .map(|_| ExpandedParamScope::QueryDirect)
                     .collect(),
+                param_occurrences: query
+                    .param_usages()
+                    .iter()
+                    .map(|_| ExpandedParamOccurrence::QueryDirect)
+                    .collect(),
             }],
             unique_slot_count: 0,
         });
@@ -592,6 +597,7 @@ where
             analysis,
             context: Some(variant.context),
             param_scopes: variant.param_scopes,
+            param_occurrences: variant.param_occurrences,
         });
     }
 
@@ -721,6 +727,7 @@ struct AnalyzedQueryVariant {
     analysis: core::AnalyzedQuery,
     context: Option<SlotExpansionContext>,
     param_scopes: Vec<ExpandedParamScope>,
+    param_occurrences: Vec<ExpandedParamOccurrence>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -735,6 +742,7 @@ struct SlotExpansionVariant {
     query: core::RawQuery,
     context: SlotExpansionContext,
     param_scopes: Vec<ExpandedParamScope>,
+    param_occurrences: Vec<ExpandedParamOccurrence>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -744,11 +752,33 @@ enum ExpandedParamScope {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum ExpandedParamOccurrence {
+    QueryDirect,
+    Fragment(ExpandedFragmentParamOccurrence),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpandedFragmentParamOccurrence {
+    slot_id: String,
+    target_id: String,
+    slot_occurrence_index: usize,
+    slot_location: core::SourceLocation,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ExpandedParamBuffers {
+    usages: Vec<core::ParamUsage>,
+    scopes: Vec<ExpandedParamScope>,
+    occurrences: Vec<ExpandedParamOccurrence>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ScopedParamBinding {
     scope: ExpandedParamScope,
     id: String,
     ty: core::CoreType,
     nullable: bool,
+    first_occurrence: ExpandedParamOccurrence,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -956,8 +986,8 @@ fn build_slot_variant_query(
     let mut analysis_sql = String::with_capacity(query.analysis_sql().len());
     let mut cursor = 0;
     let mut query_param_cursor = 0;
-    let mut param_usages = Vec::new();
-    let mut param_scopes = Vec::new();
+    let mut params = ExpandedParamBuffers::default();
+    let mut slot_occurrence_counts = HashMap::<&str, usize>::new();
 
     for usage in query.slot_usages() {
         let insertion_index = usage.insertion_index();
@@ -980,19 +1010,20 @@ fn build_slot_variant_query(
             segment_output_start,
             insertion_index,
             &mut query_param_cursor,
-            &mut param_usages,
-            &mut param_scopes,
+            &mut params,
         )?;
         if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
+            let slot_occurrence_index = slot_occurrence_counts.entry(usage.id()).or_insert(0);
+            *slot_occurrence_index += 1;
             let fragment_output_start = analysis_sql.len();
             analysis_sql.push_str(fragment.analysis_sql());
             push_fragment_params(
                 fragment,
                 fragment_output_start,
-                &mut param_usages,
-                &mut param_scopes,
+                &mut params,
                 query,
                 usage,
+                *slot_occurrence_index,
             )?;
         }
         cursor = insertion_index;
@@ -1005,13 +1036,12 @@ fn build_slot_variant_query(
         segment_output_start,
         query.analysis_sql().len(),
         &mut query_param_cursor,
-        &mut param_usages,
-        &mut param_scopes,
+        &mut params,
     )?;
 
     let mut expanded_query = core::RawQuery::new(query.metadata().clone(), query.sql().to_owned())
         .with_analysis_sql(analysis_sql)
-        .with_param_usages(param_usages);
+        .with_param_usages(params.usages);
 
     if let Some(source_path) = query.source_path() {
         expanded_query = expanded_query.with_source_path(source_path.to_path_buf());
@@ -1023,7 +1053,8 @@ fn build_slot_variant_query(
     Ok(SlotExpansionVariant {
         query: expanded_query,
         context: slot_expansion_context(query, slot_specs, choices),
-        param_scopes,
+        param_scopes: params.scopes,
+        param_occurrences: params.occurrences,
     })
 }
 
@@ -1055,8 +1086,7 @@ fn push_query_params_before_index(
     segment_output_start: usize,
     limit: usize,
     query_param_cursor: &mut usize,
-    param_usages: &mut Vec<core::ParamUsage>,
-    param_scopes: &mut Vec<ExpandedParamScope>,
+    params: &mut ExpandedParamBuffers,
 ) -> core::DiagnosticResult<()> {
     while let Some(usage) = query.param_usages().get(*query_param_cursor) {
         let placeholder_index = query_param_placeholder_index(query, usage)?;
@@ -1074,12 +1104,15 @@ fn push_query_params_before_index(
             ));
         }
 
-        param_usages.push(
+        params.usages.push(
             usage
                 .clone()
                 .with_placeholder_index(segment_output_start + placeholder_index - segment_start),
         );
-        param_scopes.push(ExpandedParamScope::QueryDirect);
+        params.scopes.push(ExpandedParamScope::QueryDirect);
+        params
+            .occurrences
+            .push(ExpandedParamOccurrence::QueryDirect);
         *query_param_cursor += 1;
     }
 
@@ -1089,10 +1122,10 @@ fn push_query_params_before_index(
 fn push_fragment_params(
     fragment: &core::RawFragment,
     fragment_output_start: usize,
-    param_usages: &mut Vec<core::ParamUsage>,
-    param_scopes: &mut Vec<ExpandedParamScope>,
+    params: &mut ExpandedParamBuffers,
     query: &core::RawQuery,
     slot_usage: &core::SlotUsage,
+    slot_occurrence_index: usize,
 ) -> core::DiagnosticResult<()> {
     for usage in fragment.param_usages() {
         let Some(placeholder_index) = usage.placeholder_index() else {
@@ -1106,15 +1139,23 @@ fn push_fragment_params(
             ));
         };
 
-        param_usages.push(
+        params.usages.push(
             usage
                 .clone()
                 .with_placeholder_index(fragment_output_start + placeholder_index),
         );
-        param_scopes.push(ExpandedParamScope::Fragment {
+        params.scopes.push(ExpandedParamScope::Fragment {
             slot_id: slot_usage.id().to_owned(),
             target_id: fragment.metadata().id().to_owned(),
         });
+        params.occurrences.push(ExpandedParamOccurrence::Fragment(
+            ExpandedFragmentParamOccurrence {
+                slot_id: slot_usage.id().to_owned(),
+                target_id: fragment.metadata().id().to_owned(),
+                slot_occurrence_index,
+                slot_location: slot_usage.source_location().clone(),
+            },
+        ));
     }
 
     Ok(())
@@ -1146,12 +1187,23 @@ fn validate_expanded_variant_param_bindings(
             ),
         ));
     }
+    if query.param_usages().len() != variant.param_occurrences.len() {
+        return Err(query_error(
+            query,
+            format!(
+                "expanded Param occurrence count {} does not match source Param usage count {}",
+                variant.param_occurrences.len(),
+                query.param_usages().len()
+            ),
+        ));
+    }
 
-    for ((source_usage, resolved_usage), scope) in query
+    for (((source_usage, resolved_usage), scope), occurrence) in query
         .param_usages()
         .iter()
         .zip(metadata.param_usages())
         .zip(&variant.param_scopes)
+        .zip(&variant.param_occurrences)
     {
         if source_usage.id() != resolved_usage.id() {
             return Err(param_usage_error(
@@ -1171,27 +1223,21 @@ fn validate_expanded_variant_param_bindings(
             .find(|binding| binding.scope == *scope && binding.id == source_usage.id())
         {
             if existing.ty != resolved_usage.ty() {
-                return Err(param_usage_error(
+                return Err(param_type_conflict_error(
                     query,
                     source_usage,
-                    format!(
-                        "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
-                        source_usage.id(),
-                        existing.ty,
-                        resolved_usage.ty()
-                    ),
+                    existing,
+                    resolved_usage.ty(),
+                    occurrence,
                 ));
             }
             if existing.nullable != nullable {
-                return Err(param_usage_error(
+                return Err(param_nullability_conflict_error(
                     query,
                     source_usage,
-                    format!(
-                        "conflicting Param `{}` nullability: first occurrence is nullable {} but later occurrence is nullable {}",
-                        source_usage.id(),
-                        existing.nullable,
-                        nullable
-                    ),
+                    existing,
+                    nullable,
+                    occurrence,
                 ));
             }
         } else {
@@ -1200,11 +1246,139 @@ fn validate_expanded_variant_param_bindings(
                 id: source_usage.id().to_owned(),
                 ty: resolved_usage.ty(),
                 nullable,
+                first_occurrence: occurrence.clone(),
             });
         }
     }
 
     Ok(())
+}
+
+fn param_type_conflict_error(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+    existing: &ScopedParamBinding,
+    later_ty: core::CoreType,
+    later_occurrence: &ExpandedParamOccurrence,
+) -> core::DiagnosticReport {
+    if let Some((first, later)) =
+        repeated_fragment_occurrence_pair(&existing.first_occurrence, later_occurrence)
+    {
+        return repeated_fragment_param_conflict_error(
+            query,
+            usage,
+            first,
+            later,
+            format!(
+                "conflicting Fragment Param `{}` type in query `{}`, Slot `{}`, Fragment `{}`: occurrence {} resolved to {:?} but occurrence {} resolved to {:?}; repeated Slot occurrences that select the same Fragment must resolve matching Param type and nullability",
+                usage.id(),
+                query.metadata().id(),
+                first.slot_id,
+                first.target_id,
+                first.slot_occurrence_index,
+                existing.ty,
+                later.slot_occurrence_index,
+                later_ty,
+            ),
+        );
+    }
+
+    param_usage_error(
+        query,
+        usage,
+        format!(
+            "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
+            usage.id(),
+            existing.ty,
+            later_ty
+        ),
+    )
+}
+
+fn param_nullability_conflict_error(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+    existing: &ScopedParamBinding,
+    later_nullable: bool,
+    later_occurrence: &ExpandedParamOccurrence,
+) -> core::DiagnosticReport {
+    if let Some((first, later)) =
+        repeated_fragment_occurrence_pair(&existing.first_occurrence, later_occurrence)
+    {
+        return repeated_fragment_param_conflict_error(
+            query,
+            usage,
+            first,
+            later,
+            format!(
+                "conflicting Fragment Param `{}` nullability in query `{}`, Slot `{}`, Fragment `{}`: occurrence {} is nullable {} but occurrence {} is nullable {}; repeated Slot occurrences that select the same Fragment must resolve matching Param type and nullability",
+                usage.id(),
+                query.metadata().id(),
+                first.slot_id,
+                first.target_id,
+                first.slot_occurrence_index,
+                existing.nullable,
+                later.slot_occurrence_index,
+                later_nullable,
+            ),
+        );
+    }
+
+    param_usage_error(
+        query,
+        usage,
+        format!(
+            "conflicting Param `{}` nullability: first occurrence is nullable {} but later occurrence is nullable {}",
+            usage.id(),
+            existing.nullable,
+            later_nullable
+        ),
+    )
+}
+
+fn repeated_fragment_occurrence_pair<'a>(
+    first: &'a ExpandedParamOccurrence,
+    later: &'a ExpandedParamOccurrence,
+) -> Option<(
+    &'a ExpandedFragmentParamOccurrence,
+    &'a ExpandedFragmentParamOccurrence,
+)> {
+    let (ExpandedParamOccurrence::Fragment(first), ExpandedParamOccurrence::Fragment(later)) =
+        (first, later)
+    else {
+        return None;
+    };
+
+    (first.slot_id == later.slot_id
+        && first.target_id == later.target_id
+        && first.slot_occurrence_index != later.slot_occurrence_index)
+        .then_some((first, later))
+}
+
+fn repeated_fragment_param_conflict_error(
+    query: &core::RawQuery,
+    usage: &core::ParamUsage,
+    first: &ExpandedFragmentParamOccurrence,
+    later: &ExpandedFragmentParamOccurrence,
+    message: String,
+) -> core::DiagnosticReport {
+    let mut diagnostics = param_usage_error(query, usage, message).into_diagnostics();
+    diagnostics.push(
+        core::Diagnostic::note(format!(
+            "first occurrence of Slot `{}` selecting Fragment `{}` is here",
+            first.slot_id, first.target_id
+        ))
+        .with_location(first.slot_location.clone()),
+    );
+    diagnostics.push(
+        core::Diagnostic::note(format!(
+            "conflicting occurrence of Slot `{}` selecting Fragment `{}` is here",
+            later.slot_id, later.target_id
+        ))
+        .with_location(later.slot_location.clone()),
+    );
+
+    core::DiagnosticReport::from_diagnostics(diagnostics)
 }
 
 fn query_param_placeholder_index(
