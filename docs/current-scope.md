@@ -92,8 +92,10 @@ Slots and global Fragments can be resolved into concrete validation variants dur
 `check` and `compile`; variants use source-authored whitespace without compiler
 normalization and preserve expanded-SQL Param ordering. Validation rejects queries
 that would produce more than 256 variants, unknown Slot targets, or duplicate Slot
-targets before dialect analysis. End-to-end Slot/Fragment generated TypeScript
-support remains incomplete until the remaining ADR 0009 slices land.
+targets before dialect analysis. Validation also rejects expanded variants whose
+effective cardinality or result row shape differs from the all-slots-unselected base
+variant. End-to-end Slot/Fragment generated TypeScript support remains incomplete
+until the remaining ADR 0009 slices land.
 
 ## Defining ADRs
 
@@ -114,10 +116,10 @@ The following remain intentionally unsupported:
 
 - End-to-end `Slot` and `Fragment` dynamic SQL generation beyond the current
   validation slices. The current validation slices reject unknown Slot targets,
-  duplicate Slot targets, and queries that would produce more than 256 variants
-  before dialect analysis; row-shape validation, generated Slot input types,
-  runtime SQL branch generation, and Slot/Fragment CLI summaries remain follow-up
-  work.
+  duplicate Slot targets, queries that would produce more than 256 variants before
+  dialect analysis, and variants whose effective cardinality or result row shape
+  differs from the base variant; generated Slot input types, runtime SQL branch
+  generation, and Slot/Fragment CLI summaries remain follow-up work.
 - optional input properties that would require SQL structure changes.
 - `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
 - multi-statement query blocks.

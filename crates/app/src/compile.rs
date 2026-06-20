@@ -407,7 +407,7 @@ where
             ));
         };
         validate_variant_cardinality(&analyzed_variants)?;
-        let metadata = pipeline
+        let base_metadata = pipeline
             .metadata_provider
             .describe(&base_variant.query, &base_variant.analysis)
             .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
@@ -416,13 +416,14 @@ where
                 .metadata_provider
                 .describe(&variant.query, &variant.analysis)
                 .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
+            validate_variant_row_shape(&base_metadata, variant, &metadata)?;
             crate::query_compiler::validate_param_bindings(&variant.query, &metadata)
                 .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
         }
         let compiled = pipeline.query_compiler.compile(
             &base_variant.query,
             &base_variant.analysis,
-            &metadata,
+            &base_metadata,
         )?;
         compiled_queries.push(compiled);
     }
@@ -506,6 +507,78 @@ fn validate_variant_cardinality(variants: &[AnalyzedQueryVariant]) -> core::Diag
     Ok(())
 }
 
+fn validate_variant_row_shape(
+    base_metadata: &core::DbQueryMetadata,
+    variant: &AnalyzedQueryVariant,
+    variant_metadata: &core::DbQueryMetadata,
+) -> core::DiagnosticResult<()> {
+    let base_columns = base_metadata.columns();
+    let variant_columns = variant_metadata.columns();
+
+    if variant_columns.len() != base_columns.len() {
+        return Err(with_slot_variant_context(
+            query_error(
+                &variant.query,
+                format!(
+                    "Slot expansion variant for query `{}` returned {} result columns, but the base variant returned {}; all variants must have matching result row shape",
+                    variant.query.metadata().id(),
+                    variant_columns.len(),
+                    base_columns.len(),
+                ),
+            ),
+            variant.context.as_ref(),
+        ));
+    }
+
+    for (index, (base_column, variant_column)) in
+        base_columns.iter().zip(variant_columns).enumerate()
+    {
+        let column_number = index + 1;
+        if variant_column.name() != base_column.name() {
+            let difference = format!(
+                "result column {column_number} name `{}` does not match base column name `{}`",
+                variant_column.name(),
+                base_column.name(),
+            );
+            return Err(row_shape_difference_error(variant, &difference));
+        }
+        if variant_column.ty() != base_column.ty() {
+            let difference = format!(
+                "result column {column_number} CoreType `{:?}` does not match base CoreType `{:?}`",
+                variant_column.ty(),
+                base_column.ty(),
+            );
+            return Err(row_shape_difference_error(variant, &difference));
+        }
+        if variant_column.is_nullable_for_output() != base_column.is_nullable_for_output() {
+            let difference = format!(
+                "result column {column_number} nullability `{}` does not match base nullability `{}`",
+                format_nullability(variant_column.is_nullable_for_output()),
+                format_nullability(base_column.is_nullable_for_output()),
+            );
+            return Err(row_shape_difference_error(variant, &difference));
+        }
+    }
+
+    Ok(())
+}
+
+fn row_shape_difference_error(
+    variant: &AnalyzedQueryVariant,
+    difference: &str,
+) -> core::DiagnosticReport {
+    with_slot_variant_context(
+        query_error(
+            &variant.query,
+            format!(
+                "Slot expansion variant for query `{}` {difference}; all variants must have matching result row shape",
+                variant.query.metadata().id(),
+            ),
+        ),
+        variant.context.as_ref(),
+    )
+}
+
 fn effective_cardinality(
     query: &core::RawQuery,
     analysis: &core::AnalyzedQuery,
@@ -514,6 +587,10 @@ fn effective_cardinality(
         .metadata()
         .cardinality()
         .unwrap_or_else(|| analysis.cardinality())
+}
+
+const fn format_nullability(nullable: bool) -> &'static str {
+    if nullable { "nullable" } else { "not nullable" }
 }
 
 const fn format_cardinality(cardinality: core::Cardinality) -> &'static str {
