@@ -117,7 +117,9 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
             0,
-            0
+            0,
+            0,
+            1
         )]
     );
     assert_eq!(
@@ -174,9 +176,23 @@ fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
         generated_file_writer: &generated_file_writer,
     };
 
-    DefaultCompileUseCase::check(&config, &pipeline)
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
         .expect("slot SQL variants should validate successfully");
 
+    assert_eq!(outcome.fragment_count(), 1);
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        outcome.query_summaries(),
+        [crate::QuerySummary::new(
+            "listUsers".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            0,
+            0,
+            1,
+            2
+        )]
+    );
     assert_eq!(
         dialect_analyzer.analyzed_sql(),
         [
@@ -1167,7 +1183,9 @@ fn compile_writes_generated_files_from_the_shared_pipeline() {
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
             0,
-            0
+            0,
+            0,
+            1
         )]
     );
     assert_eq!(outcome.stale_file_removal_count(), None);

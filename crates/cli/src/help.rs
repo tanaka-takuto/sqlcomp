@@ -33,7 +33,7 @@ Directive boundary:
   Compiler directives are @sqlcomp Hjson block comments.
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
   Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers around a sample expression.
-  Slot and Fragment are not currently supported.
+  Slot and Fragment validation slices are available; generated runtime Slot branches are not complete yet.
 
 Config path boundary:
   source.include paths must stay inside the config directory.
@@ -102,7 +102,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlcomp.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled queries, output.dir, and per-query parameter placeholders and input fields.
+  The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, output.dir, and per-query Param, Slot, and variant counts.
 
 Param marker example:
   /* @sqlcomp
@@ -159,7 +159,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlcomp.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled queries, generated file paths, stale-file cleanup, and per-query parameter placeholders and input fields.
+  The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, generated file paths, stale-file cleanup, and per-query Param, Slot, and variant counts.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:
