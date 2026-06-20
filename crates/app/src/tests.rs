@@ -623,27 +623,189 @@ fn check_describes_expanded_slot_variants_with_sql_ordered_params() {
 }
 
 #[test]
-fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
+fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_scopes() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
-    let base_sql = "SELECT u.id FROM users AS u WHERE u.email = ?;";
+    let base_sql = "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id);";
+    let user_slot_index = base_sql
+        .find(") OR EXISTS")
+        .expect("user Slot insertion point exists before first EXISTS closes");
+    let account_slot_index = base_sql
+        .find(");")
+        .expect("account Slot insertion point exists before statement terminator");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlcomp { type: slot id: userKind targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlcomp { type: slot id: accountKind targets: [byKind] } */);"
+            .to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_slot_usages(vec![
+        core::SlotUsage::new(
+            "userKind".to_owned(),
+            vec!["byKind".to_owned()],
+            user_slot_index,
+            core::SourceLocation::unknown(),
+        ),
+        core::SlotUsage::new(
+            "accountKind".to_owned(),
+            vec!["byKind".to_owned()],
+            account_slot_index,
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = " AND x.kind = ?";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byKind".to_owned()),
+        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "kind",
+        fragment_sql
+            .find('?')
+            .expect("fragment Param placeholder exists"),
+    )])
+    .with_source_path("sql/fragments.sql");
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone())
+        .with_param_type_before_placeholder(
+            "FROM users AS x WHERE x.id = u.id AND x.kind = ",
+            core::CoreType::String,
+        )
+        .with_param_type_before_placeholder(
+            "FROM accounts AS x WHERE x.user_id = u.id AND x.kind = ",
+            core::CoreType::Int64,
+        );
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("fragment Param IDs are scoped by selected Slot branch");
+
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [
+            Vec::<String>::new(),
+            vec!["kind".to_owned()],
+            vec!["kind".to_owned()],
+            vec!["kind".to_owned(), "kind".to_owned()],
+        ]
+    );
+}
+
+#[test]
+fn check_reports_fragment_param_metadata_errors_with_fragment_location_and_slot_context() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
+    let slot_index = query_sql
+        .find(';')
+        .expect("Slot insertion point exists before statement terminator");
+    let slot_location = core::SourceLocation::at_position(
+        "sql/users.sql",
+        core::SourcePosition::one_based(6, 42).expect("test position should be valid"),
+    );
+    let fragment_location = core::SourceLocation::at_position(
+        "sql/fragments.sql",
+        core::SourcePosition::one_based(2, 1).expect("test position should be valid"),
+    );
+    let fragment_param_location = core::SourceLocation::at_position(
+        "sql/fragments.sql",
+        core::SourcePosition::one_based(3, 17).expect("test position should be valid"),
+    );
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [byEmail] } */;".to_owned(),
+    )
+    .with_analysis_sql(query_sql.to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["byEmail".to_owned()],
+        slot_index,
+        slot_location,
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = " AND COALESCE(?, u.email) = u.email";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byEmail".to_owned()),
+        " AND COALESCE(/* @sqlcomp { type: param id: email } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */, u.email) = u.email".to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![
+        core::ParamUsage::new("email".to_owned(), None, false, fragment_param_location.clone())
+            .with_placeholder_index(
+                fragment_sql
+                    .find('?')
+                    .expect("fragment Param placeholder exists"),
+            ),
+    ])
+    .with_source_path("sql/fragments.sql")
+    .with_source_location(fragment_location);
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone()).with_param_failure(
+        "email",
+        "Param `email` requires `valueType` because no supported qualified column context was found",
+    );
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("fragment Param metadata failures should include Slot context");
+
+    assert_eq!(
+        report.diagnostics()[0].location(),
+        Some(&fragment_param_location)
+    );
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Param `email` requires `valueType` because no supported qualified column context was found\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=byEmail\nSlot `filter` selected `byEmail` in this variant\nselected fragment `byEmail` is defined here"
+    );
+}
+
+#[test]
+fn check_rejects_param_type_conflicts_within_same_selected_fragment_scope() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let base_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
     let slot_index = base_sql
         .find(';')
         .expect("Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE u.email = /* @sqlcomp { type: param id: filter valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } *//* @sqlcomp { type: slot id: extraFilter targets: [byId] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: extraFilter targets: [byId] } */;".to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
-    .with_param_usages(vec![
-        core::ParamUsage::new(
-            "filter".to_owned(),
-            Some(core::CoreType::String),
-            false,
-            core::SourceLocation::unknown(),
-        )
-        .with_placeholder_index(base_sql.find('?').expect("query Param placeholder exists")),
-    ])
     .with_slot_usages(vec![core::SlotUsage::new(
         "extraFilter".to_owned(),
         vec!["byId".to_owned()],
@@ -651,13 +813,24 @@ fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
         core::SourceLocation::unknown(),
     )])
     .with_source_path("sql/users.sql");
-    let fragment_sql = " AND u.id = ?";
+    let fragment_sql = " AND u.email = ? AND u.id = ?";
     let fragment = core::RawFragment::new(
         core::FragmentMetadata::new("byId".to_owned()),
-        " AND u.id = /* @sqlcomp { type: param id: filter valueType: int64 } */ 1 /* @sqlcomp { type: paramEnd } */".to_owned(),
+        " AND u.email = /* @sqlcomp { type: param id: filter valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */ AND u.id = /* @sqlcomp { type: param id: filter valueType: int64 } */ 1 /* @sqlcomp { type: paramEnd } */".to_owned(),
     )
     .with_analysis_sql(fragment_sql.to_owned())
     .with_param_usages(vec![
+        core::ParamUsage::new(
+            "filter".to_owned(),
+            Some(core::CoreType::String),
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_placeholder_index(
+            fragment_sql
+                .find('?')
+                .expect("first fragment Param placeholder exists"),
+        ),
         core::ParamUsage::new(
             "filter".to_owned(),
             Some(core::CoreType::Int64),
@@ -666,8 +839,8 @@ fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
         )
         .with_placeholder_index(
             fragment_sql
-                .find('?')
-                .expect("fragment Param placeholder exists"),
+                .rfind('?')
+                .expect("second fragment Param placeholder exists"),
         ),
     ]);
     let source_read = SourceRead::from_queries(vec![query])
@@ -691,7 +864,7 @@ fn check_rejects_param_type_conflicts_in_selected_slot_variants() {
     };
 
     let report = DefaultCompileUseCase::check(&config, &pipeline)
-        .expect_err("Param type conflicts in selected Slot variants should be rejected");
+        .expect_err("same fragment scope Param type conflicts should be rejected");
 
     assert_eq!(
         diagnostic_messages(&report),
@@ -1894,7 +2067,9 @@ fn analysis_sql_has_limit_one(sql: &str) -> bool {
 struct FakeMetadataProvider {
     calls: CallLog,
     failure: Option<PipelineFailure>,
+    param_failure: Option<(&'static str, &'static str)>,
     columns_by_sql_fragment: Vec<(&'static str, Vec<core::DbResultColumn>)>,
+    param_types_by_placeholder_prefix: Vec<(&'static str, core::CoreType)>,
     described_sql: Rc<RefCell<Vec<String>>>,
     described_param_ids: Rc<RefCell<Vec<Vec<String>>>>,
 }
@@ -1904,7 +2079,9 @@ impl FakeMetadataProvider {
         Self {
             calls,
             failure: None,
+            param_failure: None,
             columns_by_sql_fragment: Vec::new(),
+            param_types_by_placeholder_prefix: Vec::new(),
             described_sql: Rc::new(RefCell::new(Vec::new())),
             described_param_ids: Rc::new(RefCell::new(Vec::new())),
         }
@@ -1924,6 +2101,21 @@ impl FakeMetadataProvider {
         columns: Vec<core::DbResultColumn>,
     ) -> Self {
         self.columns_by_sql_fragment.push((sql_fragment, columns));
+        self
+    }
+
+    const fn with_param_failure(mut self, id: &'static str, message: &'static str) -> Self {
+        self.param_failure = Some((id, message));
+        self
+    }
+
+    fn with_param_type_before_placeholder(
+        mut self,
+        sql_prefix: &'static str,
+        ty: core::CoreType,
+    ) -> Self {
+        self.param_types_by_placeholder_prefix
+            .push((sql_prefix, ty));
         self
     }
 
@@ -1956,6 +2148,13 @@ impl MetadataProvider for FakeMetadataProvider {
         if let Some(failure) = self.failure {
             return Err(failure.report());
         }
+        if let Some((id, message)) = self.param_failure
+            && let Some(usage) = query.param_usages().iter().find(|usage| usage.id() == id)
+        {
+            return Err(core::DiagnosticReport::new(
+                core::Diagnostic::error(message).with_location(usage.source_location().clone()),
+            ));
+        }
 
         let param_usages = query
             .param_usages()
@@ -1963,9 +2162,11 @@ impl MetadataProvider for FakeMetadataProvider {
             .map(|usage| {
                 core::DbParamUsage::new(
                     usage.id().to_owned(),
-                    usage
-                        .value_type_override()
-                        .unwrap_or(core::CoreType::String),
+                    self.param_type_for_usage(query, usage).unwrap_or_else(|| {
+                        usage
+                            .value_type_override()
+                            .unwrap_or(core::CoreType::String)
+                    }),
                 )
             })
             .collect();
@@ -1980,6 +2181,21 @@ impl MetadataProvider for FakeMetadataProvider {
             );
 
         Ok(core::DbQueryMetadata::new(columns).with_param_usages(param_usages))
+    }
+}
+
+impl FakeMetadataProvider {
+    fn param_type_for_usage(
+        &self,
+        query: &core::RawQuery,
+        usage: &core::ParamUsage,
+    ) -> Option<core::CoreType> {
+        let placeholder_index = usage.placeholder_index()?;
+        let before_placeholder = &query.analysis_sql()[..placeholder_index];
+
+        self.param_types_by_placeholder_prefix
+            .iter()
+            .find_map(|(prefix, ty)| before_placeholder.ends_with(prefix).then_some(*ty))
     }
 }
 

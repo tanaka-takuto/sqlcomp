@@ -41,14 +41,6 @@ impl QueryCompiler for DefaultQueryCompiler {
     }
 }
 
-/// Validate source Param usages against resolved database metadata without building IR.
-pub fn validate_param_bindings(
-    query: &core::RawQuery,
-    metadata: &core::DbQueryMetadata,
-) -> core::DiagnosticResult<()> {
-    compile_param_bindings(query, metadata).map(|_| ())
-}
-
 fn compile_param_bindings(
     query: &core::RawQuery,
     metadata: &core::DbQueryMetadata,

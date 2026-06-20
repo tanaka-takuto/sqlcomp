@@ -417,7 +417,7 @@ where
                 .describe(&variant.query, &variant.analysis)
                 .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
             validate_variant_row_shape(&base_metadata, variant, &metadata)?;
-            crate::query_compiler::validate_param_bindings(&variant.query, &metadata)
+            validate_expanded_variant_param_bindings(variant, &metadata)
                 .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
         }
         let compiled = pipeline.query_compiler.compile(
@@ -461,6 +461,11 @@ where
             query: query.clone(),
             analysis: dialect_analyzer.analyze(query)?,
             context: None,
+            param_scopes: query
+                .param_usages()
+                .iter()
+                .map(|_| ExpandedParamScope::QueryDirect)
+                .collect(),
         }]);
     }
 
@@ -474,6 +479,7 @@ where
             query: variant.query,
             analysis,
             context: Some(variant.context),
+            param_scopes: variant.param_scopes,
         });
     }
 
@@ -605,6 +611,7 @@ struct AnalyzedQueryVariant {
     query: core::RawQuery,
     analysis: core::AnalyzedQuery,
     context: Option<SlotExpansionContext>,
+    param_scopes: Vec<ExpandedParamScope>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -618,6 +625,21 @@ struct SlotSpec {
 struct SlotExpansionVariant {
     query: core::RawQuery,
     context: SlotExpansionContext,
+    param_scopes: Vec<ExpandedParamScope>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ExpandedParamScope {
+    QueryDirect,
+    Fragment { slot_id: String, target_id: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ScopedParamBinding {
+    scope: ExpandedParamScope,
+    id: String,
+    ty: core::CoreType,
+    nullable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -827,6 +849,7 @@ fn build_slot_variant_query(
     let mut cursor = 0;
     let mut query_param_cursor = 0;
     let mut param_usages = Vec::new();
+    let mut param_scopes = Vec::new();
 
     for usage in query.slot_usages() {
         let insertion_index = usage.insertion_index();
@@ -850,11 +873,19 @@ fn build_slot_variant_query(
             insertion_index,
             &mut query_param_cursor,
             &mut param_usages,
+            &mut param_scopes,
         )?;
         if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
             let fragment_output_start = analysis_sql.len();
             analysis_sql.push_str(fragment.analysis_sql());
-            push_fragment_params(fragment, fragment_output_start, &mut param_usages, query)?;
+            push_fragment_params(
+                fragment,
+                fragment_output_start,
+                &mut param_usages,
+                &mut param_scopes,
+                query,
+                usage,
+            )?;
         }
         cursor = insertion_index;
     }
@@ -867,6 +898,7 @@ fn build_slot_variant_query(
         query.analysis_sql().len(),
         &mut query_param_cursor,
         &mut param_usages,
+        &mut param_scopes,
     )?;
 
     let mut expanded_query = core::RawQuery::new(query.metadata().clone(), query.sql().to_owned())
@@ -883,6 +915,7 @@ fn build_slot_variant_query(
     Ok(SlotExpansionVariant {
         query: expanded_query,
         context: slot_expansion_context(query, slot_specs, choices),
+        param_scopes,
     })
 }
 
@@ -915,6 +948,7 @@ fn push_query_params_before_index(
     limit: usize,
     query_param_cursor: &mut usize,
     param_usages: &mut Vec<core::ParamUsage>,
+    param_scopes: &mut Vec<ExpandedParamScope>,
 ) -> core::DiagnosticResult<()> {
     while let Some(usage) = query.param_usages().get(*query_param_cursor) {
         let placeholder_index = query_param_placeholder_index(query, usage)?;
@@ -937,6 +971,7 @@ fn push_query_params_before_index(
                 .clone()
                 .with_placeholder_index(segment_output_start + placeholder_index - segment_start),
         );
+        param_scopes.push(ExpandedParamScope::QueryDirect);
         *query_param_cursor += 1;
     }
 
@@ -947,7 +982,9 @@ fn push_fragment_params(
     fragment: &core::RawFragment,
     fragment_output_start: usize,
     param_usages: &mut Vec<core::ParamUsage>,
+    param_scopes: &mut Vec<ExpandedParamScope>,
     query: &core::RawQuery,
+    slot_usage: &core::SlotUsage,
 ) -> core::DiagnosticResult<()> {
     for usage in fragment.param_usages() {
         let Some(placeholder_index) = usage.placeholder_index() else {
@@ -966,6 +1003,97 @@ fn push_fragment_params(
                 .clone()
                 .with_placeholder_index(fragment_output_start + placeholder_index),
         );
+        param_scopes.push(ExpandedParamScope::Fragment {
+            slot_id: slot_usage.id().to_owned(),
+            target_id: fragment.metadata().id().to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_expanded_variant_param_bindings(
+    variant: &AnalyzedQueryVariant,
+    metadata: &core::DbQueryMetadata,
+) -> core::DiagnosticResult<()> {
+    let query = &variant.query;
+    if query.param_usages().len() != metadata.param_usages().len() {
+        return Err(query_error(
+            query,
+            format!(
+                "resolved Param usage count {} does not match source Param usage count {}",
+                metadata.param_usages().len(),
+                query.param_usages().len()
+            ),
+        ));
+    }
+    if query.param_usages().len() != variant.param_scopes.len() {
+        return Err(query_error(
+            query,
+            format!(
+                "expanded Param scope count {} does not match source Param usage count {}",
+                variant.param_scopes.len(),
+                query.param_usages().len()
+            ),
+        ));
+    }
+
+    let mut scoped_bindings = Vec::<ScopedParamBinding>::new();
+    for ((source_usage, resolved_usage), scope) in query
+        .param_usages()
+        .iter()
+        .zip(metadata.param_usages())
+        .zip(&variant.param_scopes)
+    {
+        if source_usage.id() != resolved_usage.id() {
+            return Err(param_usage_error(
+                query,
+                source_usage,
+                format!(
+                    "resolved Param metadata id `{}` does not match source Param id `{}`",
+                    resolved_usage.id(),
+                    source_usage.id()
+                ),
+            ));
+        }
+
+        let nullable = source_usage.nullable_override();
+        if let Some(existing) = scoped_bindings
+            .iter()
+            .find(|binding| binding.scope == *scope && binding.id == source_usage.id())
+        {
+            if existing.ty != resolved_usage.ty() {
+                return Err(param_usage_error(
+                    query,
+                    source_usage,
+                    format!(
+                        "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
+                        source_usage.id(),
+                        existing.ty,
+                        resolved_usage.ty()
+                    ),
+                ));
+            }
+            if existing.nullable != nullable {
+                return Err(param_usage_error(
+                    query,
+                    source_usage,
+                    format!(
+                        "conflicting Param `{}` nullability: first occurrence is nullable {} but later occurrence is nullable {}",
+                        source_usage.id(),
+                        existing.nullable,
+                        nullable
+                    ),
+                ));
+            }
+        } else {
+            scoped_bindings.push(ScopedParamBinding {
+                scope: scope.clone(),
+                id: source_usage.id().to_owned(),
+                ty: resolved_usage.ty(),
+                nullable,
+            });
+        }
     }
 
     Ok(())
