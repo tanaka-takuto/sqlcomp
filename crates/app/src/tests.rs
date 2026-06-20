@@ -1668,10 +1668,30 @@ fn fake_dialect_analyzer_matches_limit_one_case_insensitively_and_exactly() {
             "SELECT id FROM users LIMIT 1 OFFSET 5;".to_owned(),
         ))
         .expect("limit one with additional clause should be analyzed");
+    let limit_one_lowercase_offset = analyzer
+        .analyze(&core::RawQuery::new(
+            core::QueryMetadata::new("limitOneLowercaseOffset".to_owned(), None),
+            "SELECT id FROM users LIMIT 1 offset 5;".to_owned(),
+        ))
+        .expect("limit one with lowercase offset should be analyzed");
+    let limit_one_mixed_case_offset = analyzer
+        .analyze(&core::RawQuery::new(
+            core::QueryMetadata::new("limitOneMixedCaseOffset".to_owned(), None),
+            "SELECT id FROM users LIMIT 1 OffSeT 5;".to_owned(),
+        ))
+        .expect("limit one with mixed-case offset should be analyzed");
 
     assert_eq!(limit_one.cardinality(), core::Cardinality::One);
     assert_eq!(limit_ten.cardinality(), core::Cardinality::Many);
     assert_eq!(limit_one_offset.cardinality(), core::Cardinality::One);
+    assert_eq!(
+        limit_one_lowercase_offset.cardinality(),
+        core::Cardinality::One
+    );
+    assert_eq!(
+        limit_one_mixed_case_offset.cardinality(),
+        core::Cardinality::One
+    );
 }
 
 fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
@@ -1859,7 +1879,9 @@ fn analysis_sql_has_limit_one(sql: &str) -> bool {
             "1" => {
                 return index + 2 == tokens.len()
                     || (tokens.get(index + 2) == Some(&";") && index + 3 == tokens.len())
-                    || tokens.get(index + 2) == Some(&"OFFSET");
+                    || tokens
+                        .get(index + 2)
+                        .is_some_and(|token| token.eq_ignore_ascii_case("OFFSET"));
             }
             _ => {}
         }
