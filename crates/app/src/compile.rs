@@ -406,6 +406,7 @@ where
                 "Slot expansion produced no validation variants",
             ));
         };
+        validate_variant_cardinality(&analyzed_variants)?;
         let metadata = pipeline
             .metadata_provider
             .describe(&base_variant.query, &base_variant.analysis)
@@ -476,6 +477,50 @@ where
     }
 
     Ok(analyzed_variants)
+}
+
+fn validate_variant_cardinality(variants: &[AnalyzedQueryVariant]) -> core::DiagnosticResult<()> {
+    let Some(base_variant) = variants.first() else {
+        return Ok(());
+    };
+    let base_cardinality = effective_cardinality(&base_variant.query, &base_variant.analysis);
+
+    for variant in variants.iter().skip(1) {
+        let variant_cardinality = effective_cardinality(&variant.query, &variant.analysis);
+        if variant_cardinality != base_cardinality {
+            return Err(with_slot_variant_context(
+                query_error(
+                    &variant.query,
+                    format!(
+                        "Slot expansion variant for query `{}` resolved effective cardinality `{}`, but the base variant resolved effective cardinality `{}`; all variants must have matching effective cardinality, using an explicit query metadata `cardinality` override when present and dialect analysis otherwise",
+                        variant.query.metadata().id(),
+                        format_cardinality(variant_cardinality),
+                        format_cardinality(base_cardinality),
+                    ),
+                ),
+                variant.context.as_ref(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn effective_cardinality(
+    query: &core::RawQuery,
+    analysis: &core::AnalyzedQuery,
+) -> core::Cardinality {
+    query
+        .metadata()
+        .cardinality()
+        .unwrap_or_else(|| analysis.cardinality())
+}
+
+const fn format_cardinality(cardinality: core::Cardinality) -> &'static str {
+    match cardinality {
+        core::Cardinality::One => "one",
+        core::Cardinality::Many => "many",
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
