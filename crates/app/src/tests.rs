@@ -639,6 +639,89 @@ fn check_describes_expanded_slot_variants_with_sql_ordered_params() {
 }
 
 #[test]
+fn check_passes_dynamic_slot_core_ir_to_target_generation() {
+    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let calls = CallLog::default();
+    let (query, fragment) = slot_param_order_fixture();
+    let source_read = SourceRead::from_queries(vec![query])
+        .with_fragments(vec![fragment])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("expanded Slot variants should compile into dynamic Core IR");
+
+    let generated_queries = target_generator.generated_queries();
+    assert_eq!(generated_queries.len(), 1);
+    let compiled = &generated_queries[0];
+    let dynamic = compiled
+        .dynamic_body()
+        .expect("Slot query should carry dynamic Core IR");
+    assert_eq!(dynamic.base_segments().len(), 2);
+    assert_eq!(
+        dynamic.base_segments()[0].sql(),
+        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1"
+    );
+    assert_eq!(
+        dynamic.base_segments()[0].params(),
+        [core::ParamBinding::new(
+            "tenantId".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+    assert_eq!(dynamic.slot_occurrences().len(), 1);
+    assert_eq!(dynamic.slot_occurrences()[0].slot_id(), "filter");
+    assert_eq!(dynamic.base_segments()[1].sql(), " AND u.email = ?;");
+    assert_eq!(
+        dynamic.base_segments()[1].params(),
+        [core::ParamBinding::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+    assert_eq!(dynamic.slots().len(), 1);
+    assert_eq!(dynamic.slots()[0].id(), "filter");
+    assert_eq!(dynamic.slots()[0].branches().len(), 1);
+    let branch = &dynamic.slots()[0].branches()[0];
+    assert_eq!(branch.target_id(), "activeAndRole");
+    assert_eq!(branch.segments().len(), 1);
+    assert_eq!(
+        branch.segments()[0].sql(),
+        "\nAND u.active = ? AND u.role_id = ?"
+    );
+    assert_eq!(
+        branch.segments()[0].params(),
+        [
+            core::ParamBinding::new("active".to_owned(), core::CoreType::String, false),
+            core::ParamBinding::new("roleId".to_owned(), core::CoreType::String, false),
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read", "analyze", "analyze", "describe", "describe", "compile", "generate"
+        ]
+    );
+}
+
+#[test]
 fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_scopes() {
     let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
     let calls = CallLog::default();
@@ -2417,14 +2500,16 @@ struct FakeTargetGenerator {
     calls: CallLog,
     files: core::GeneratedFiles,
     failure: Option<PipelineFailure>,
+    queries: Rc<RefCell<Vec<core::CompiledQuery>>>,
 }
 
 impl FakeTargetGenerator {
-    const fn new(calls: CallLog, files: core::GeneratedFiles) -> Self {
+    fn new(calls: CallLog, files: core::GeneratedFiles) -> Self {
         Self {
             calls,
             files,
             failure: None,
+            queries: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -2435,15 +2520,20 @@ impl FakeTargetGenerator {
 
         self
     }
+
+    fn generated_queries(&self) -> Vec<core::CompiledQuery> {
+        self.queries.borrow().clone()
+    }
 }
 
 impl TargetGenerator for FakeTargetGenerator {
     fn generate(
         &self,
         _plan: &core::CompilationPlan,
-        _queries: &[core::CompiledQuery],
+        queries: &[core::CompiledQuery],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
         self.calls.push("generate");
+        self.queries.borrow_mut().extend_from_slice(queries);
 
         if let Some(failure) = self.failure {
             return Err(failure.report());

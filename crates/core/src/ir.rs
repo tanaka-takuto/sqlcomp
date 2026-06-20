@@ -12,6 +12,7 @@ pub struct CompiledQuery {
     input: Vec<InputField>,
     params: Vec<ParamBinding>,
     row: Vec<ResultColumn>,
+    dynamic_body: Option<CompiledDynamicQuery>,
 }
 
 impl CompiledQuery {
@@ -32,6 +33,7 @@ impl CompiledQuery {
             input,
             params: Vec::new(),
             row,
+            dynamic_body: None,
         }
     }
 
@@ -46,6 +48,13 @@ impl CompiledQuery {
     #[must_use]
     pub fn with_source_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.source_path = Some(path.into());
+        self
+    }
+
+    /// Attach dynamic SQL body data for a query with Slot occurrences.
+    #[must_use]
+    pub fn with_dynamic_body(mut self, body: CompiledDynamicQuery) -> Self {
+        self.dynamic_body = Some(body);
         self
     }
 
@@ -85,10 +94,165 @@ impl CompiledQuery {
         &self.params
     }
 
+    /// Dynamic Slot body for this query, when the query contains Slots.
+    #[must_use]
+    pub const fn dynamic_body(&self) -> Option<&CompiledDynamicQuery> {
+        self.dynamic_body.as_ref()
+    }
+
     /// Result row columns for the query.
     #[must_use]
     pub fn row(&self) -> &[ResultColumn] {
         &self.row
+    }
+}
+
+/// Runtime-composable SQL body for a query with Slot occurrences.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledDynamicQuery {
+    base_segments: Vec<CompiledSqlSegment>,
+    slot_occurrences: Vec<CompiledSlotOccurrence>,
+    slots: Vec<CompiledSlotDefinition>,
+}
+
+impl CompiledDynamicQuery {
+    /// Build a dynamic query body.
+    ///
+    /// `base_segments` contains the SQL text around Slot occurrences, so callers
+    /// should provide exactly one more base segment than Slot occurrence.
+    #[must_use]
+    pub const fn new(
+        base_segments: Vec<CompiledSqlSegment>,
+        slot_occurrences: Vec<CompiledSlotOccurrence>,
+        slots: Vec<CompiledSlotDefinition>,
+    ) -> Self {
+        Self {
+            base_segments,
+            slot_occurrences,
+            slots,
+        }
+    }
+
+    /// Base SQL segments around Slot occurrences.
+    #[must_use]
+    pub fn base_segments(&self) -> &[CompiledSqlSegment] {
+        &self.base_segments
+    }
+
+    /// Slot occurrences in query SQL order.
+    #[must_use]
+    pub fn slot_occurrences(&self) -> &[CompiledSlotOccurrence] {
+        &self.slot_occurrences
+    }
+
+    /// Unique Slot definitions in query first-seen order.
+    #[must_use]
+    pub fn slots(&self) -> &[CompiledSlotDefinition] {
+        &self.slots
+    }
+}
+
+/// One SQL segment and the Param bindings it contains.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledSqlSegment {
+    sql: String,
+    params: Vec<ParamBinding>,
+}
+
+impl CompiledSqlSegment {
+    /// Build a compiled SQL segment.
+    #[must_use]
+    pub const fn new(sql: String, params: Vec<ParamBinding>) -> Self {
+        Self { sql, params }
+    }
+
+    /// SQL text for this segment.
+    #[must_use]
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    /// Param bindings in this segment in SQL placeholder order.
+    #[must_use]
+    pub fn params(&self) -> &[ParamBinding] {
+        &self.params
+    }
+}
+
+/// One occurrence of a query-local Slot in SQL order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledSlotOccurrence {
+    slot_id: String,
+}
+
+impl CompiledSlotOccurrence {
+    /// Build a compiled Slot occurrence.
+    #[must_use]
+    pub const fn new(slot_id: String) -> Self {
+        Self { slot_id }
+    }
+
+    /// Query-local Slot ID for this occurrence.
+    #[must_use]
+    pub fn slot_id(&self) -> &str {
+        &self.slot_id
+    }
+}
+
+/// Unique Slot definition and its ordered target branches.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledSlotDefinition {
+    id: String,
+    branches: Vec<CompiledSlotBranch>,
+}
+
+impl CompiledSlotDefinition {
+    /// Build a compiled Slot definition.
+    #[must_use]
+    pub const fn new(id: String, branches: Vec<CompiledSlotBranch>) -> Self {
+        Self { id, branches }
+    }
+
+    /// Query-local Slot ID.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Target branches in source `targets` order.
+    #[must_use]
+    pub fn branches(&self) -> &[CompiledSlotBranch] {
+        &self.branches
+    }
+}
+
+/// One selected Fragment branch for a Slot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompiledSlotBranch {
+    target_id: String,
+    segments: Vec<CompiledSqlSegment>,
+}
+
+impl CompiledSlotBranch {
+    /// Build a compiled Slot branch.
+    #[must_use]
+    pub const fn new(target_id: String, segments: Vec<CompiledSqlSegment>) -> Self {
+        Self {
+            target_id,
+            segments,
+        }
+    }
+
+    /// Fragment ID selected by this branch.
+    #[must_use]
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    /// Fragment SQL segments for this branch.
+    #[must_use]
+    pub fn segments(&self) -> &[CompiledSqlSegment] {
+        &self.segments
     }
 }
 
@@ -231,7 +395,11 @@ pub enum CoreType {
 mod tests {
     use std::path::Path;
 
-    use crate::{Cardinality, CompiledQuery, CoreType, QueryId, ResultColumn};
+    use crate::{
+        Cardinality, CompiledDynamicQuery, CompiledQuery, CompiledSlotBranch,
+        CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlSegment, CoreType, ParamBinding,
+        QueryId, ResultColumn,
+    };
 
     #[test]
     fn compiled_query_represents_empty_paramless_input_and_result_columns() {
@@ -273,5 +441,53 @@ mod tests {
         .with_source_path("sql/users.sql");
 
         assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
+    }
+
+    #[test]
+    fn compiled_query_can_carry_dynamic_slot_body() {
+        let dynamic_body = CompiledDynamicQuery::new(
+            vec![
+                CompiledSqlSegment::new(
+                    "SELECT id FROM users WHERE active = ?".to_owned(),
+                    vec![ParamBinding::new(
+                        "active".to_owned(),
+                        CoreType::Bool,
+                        false,
+                    )],
+                ),
+                CompiledSqlSegment::new(";".to_owned(), Vec::new()),
+            ],
+            vec![CompiledSlotOccurrence::new("filter".to_owned())],
+            vec![CompiledSlotDefinition::new(
+                "filter".to_owned(),
+                vec![CompiledSlotBranch::new(
+                    "byEmail".to_owned(),
+                    vec![CompiledSqlSegment::new(
+                        " AND email = ?".to_owned(),
+                        vec![ParamBinding::new(
+                            "email".to_owned(),
+                            CoreType::String,
+                            false,
+                        )],
+                    )],
+                )],
+            )],
+        );
+        let query = CompiledQuery::new(
+            QueryId::new("listUsers".to_owned()),
+            "SELECT id FROM users WHERE active = ?;".to_owned(),
+            Cardinality::Many,
+            Vec::new(),
+            Vec::new(),
+        )
+        .with_dynamic_body(dynamic_body);
+
+        let dynamic_body = query
+            .dynamic_body()
+            .expect("dynamic body should be present");
+
+        assert_eq!(dynamic_body.base_segments().len(), 2);
+        assert_eq!(dynamic_body.slot_occurrences()[0].slot_id(), "filter");
+        assert_eq!(dynamic_body.slots()[0].branches()[0].target_id(), "byEmail");
     }
 }

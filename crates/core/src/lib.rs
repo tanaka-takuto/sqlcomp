@@ -16,7 +16,10 @@ pub use config::{
     TargetLanguage,
 };
 pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
-pub use ir::{CompiledQuery, CoreType, InputField, ParamBinding, ResultColumn};
+pub use ir::{
+    CompiledDynamicQuery, CompiledQuery, CompiledSlotBranch, CompiledSlotDefinition,
+    CompiledSlotOccurrence, CompiledSqlSegment, CoreType, InputField, ParamBinding, ResultColumn,
+};
 pub use metadata::{DbParamUsage, DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
 pub use query::{
