@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sqlcomp_app::{CONFIG_FILE_NAME, CompilationPlanner, ConfigLoader};
 use sqlcomp_core as core;
@@ -341,10 +342,16 @@ fn unique_temp_config_path() -> PathBuf {
 }
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
+    static NEXT_TEMP_DIR_ID: AtomicUsize = AtomicUsize::new(0);
+
+    let counter = NEXT_TEMP_DIR_ID.fetch_add(1, Ordering::Relaxed);
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be after Unix epoch")
         .as_nanos();
 
-    std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{unique}-{counter}",
+        std::process::id()
+    ))
 }
