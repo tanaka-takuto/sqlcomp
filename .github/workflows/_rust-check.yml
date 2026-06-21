@@ -17,6 +17,9 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Check repository structure
+        run: script/check-structure.sh
+
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 

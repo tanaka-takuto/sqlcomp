@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "thresholds": {
+    "production": {
+      "soft": 600,
+      "hard": 900
+    },
+    "test": {
+      "soft": 900,
+      "hard": 1300
+    },
+    "mod": {
+      "soft": 250,
+      "hard": 500
+    },
+    "directory": {
+      "softFileCount": 8
+    }
+  },
+  "files": [
+    {
+      "path": "crates/app/src/compile.rs",
+      "lineCount": 1792,
+      "kind": "production",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Split compile orchestration, dynamic validation, and result assembly into private app modules before increasing this file."
+    },
+    {
+      "path": "crates/app/src/tests.rs",
+      "lineCount": 2732,
+      "kind": "test",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Move scenario groups into focused app test modules before increasing this file."
+    },
+    {
+      "path": "crates/adapters/src/config_jsonc.rs",
+      "lineCount": 918,
+      "kind": "production",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Separate config parsing, validation, and path resolution helpers before increasing this file."
+    },
+    {
+      "path": "crates/adapters/src/metadata_mysql_sqlx.rs",
+      "lineCount": 2044,
+      "kind": "production",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Separate MySQL describe logic, column metadata mapping, and Param inference helpers before increasing this file."
+    },
+    {
+      "path": "crates/adapters/src/source_fs.rs",
+      "lineCount": 4393,
+      "kind": "production",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Split source scanning, metadata parsing, inline markers, discovery, diagnostics, and tests into private source_fs modules before increasing this file."
+    },
+    {
+      "path": "crates/adapters/src/target_typescript.rs",
+      "lineCount": 1568,
+      "kind": "production",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Separate TypeScript type rendering, SQL string rendering, and Slot runtime builder generation before increasing this file."
+    },
+    {
+      "path": "crates/adapters/tests/mysql_fixture_metadata.rs",
+      "lineCount": 1304,
+      "kind": "test",
+      "allowAboveHardLimit": true,
+      "splitPlan": "Split MySQL fixture metadata scenarios into narrower integration test files before increasing this file."
+    },
+    {
+      "path": "tests/cli_binary.rs",
+      "lineCount": 1142,
+      "kind": "test",
+      "splitPlan": "Split CLI binary tests by command or behavior family before increasing this file."
+    }
+  ],
+  "directories": []
+}
