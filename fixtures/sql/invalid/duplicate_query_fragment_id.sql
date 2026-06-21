@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: sharedSourceUnit
@@ -6,7 +6,7 @@
 */
   AND p.bool_nn_col = TRUE
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: sharedSourceUnit

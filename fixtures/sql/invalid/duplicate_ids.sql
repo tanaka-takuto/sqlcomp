@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: duplicatedQuery
@@ -6,7 +6,7 @@
 */
 SELECT 1 AS value;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: duplicatedQuery

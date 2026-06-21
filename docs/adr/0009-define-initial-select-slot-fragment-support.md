@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`sqlcomp` currently supports MySQL `SELECT` query builders with inline `Param`
+`sqlay` currently supports MySQL `SELECT` query builders with inline `Param`
 value binding. The next dynamic SQL capability is `Slot` and `Fragment`
 composition, where a query can select from named SQL fragments while still
 preserving the 2-way SQL philosophy from ADR 0003 and explicit naming rules from
@@ -36,7 +36,7 @@ portable identifier rule as query IDs and Param IDs:
 Initial fragment metadata accepts only `type` and `id`:
 
 ```sql
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -60,7 +60,7 @@ Initial slot metadata accepts only `type`, `id`, and `targets`:
 SELECT u.id, u.email
 FROM users AS u
 WHERE 1 = 1
-/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } */;
+/* @sqlay { type: slot id: filter targets: [activeOnly, byEmail] } */;
 ```
 
 `slot.targets` is a non-empty string array of global fragment IDs. Initial slots are
@@ -78,7 +78,7 @@ inside fragments are rejected for the initial release, but the syntax is reserve
 for a later composition step. Fragment include, alias, and extends concepts are not
 introduced.
 
-Generated SQL contains no `@sqlcomp` comments. Ordinary SQL comments are preserved.
+Generated SQL contains no `@sqlay` comments. Ordinary SQL comments are preserved.
 
 ### Resolution and Input Shape
 
@@ -220,6 +220,6 @@ release requires stable result metadata across all variants.
 ## See Also
 
 - [ADR 0002: Use TypeScript SQL Builders as the First Target Generator](./0002-use-typescript-target-generator-first.md)
-- [ADR 0003: Use Hjson `@sqlcomp` Comments](./0003-use-hjson-sqlcomp-comments.md)
+- [ADR 0003: Use Hjson `@sqlay` Comments](./0003-use-hjson-sqlay-comments.md)
 - [ADR 0005: Do Not Automatically Transform Generated Names](./0005-do-not-transform-generated-names.md)
 - [ADR 0008: Define SELECT Param Support](./0008-define-select-param-support.md)

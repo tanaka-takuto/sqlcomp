@@ -29,7 +29,7 @@ impl ProjectConfig {
         }
     }
 
-    /// Directory containing `sqlcomp.config.json`.
+    /// Directory containing `sqlay.config.json`.
     #[must_use]
     pub fn config_dir(&self) -> &Path {
         &self.config_dir
@@ -60,7 +60,7 @@ impl ProjectConfig {
     }
 }
 
-/// Source file selection settings from `sqlcomp.config.json`.
+/// Source file selection settings from `sqlay.config.json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceConfig {
     include: Vec<String>,
@@ -87,7 +87,7 @@ impl SourceConfig {
     }
 }
 
-/// Generated output settings from `sqlcomp.config.json`.
+/// Generated output settings from `sqlay.config.json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutputConfig {
     dir: String,
@@ -107,7 +107,7 @@ impl OutputConfig {
     }
 }
 
-/// Database metadata settings from `sqlcomp.config.json`.
+/// Database metadata settings from `sqlay.config.json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DatabaseConfig {
     dialect: DatabaseDialect,
@@ -151,7 +151,7 @@ impl DatabaseDialect {
     }
 }
 
-/// Target-language settings from `sqlcomp.config.json`.
+/// Target-language settings from `sqlay.config.json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TargetConfig {
     language: TargetLanguage,

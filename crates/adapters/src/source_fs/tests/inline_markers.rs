@@ -1,25 +1,25 @@
-use super::super::source_units::split_sqlcomp_source_units;
-use super::super::split_sqlcomp_query_blocks;
+use super::super::source_units::split_sqlay_source_units;
+use super::super::split_sqlay_query_blocks;
 use super::diagnostic_messages;
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 #[test]
 fn split_query_blocks_keeps_inline_param_markers_inside_query_body() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: true } */
+WHERE email = /* @sqlay { type: param id: email valueType: string nullable: true } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("inline Param should be accepted");
+    let queries = split_sqlay_query_blocks(source).expect("inline Param should be accepted");
 
     assert_eq!(queries.len(), 1);
     assert_eq!(queries[0].metadata().id(), "findUserByEmail");
@@ -38,18 +38,18 @@ WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: tr
 #[test]
 fn split_query_blocks_keeps_multiple_query_boundaries_with_inline_params() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -59,7 +59,7 @@ SELECT id FROM users;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source)
+    let queries = split_sqlay_query_blocks(source)
         .expect("inline Param should not create extra query boundaries");
 
     assert_eq!(queries.len(), 2);
@@ -76,17 +76,17 @@ SELECT id FROM users;
 #[test]
 fn split_query_blocks_replaces_inline_param_ranges_and_records_usages() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
-SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */ AND id = /* @sqlcomp { type: param id: userId valueType: int64 } */ 42 /* @sqlcomp { type: paramEnd } */;
+SELECT id FROM users WHERE email = /* @sqlay { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlay { type: paramEnd } */ AND id = /* @sqlay { type: param id: userId valueType: int64 } */ 42 /* @sqlay { type: paramEnd } */;
 "
         .strip_prefix('\n')
         .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("inline Param should be accepted");
+    let queries = split_sqlay_query_blocks(source).expect("inline Param should be accepted");
 
     assert_eq!(queries.len(), 1);
     assert_eq!(
@@ -142,23 +142,23 @@ fn split_query_blocks_accepts_supported_inline_param_value_types() {
     {
         let source = format!(
             r"
-/* @sqlcomp
+/* @sqlay
 {{
   type: query
   id: typedParam{index}
 }}
 */
 SELECT id FROM users
-WHERE value = /* @sqlcomp {{ type: param id: value{index} valueType: {value_type} }} */
+WHERE value = /* @sqlay {{ type: param id: value{index} valueType: {value_type} }} */
   {sample_sql}
-  /* @sqlcomp {{ type: paramEnd }} */;
+  /* @sqlay {{ type: paramEnd }} */;
 "
         );
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
         let queries =
-            split_sqlcomp_query_blocks(source).expect("supported Param valueType should parse");
+            split_sqlay_query_blocks(source).expect("supported Param valueType should parse");
 
         assert_eq!(queries[0].param_usages()[0].id(), format!("value{index}"));
         assert_eq!(
@@ -171,24 +171,24 @@ WHERE value = /* @sqlcomp {{ type: param id: value{index} valueType: {value_type
 #[test]
 fn split_query_blocks_deletes_inline_slot_markers_and_records_usages() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } */;
+SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly, byEmail] } */;
 "
         .strip_prefix('\n')
         .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("inline Slot should be accepted");
+    let queries = split_sqlay_query_blocks(source).expect("inline Slot should be accepted");
 
     assert_eq!(queries.len(), 1);
     assert_eq!(
         queries[0].analysis_sql(),
         "\nSELECT u.id FROM users AS u WHERE 1 = 1;\n"
     );
-    assert!(!queries[0].analysis_sql().contains("@sqlcomp"));
+    assert!(!queries[0].analysis_sql().contains("@sqlay"));
     assert_eq!(queries[0].slot_usages().len(), 1);
     assert_eq!(queries[0].slot_usages()[0].id(), "filter");
     assert_eq!(
@@ -210,109 +210,109 @@ fn rejects_invalid_inline_slot_metadata() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot targets: [activeOnly] } */;
+SELECT id FROM users/* @sqlay { type: slot targets: [activeOnly] } */;
 ",
             "missing required `slot` metadata field `id`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: true targets: [activeOnly] } */;
+SELECT id FROM users/* @sqlay { type: slot id: true targets: [activeOnly] } */;
 ",
             "`slot` metadata field `id` must be a string",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: 1bad targets: [activeOnly] } */;
+SELECT id FROM users/* @sqlay { type: slot id: 1bad targets: [activeOnly] } */;
 ",
             "invalid Slot id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter } */;
 ",
             "missing required `slot` metadata field `targets`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [] } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter targets: [] } */;
 ",
             "`slot` metadata field `targets` must contain at least one value",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: activeOnly } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter targets: activeOnly } */;
 ",
             "`slot` metadata field `targets` must be a string array",
         ),
         (
             r#"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: ["bad-id"] } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter targets: ["bad-id"] } */;
 "#,
             "invalid Slot target `bad-id`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
         ),
         (
             r#"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [""] } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter targets: [""] } */;
 "#,
             "invalid Slot target ``; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
-SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [activeOnly] required: true } */;
+SELECT id FROM users/* @sqlay { type: slot id: filter targets: [activeOnly] required: true } */;
 ",
             "unknown `slot` metadata field `required`; supported fields are `type`, `id`, and `targets`",
         ),
@@ -320,8 +320,7 @@ SELECT id FROM users/* @sqlcomp { type: slot id: filter targets: [activeOnly] re
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report =
-            split_sqlcomp_query_blocks(source).expect_err("invalid Slot metadata rejected");
+        let report = split_sqlay_query_blocks(source).expect_err("invalid Slot metadata rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -332,8 +331,8 @@ fn rejects_unsupported_inline_slot_placements() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */
-/* @sqlcomp
+/* @sqlay { type: slot id: filter targets: [activeOnly] } */
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -345,30 +344,30 @@ SELECT id FROM users;
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
 }
 */
-/* @sqlcomp { type: slot id: filter targets: [byEmail] } */
+/* @sqlay { type: slot id: filter targets: [byEmail] } */
 AND u.active = 1
 ",
             "slot markers inside fragments are not supported yet; define slots in query bodies for the initial Slot/Fragment release",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: string } */
-  /* @sqlcomp { type: slot id: filter targets: [activeOnly] } */
+WHERE email = /* @sqlay { type: param id: email valueType: string } */
+  /* @sqlay { type: slot id: filter targets: [activeOnly] } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "Slot markers are not supported inside Param ranges",
         ),
@@ -376,8 +375,7 @@ WHERE email = /* @sqlcomp { type: param id: email valueType: string } */
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report =
-            split_sqlcomp_source_units(source).expect_err("invalid Slot placement rejected");
+        let report = split_sqlay_source_units(source).expect_err("invalid Slot placement rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -388,7 +386,7 @@ fn split_query_blocks_rejects_raw_or_sample_placeholders() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
@@ -396,17 +394,17 @@ fn split_query_blocks_rejects_raw_or_sample_placeholders() {
 */
 SELECT id FROM users WHERE email = ?;
 ",
-            "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`",
+            "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
-SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ ? /* @sqlcomp { type: paramEnd } */;
+SELECT id FROM users WHERE email = /* @sqlay { type: param id: email } */ ? /* @sqlay { type: paramEnd } */;
 ",
             "`?` placeholders are not allowed inside Param sample expressions",
         ),
@@ -414,8 +412,7 @@ SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ ? /*
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report =
-            split_sqlcomp_query_blocks(source).expect_err("placeholder should be rejected");
+        let report = split_sqlay_query_blocks(source).expect_err("placeholder should be rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
         assert!(
@@ -428,7 +425,7 @@ SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ ? /*
 #[test]
 fn split_query_blocks_allows_question_marks_inside_literals_and_comments() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: literalQuestionMarks
@@ -447,7 +444,7 @@ SELECT
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
 
-    let queries = split_sqlcomp_query_blocks(source)
+    let queries = split_sqlay_query_blocks(source)
         .expect("question marks inside literals and comments should be ignored");
 
     assert_eq!(queries.len(), 1);
@@ -458,21 +455,20 @@ SELECT
 #[test]
 fn rejects_invalid_param_ids_at_param_marker_location() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: 1bad } */
+WHERE email = /* @sqlay { type: param id: 1bad } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let report =
-        split_sqlcomp_query_blocks(source).expect_err("invalid Param id should be rejected");
+    let report = split_sqlay_query_blocks(source).expect_err("invalid Param id should be rejected");
     let diagnostic = report
         .diagnostics()
         .first()
@@ -494,91 +490,91 @@ fn rejects_invalid_inline_param_metadata_required_fields_and_types() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param valueType: string } */
+WHERE email = /* @sqlay { type: param valueType: string } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "missing required `param` metadata field `id`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: true } */
+WHERE email = /* @sqlay { type: param id: true } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "`param` metadata field `id` must be a string",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: true } */
+WHERE email = /* @sqlay { type: param id: email valueType: true } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
-            "`@sqlcomp` metadata field `valueType` must be a string",
+            "`@sqlay` metadata field `valueType` must be a string",
         ),
         (
             r#"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: "" } */
+WHERE email = /* @sqlay { type: param id: email valueType: "" } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 "#,
             "`param` metadata field `valueType` must not be empty",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email nullable: false } */
+WHERE email = /* @sqlay { type: param id: email nullable: false } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "`nullable: false` is not supported for Param metadata; omit `nullable` for non-null inputs",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email nullable: maybe } */
+WHERE email = /* @sqlay { type: param id: email nullable: maybe } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "`param` metadata field `nullable` must be `true`",
         ),
@@ -586,8 +582,7 @@ WHERE email = /* @sqlcomp { type: param id: email nullable: maybe } */
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report =
-            split_sqlcomp_query_blocks(source).expect_err("invalid Param metadata rejected");
+        let report = split_sqlay_query_blocks(source).expect_err("invalid Param metadata rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -598,91 +593,91 @@ fn rejects_invalid_inline_param_metadata() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email extra: true } */
+WHERE email = /* @sqlay { type: param id: email extra: true } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "unknown `param` metadata field `extra`; supported fields are `type`, `id`, `valueType`, and `nullable`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd id: email } */;
+  /* @sqlay { type: paramEnd id: email } */;
 ",
             "unknown `paramEnd` metadata field `id`; supported fields are `type`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test'
-  /* @sqlcomp { type: param_end } */;
+  /* @sqlay { type: param_end } */;
 ",
-            "unsupported `@sqlcomp` annotation type `param_end`; use `paramEnd` for Param end markers",
+            "unsupported `@sqlay` annotation type `param_end`; use `paramEnd` for Param end markers",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: banana } */
+WHERE email = /* @sqlay { type: param id: email valueType: banana } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "unsupported Param valueType `banana`; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: unknown } */
+WHERE email = /* @sqlay { type: param id: email valueType: unknown } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "unsupported Param valueType `unknown`; supported values are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`",
         ),
         (
             r#"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: "string | null" } */
+WHERE email = /* @sqlay { type: param id: email valueType: "string | null" } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 "#,
             "unsupported Param valueType `string | null`; use `valueType: string` with `nullable: true` for nullable string inputs; optional input properties are not supported",
         ),
@@ -690,8 +685,7 @@ WHERE email = /* @sqlcomp { type: param id: email valueType: "string | null" } *
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report =
-            split_sqlcomp_query_blocks(source).expect_err("invalid Param metadata rejected");
+        let report = split_sqlay_query_blocks(source).expect_err("invalid Param metadata rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -702,21 +696,21 @@ fn rejects_unpaired_or_nested_inline_param_markers() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test';
 ",
             "`param` marker is missing a matching `paramEnd` marker",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
@@ -724,22 +718,22 @@ WHERE email = /* @sqlcomp { type: param id: email } */
 */
 SELECT id FROM users
 WHERE email = 'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
             "`paramEnd` marker has no matching `param` marker",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test'
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -751,15 +745,15 @@ SELECT id FROM users;
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: byTenant
 }
 */
-AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
+AND tenant_id = /* @sqlay { type: param id: tenantId valueType: int64 } */
   1
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -771,26 +765,26 @@ AND active = 1
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
 SELECT id FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
-  COALESCE(/* @sqlcomp { type: param id: fallbackEmail } */ 'test@example.test'
-  /* @sqlcomp { type: paramEnd } */)
-  /* @sqlcomp { type: paramEnd } */;
+WHERE email = /* @sqlay { type: param id: email } */
+  COALESCE(/* @sqlay { type: param id: fallbackEmail } */ 'test@example.test'
+  /* @sqlay { type: paramEnd } */)
+  /* @sqlay { type: paramEnd } */;
 ",
             "nested Param ranges are not supported",
         ),
         (
             r"
-/* @sqlcomp { type: param id: email } */
+/* @sqlay { type: param id: email } */
 'test@example.test'
-/* @sqlcomp { type: paramEnd } */
-/* @sqlcomp
+/* @sqlay { type: paramEnd } */
+/* @sqlay
 {
   type: query
   id: findUserByEmail
@@ -802,8 +796,8 @@ SELECT id FROM users;
         ),
         (
             r"
-/* @sqlcomp { type: paramEnd } */
-/* @sqlcomp
+/* @sqlay { type: paramEnd } */
+/* @sqlay
 {
   type: query
   id: findUserByEmail
@@ -815,42 +809,42 @@ SELECT id FROM users;
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
 }
 */
-AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
+AND tenant_id = /* @sqlay { type: param id: tenantId valueType: int64 } */
   1
 ",
             "`param` marker is missing a matching `paramEnd` marker",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
 }
 */
 AND tenant_id = 1
-  /* @sqlcomp { type: paramEnd } */
+  /* @sqlay { type: paramEnd } */
 ",
             "`paramEnd` marker has no matching `param` marker",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
 }
 */
-AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
-  COALESCE(/* @sqlcomp { type: param id: fallbackTenantId valueType: int64 } */ 1
-  /* @sqlcomp { type: paramEnd } */)
-  /* @sqlcomp { type: paramEnd } */
+AND tenant_id = /* @sqlay { type: param id: tenantId valueType: int64 } */
+  COALESCE(/* @sqlay { type: param id: fallbackTenantId valueType: int64 } */ 1
+  /* @sqlay { type: paramEnd } */)
+  /* @sqlay { type: paramEnd } */
 ",
             "nested Param ranges are not supported",
         ),
@@ -858,7 +852,7 @@ AND tenant_id = /* @sqlcomp { type: param id: tenantId valueType: int64 } */
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report = split_sqlcomp_query_blocks(source)
+        let report = split_sqlay_query_blocks(source)
             .expect_err("invalid Param marker structure should be rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);

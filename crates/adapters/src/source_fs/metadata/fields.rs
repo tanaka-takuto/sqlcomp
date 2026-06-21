@@ -1,8 +1,8 @@
 use serde_json::{Map, Value};
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::source_fs::diagnostics::metadata_error;
-use crate::source_fs::scanner::SqlcompBlock;
+use crate::source_fs::scanner::SqlayBlock;
 
 const SUPPORTED_PARAM_VALUE_TYPES: [&str; 11] = [
     "bool", "int32", "int64", "float64", "decimal", "string", "bytes", "date", "time", "datetime",
@@ -14,7 +14,7 @@ pub(super) fn reject_unknown_metadata_fields(
     allowed_fields: &[&str],
     annotation_type: &str,
     supported_fields: &str,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<()> {
     if let Some(field) = metadata
         .keys()
@@ -33,16 +33,16 @@ pub(super) fn reject_unknown_metadata_fields(
 
 pub(super) fn required_annotation_type_from_metadata(
     metadata: &Map<String, Value>,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<String> {
     match metadata.get("type") {
         Some(Value::String(value)) => Ok(value.clone()),
         Some(_) => Err(metadata_error(
-            "`@sqlcomp` metadata field `type` must be a string",
+            "`@sqlay` metadata field `type` must be a string",
             block.payload_range(),
         )),
         None => Err(metadata_error(
-            "missing required `@sqlcomp` metadata field `type`",
+            "missing required `@sqlay` metadata field `type`",
             block.payload_range(),
         )),
     }
@@ -51,7 +51,7 @@ pub(super) fn required_annotation_type_from_metadata(
 pub(super) fn required_param_string_metadata_field(
     metadata: &Map<String, Value>,
     field: &str,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<String> {
     match metadata.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
@@ -69,7 +69,7 @@ pub(super) fn required_param_string_metadata_field(
 pub(super) fn required_fragment_string_metadata_field(
     metadata: &Map<String, Value>,
     field: &str,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<String> {
     match metadata.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
@@ -87,7 +87,7 @@ pub(super) fn required_fragment_string_metadata_field(
 pub(super) fn required_slot_string_metadata_field(
     metadata: &Map<String, Value>,
     field: &str,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<String> {
     match metadata.get(field) {
         Some(Value::String(value)) => Ok(value.clone()),
@@ -104,7 +104,7 @@ pub(super) fn required_slot_string_metadata_field(
 
 pub(super) fn required_slot_targets_metadata_field(
     metadata: &Map<String, Value>,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<Vec<String>> {
     let Some(targets) = metadata.get("targets") else {
         return Err(metadata_error(
@@ -144,12 +144,12 @@ pub(super) fn required_slot_targets_metadata_field(
 pub(super) fn optional_string_metadata_field(
     metadata: &Map<String, Value>,
     field: &str,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<Option<String>> {
     match metadata.get(field) {
         Some(Value::String(value)) => Ok(Some(value.clone())),
         Some(_) => Err(metadata_error(
-            format!("`@sqlcomp` metadata field `{field}` must be a string"),
+            format!("`@sqlay` metadata field `{field}` must be a string"),
             block.payload_range(),
         )),
         None => Ok(None),
@@ -158,7 +158,7 @@ pub(super) fn optional_string_metadata_field(
 
 pub(super) fn validate_param_nullable(
     nullable: Option<bool>,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<bool> {
     match nullable {
         Some(true) => Ok(true),
@@ -172,7 +172,7 @@ pub(super) fn validate_param_nullable(
 
 pub(super) fn parse_param_value_type(
     value_type: Option<&str>,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<Option<core::CoreType>> {
     let Some(value_type) = value_type else {
         return Ok(None);
@@ -251,7 +251,7 @@ fn supported_param_value_types_message() -> String {
 
 pub(super) fn parse_cardinality(
     raw_cardinality: Option<String>,
-    block: &SqlcompBlock,
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<Option<core::Cardinality>> {
     let Some(raw_cardinality) = raw_cardinality else {
         return Ok(None);

@@ -13,8 +13,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use sqlcomp_app::{ConfigLoader, ConfigTemplateWriter};
-use sqlcomp_core as core;
+use sqlay_app::{ConfigLoader, ConfigTemplateWriter};
+use sqlay_core as core;
 
 use diagnostics::single_error_report;
 use loader::{ConfigSource, resolve_path};
@@ -40,7 +40,7 @@ impl JsoncConfigLoader {
         }
     }
 
-    /// Build a loader that discovers `sqlcomp.config.json` from the process
+    /// Build a loader that discovers `sqlay.config.json` from the process
     /// current directory upward.
     #[must_use]
     pub const fn discover_from_current_dir() -> Self {
@@ -49,7 +49,7 @@ impl JsoncConfigLoader {
         }
     }
 
-    /// Build a loader that discovers `sqlcomp.config.json` from a directory
+    /// Build a loader that discovers `sqlay.config.json` from a directory
     /// upward.
     #[must_use]
     pub fn discover_from(start_dir: impl Into<PathBuf>) -> Self {

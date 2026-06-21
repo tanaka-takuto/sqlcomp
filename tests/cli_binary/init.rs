@@ -4,14 +4,14 @@ use crate::support::{UNUSED_DATABASE_URL, unique_temp_dir};
 
 #[test]
 fn init_writes_starter_config_to_current_directory() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-init");
+    let config_dir = unique_temp_dir("sqlay-cli-init");
     std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("init")
         .current_dir(&config_dir)
         .output()
-        .expect("sqlcomp init should run");
+        .expect("sqlay init should run");
 
     assert!(
         output.status.success(),
@@ -20,14 +20,14 @@ fn init_writes_starter_config_to_current_directory() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Created sqlcomp.config.json"),
+        stdout.contains("Created sqlay.config.json"),
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("DATABASE_URL=... sqlcomp check"),
+        stdout.contains("DATABASE_URL=... sqlay check"),
         "stdout: {stdout}"
     );
-    assert!(stdout.contains("/* @sqlcomp"), "stdout: {stdout}");
+    assert!(stdout.contains("/* @sqlay"), "stdout: {stdout}");
     assert!(stdout.contains("type: query"), "stdout: {stdout}");
     assert!(stdout.contains("id: listUsers"), "stdout: {stdout}");
     assert!(
@@ -35,7 +35,7 @@ fn init_writes_starter_config_to_current_directory() {
         "stdout: {stdout}"
     );
 
-    let config_path = config_dir.join("sqlcomp.config.json");
+    let config_path = config_dir.join("sqlay.config.json");
     let config = std::fs::read_to_string(&config_path).expect("starter config should be written");
     assert!(
         config.contains(r#""include": ["sql/**/*.sql"]"#),
@@ -43,7 +43,7 @@ fn init_writes_starter_config_to_current_directory() {
     );
     assert!(config.contains(r#""exclude": []"#), "config: {config}");
     assert!(
-        config.contains(r#""dir": "src/generated/sqlcomp""#),
+        config.contains(r#""dir": "src/generated/sqlay""#),
         "config: {config}"
     );
     assert!(config.contains(r#""dialect": "mysql""#), "config: {config}");
@@ -56,12 +56,12 @@ fn init_writes_starter_config_to_current_directory() {
         "config: {config}"
     );
 
-    let check_output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let check_output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("check")
         .current_dir(&config_dir)
         .env("DATABASE_URL", UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp check should run");
+        .expect("sqlay check should run");
 
     assert!(
         check_output.status.success(),
@@ -74,16 +74,16 @@ fn init_writes_starter_config_to_current_directory() {
 
 #[test]
 fn init_refuses_to_overwrite_existing_config() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-init-existing");
+    let config_dir = unique_temp_dir("sqlay-cli-init-existing");
     std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
-    let config_path = config_dir.join("sqlcomp.config.json");
+    let config_path = config_dir.join("sqlay.config.json");
     std::fs::write(&config_path, "keep me").expect("existing config should be written");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("init")
         .current_dir(&config_dir)
         .output()
-        .expect("sqlcomp init should run");
+        .expect("sqlay init should run");
 
     assert!(!output.status.success());
     assert_eq!(

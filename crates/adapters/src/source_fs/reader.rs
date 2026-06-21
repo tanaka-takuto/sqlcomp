@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use sqlcomp_app::{SourceRead, SourceReader};
-use sqlcomp_core as core;
+use sqlay_app::{SourceRead, SourceReader};
+use sqlay_core as core;
 
 use crate::source_fs::diagnostics::{
     attach_path, contains_non_comment_sql, extend_diagnostics, file_error, unannotated_sql_warning,
 };
 use crate::source_fs::discovery::discover_source_files;
-use crate::source_fs::scanner::scan_sqlcomp_blocks;
-use crate::source_fs::source_units::split_sqlcomp_source_units_from_scan;
+use crate::source_fs::scanner::scan_sqlay_blocks;
+use crate::source_fs::source_units::split_sqlay_source_units_from_scan;
 
 /// Filesystem-backed source reader.
 #[derive(Clone, Copy, Debug, Default)]
@@ -32,7 +32,7 @@ impl SourceReader for FileSystemSourceReader {
                     &mut fatal_diagnostics,
                     file_error(
                         format!(
-                            "source file `{}` is outside the configuration directory `{}`; source.include paths are resolved from the config file directory and must stay inside it so generated paths can be preserved relative to that directory under output.dir. Move sqlcomp.config.json to a common project root when SQL lives in sibling directories.",
+                            "source file `{}` is outside the configuration directory `{}`; source.include paths are resolved from the config file directory and must stay inside it so generated paths can be preserved relative to that directory under output.dir. Move sqlay.config.json to a common project root when SQL lives in sibling directories.",
                             path.display(),
                             plan.config_dir().display()
                         ),
@@ -57,20 +57,19 @@ impl SourceReader for FileSystemSourceReader {
                     continue;
                 }
             };
-            let scan = match scan_sqlcomp_blocks(&source) {
+            let scan = match scan_sqlay_blocks(&source) {
                 Ok(scan) => scan,
                 Err(report) => {
                     extend_diagnostics(&mut fatal_diagnostics, attach_path(report, &path));
                     continue;
                 }
             };
-            if scan.blocks().is_empty()
-                && contains_non_comment_sql(scan.sql_without_sqlcomp_blocks())
+            if scan.blocks().is_empty() && contains_non_comment_sql(scan.sql_without_sqlay_blocks())
             {
                 diagnostics.push(unannotated_sql_warning(&path));
             }
 
-            let source_units = match split_sqlcomp_source_units_from_scan(&source, &scan) {
+            let source_units = match split_sqlay_source_units_from_scan(&source, &scan) {
                 Ok(source_units) => source_units,
                 Err(report) => {
                     extend_diagnostics(&mut fatal_diagnostics, attach_path(report, &path));

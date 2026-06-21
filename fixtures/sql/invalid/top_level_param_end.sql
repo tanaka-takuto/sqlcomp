@@ -1,1 +1,1 @@
-/* @sqlcomp { type: paramEnd } */
+/* @sqlay { type: paramEnd } */

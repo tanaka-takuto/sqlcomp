@@ -1,11 +1,11 @@
-use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
-use sqlcomp_adapters::source_fs::{FileSystemSourceReader, split_sqlcomp_query_blocks};
-use sqlcomp_app::{
+use sqlay_adapters::dialect_mysql::MysqlDialectAnalyzer;
+use sqlay_adapters::output_fs::FileSystemGeneratedFileWriter;
+use sqlay_adapters::source_fs::{FileSystemSourceReader, split_sqlay_query_blocks};
+use sqlay_app::{
     CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase, DefaultQueryCompiler,
     DialectAnalyzer, MetadataProvider, SourceReader, TargetGenerator,
 };
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 const DIRECT_PARAM_SLOT_ID_COLLISION: &str =
     include_str!("../../../fixtures/sql/invalid/direct_param_slot_id_collision.sql");
@@ -93,7 +93,7 @@ fn invalid_sql_shape_fixtures_fail_during_dialect_analysis() {
 fn invalid_param_source_fixtures_fail_during_source_intake() {
     assert_source_error_contains(
         PARAM_RAW_PLACEHOLDER,
-        "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers",
+        "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers",
     );
     assert_source_error_contains(
         PARAM_SAMPLE_PLACEHOLDER,
@@ -131,7 +131,7 @@ fn invalid_slot_fragment_source_fixtures_fail_during_source_intake() {
     );
     assert_source_error_contains(
         FRAGMENT_RAW_PLACEHOLDER,
-        "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers",
+        "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers",
     );
     assert_source_error_contains(
         FRAGMENT_PARAM_SAMPLE_PLACEHOLDER,
@@ -243,7 +243,7 @@ fn duplicate_id_fixture_fails_during_filesystem_source_read() {
 }
 
 fn assert_source_error_contains(source: &str, expected: &str) {
-    let report = split_sqlcomp_query_blocks(source).expect_err("source fixture should fail");
+    let report = split_sqlay_query_blocks(source).expect_err("source fixture should fail");
 
     assert!(
         report.diagnostics()[0].message().contains(expected),
@@ -254,7 +254,7 @@ fn assert_source_error_contains(source: &str, expected: &str) {
 
 fn assert_analysis_error_contains(source: &str, expected: &str) {
     let queries =
-        split_sqlcomp_query_blocks(source).expect("source fixture should pass source intake");
+        split_sqlay_query_blocks(source).expect("source fixture should pass source intake");
     let report = MysqlDialectAnalyzer
         .analyze(&queries[0])
         .expect_err("SQL fixture should fail dialect analysis");
@@ -267,7 +267,7 @@ fn assert_analysis_error_contains(source: &str, expected: &str) {
 }
 
 fn assert_source_reader_error_contains(file_name: &str, source: &str, expected: &str) {
-    let project_dir = unique_temp_dir("sqlcomp-invalid-source-fixture");
+    let project_dir = unique_temp_dir("sqlay-invalid-source-fixture");
     let invalid_dir = project_dir.join("invalid");
     std::fs::create_dir_all(&invalid_dir).expect("temp invalid dir should be created");
     std::fs::write(invalid_dir.join(file_name), source).expect("invalid fixture should be written");
@@ -294,7 +294,7 @@ fn assert_source_reader_error_contains(file_name: &str, source: &str, expected: 
 }
 
 fn assert_check_error_contains(file_name: &str, source: &str, expected: &str) {
-    let project_dir = unique_temp_dir("sqlcomp-invalid-check-fixture");
+    let project_dir = unique_temp_dir("sqlay-invalid-check-fixture");
     let invalid_dir = project_dir.join("invalid");
     std::fs::create_dir_all(&invalid_dir).expect("temp invalid dir should be created");
     std::fs::write(invalid_dir.join(file_name), source).expect("invalid fixture should be written");

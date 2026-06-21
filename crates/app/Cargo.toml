@@ -1,9 +1,9 @@
 [package]
-name = "sqlcomp-app"
+name = "sqlay-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Internal sqlcomp application use case and port crate."
+description = "Internal sqlay application use case and port crate."
 repository.workspace = true
 publish = false
 
@@ -11,4 +11,4 @@ publish = false
 workspace = true
 
 [dependencies]
-sqlcomp-core = { path = "../core" }
+sqlay-core = { path = "../core" }

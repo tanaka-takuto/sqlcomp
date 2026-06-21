@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::source_fs::diagnostics::file_error;
 

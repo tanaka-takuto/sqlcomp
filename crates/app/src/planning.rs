@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::CompilationPlanner;
 

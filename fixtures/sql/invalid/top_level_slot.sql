@@ -1,1 +1,1 @@
-/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */
+/* @sqlay { type: slot id: filter targets: [activeOnly] } */

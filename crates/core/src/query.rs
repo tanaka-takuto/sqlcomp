@@ -483,7 +483,7 @@ mod tests {
         ));
         let query = RawQuery::new(
             QueryMetadata::new("findUser".to_owned(), None),
-            "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;".to_owned(),
+            "SELECT id FROM users WHERE email = /* @sqlay { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlay { type: paramEnd } */;".to_owned(),
         )
         .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
         .with_param_usages(vec![crate::ParamUsage::new(
@@ -514,7 +514,7 @@ mod tests {
         ));
         let query = RawQuery::new(
             QueryMetadata::new("listUsers".to_owned(), None),
-            "SELECT id FROM users WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+            "SELECT id FROM users WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
         )
         .with_analysis_sql("SELECT id FROM users WHERE 1 = 1;".to_owned())
         .with_slot_usages(vec![SlotUsage::new(
@@ -560,7 +560,7 @@ mod tests {
         ));
         let fragment = RawFragment::new(
             FragmentMetadata::new("byEmail".to_owned()),
-            "\nAND u.email = /* @sqlcomp { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */\n".to_owned(),
+            "\nAND u.email = /* @sqlay { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlay { type: paramEnd } */\n".to_owned(),
         )
         .with_analysis_sql("\nAND u.email = ?\n".to_owned())
         .with_param_usages(vec![crate::ParamUsage::new(

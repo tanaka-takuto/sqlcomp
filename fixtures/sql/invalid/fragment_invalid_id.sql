@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: 123bad

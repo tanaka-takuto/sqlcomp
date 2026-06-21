@@ -4,7 +4,7 @@ This document records the completed initial MVP baseline. It is historical conte
 not the active scope boundary. For the current supported capability set and
 near-term direction, see [Current Scope](./current-scope.md).
 
-The first `sqlcomp` implementation was intentionally small. It proved the full
+The first `sqlay` implementation was intentionally small. It proved the full
 compile path from SQL files to typed TypeScript SQL builders without implementing
 dynamic query composition.
 
@@ -14,9 +14,9 @@ The initial MVP supported:
 
 - MySQL 8.x.
 - TypeScript generation.
-- `sqlcomp.config.json` project configuration.
+- `sqlay.config.json` project configuration.
 - `init`, `check`, and `compile` CLI commands.
-- query annotations with Hjson `@sqlcomp` comments.
+- query annotations with Hjson `@sqlay` comments.
 - `SELECT` statements only.
 - one or more queries per SQL file.
 - exactly one SQL statement per query block.
@@ -36,44 +36,44 @@ The initial MVP did not support:
 
 The initial MVP exposed three commands:
 
-- `sqlcomp init` creates a `sqlcomp.config.json` template and refuses to overwrite
+- `sqlay init` creates a `sqlay.config.json` template and refuses to overwrite
   an existing config file.
-- `sqlcomp check` runs the full compile pipeline, including MySQL metadata lookup,
+- `sqlay check` runs the full compile pipeline, including MySQL metadata lookup,
   but does not write generated files.
-- `sqlcomp compile` writes generated TypeScript SQL builder files.
+- `sqlay compile` writes generated TypeScript SQL builder files.
 
-Running `sqlcomp` with no arguments prints top-level help and exits successfully.
-`sqlcomp init --help`, `sqlcomp check --help`, and `sqlcomp compile --help` print
+Running `sqlay` with no arguments prints top-level help and exits successfully.
+`sqlay init --help`, `sqlay check --help`, and `sqlay compile --help` print
 command-specific help with concise examples. Help should show a minimal
-`@sqlcomp` query annotation, supported query metadata keys, the distinction
-between `@sqlcomp` Hjson directives and ordinary SQL comments, the raw placeholder
+`@sqlay` query annotation, supported query metadata keys, the distinction
+between `@sqlay` Hjson directives and ordinary SQL comments, the raw placeholder
 boundary, output path preservation, and conservative TypeScript type mapping.
 
-After a successful `sqlcomp check`, the CLI prints that the check passed, the number
+After a successful `sqlay check`, the CLI prints that the check passed, the number
 of matched SQL files, the compiled query count, the configured output directory,
 that no files were written, and per-query parameter placeholder and input field
 counts when a query has parameters.
 
-After a successful `sqlcomp compile`, the CLI prints the number of matched SQL
+After a successful `sqlay compile`, the CLI prints the number of matched SQL
 files, the compiled query count, how many files were generated or updated, the
 configured output directory, generated file paths, and per-query parameter
 placeholder and input field counts when a query has parameters. When `--clean`
 runs, the success summary also includes how many stale generated files were
 removed.
 
-After a successful `sqlcomp init`, the CLI prints the created config filename, a
-`DATABASE_URL=... sqlcomp check` next command example, and a minimal
-`@sqlcomp` query annotation template.
+After a successful `sqlay init`, the CLI prints the created config filename, a
+`DATABASE_URL=... sqlay check` next command example, and a minimal
+`@sqlay` query annotation template.
 
-`sqlcomp compile --clean` removes stale managed generated files that no longer
+`sqlay compile --clean` removes stale managed generated files that no longer
 correspond to an input SQL file. Normal `compile` does not remove stale files.
 
-When `--config` is not provided, `sqlcomp` searches from the current working
-directory upward for `sqlcomp.config.json`.
+When `--config` is not provided, `sqlay` searches from the current working
+directory upward for `sqlay.config.json`.
 
 ## Configuration
 
-`sqlcomp.config.json` is parsed as JSON with comments and trailing commas allowed.
+`sqlay.config.json` is parsed as JSON with comments and trailing commas allowed.
 The initial configuration shape was:
 
 ```jsonc
@@ -83,7 +83,7 @@ The initial configuration shape was:
     "exclude": [],
   },
   "output": {
-    "dir": "src/generated/sqlcomp",
+    "dir": "src/generated/sqlay",
   },
   "database": {
     "dialect": "mysql",
@@ -100,7 +100,7 @@ For the initial MVP, `source.include`, `output.dir`, `database.dialect`,
 optional.
 
 Configuration paths are resolved relative to the directory containing
-`sqlcomp.config.json`. Generated TypeScript preserves each input SQL path relative
+`sqlay.config.json`. Generated TypeScript preserves each input SQL path relative
 to that same directory.
 
 The database connection URL is read from the process environment using
@@ -113,12 +113,12 @@ next `type: query` annotation or the end of the file.
 
 Each query body must contain exactly one `SELECT` statement and must end with `;`.
 
-An included `.sql` file that contains SQL text but no `@sqlcomp` query annotation
+An included `.sql` file that contains SQL text but no `@sqlay` query annotation
 emits a warning so users can tell the file was ignored by the query compiler. Empty
 files and comment-only files do not warn.
 
 ```sql
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -126,7 +126,7 @@ files and comment-only files do not warn.
 */
 SELECT id, name FROM users;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findLatestUser
@@ -235,7 +235,7 @@ The implementation should cover these scenarios:
 - ordinary `SELECT` infers `many`.
 - explicit `cardinality` overrides inference.
 - `cardinality: exec` is rejected.
-- included SQL files with SQL text but no `@sqlcomp` query annotations warn.
+- included SQL files with SQL text but no `@sqlay` query annotations warn.
 - MySQL nullable metadata maps to `T | null`.
 - unknown nullability maps to `T | null`.
 

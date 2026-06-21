@@ -1,39 +1,39 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
-const SQLCOMP_MARKER: &str = "@sqlcomp";
+const SQLAY_MARKER: &str = "@sqlay";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SqlcompBlockScan {
-    blocks: Vec<SqlcompBlock>,
-    sql_without_sqlcomp_blocks: String,
+pub struct SqlayBlockScan {
+    blocks: Vec<SqlayBlock>,
+    sql_without_sqlay_blocks: String,
 }
 
-impl SqlcompBlockScan {
+impl SqlayBlockScan {
     /// Build a scan result.
     #[must_use]
-    pub const fn new(blocks: Vec<SqlcompBlock>, sql_without_sqlcomp_blocks: String) -> Self {
+    pub const fn new(blocks: Vec<SqlayBlock>, sql_without_sqlay_blocks: String) -> Self {
         Self {
             blocks,
-            sql_without_sqlcomp_blocks,
+            sql_without_sqlay_blocks,
         }
     }
 
     /// Metadata blocks found in source order.
     #[must_use]
-    pub fn blocks(&self) -> &[SqlcompBlock] {
+    pub fn blocks(&self) -> &[SqlayBlock] {
         &self.blocks
     }
 
-    /// SQL text with sqlcomp metadata comments replaced by whitespace.
+    /// SQL text with sqlay metadata comments replaced by whitespace.
     #[must_use]
-    pub fn sql_without_sqlcomp_blocks(&self) -> &str {
-        &self.sql_without_sqlcomp_blocks
+    pub fn sql_without_sqlay_blocks(&self) -> &str {
+        &self.sql_without_sqlay_blocks
     }
 }
 
-/// One `/* @sqlcomp ... */` metadata block.
+/// One `/* @sqlay ... */` metadata block.
 #[derive(Clone, Debug)]
-pub struct SqlcompBlock {
+pub struct SqlayBlock {
     payload: String,
     comment_range: core::SourceRange,
     payload_range: core::SourceRange,
@@ -41,8 +41,8 @@ pub struct SqlcompBlock {
     comment_end_index: usize,
 }
 
-impl SqlcompBlock {
-    /// Build a sqlcomp metadata block.
+impl SqlayBlock {
+    /// Build a sqlay metadata block.
     #[must_use]
     pub const fn new(
         payload: String,
@@ -68,7 +68,7 @@ impl SqlcompBlock {
         }
     }
 
-    /// Raw metadata payload after the `@sqlcomp` marker.
+    /// Raw metadata payload after the `@sqlay` marker.
     #[must_use]
     pub fn payload(&self) -> &str {
         &self.payload
@@ -95,7 +95,7 @@ impl SqlcompBlock {
     }
 }
 
-impl PartialEq for SqlcompBlock {
+impl PartialEq for SqlayBlock {
     fn eq(&self, other: &Self) -> bool {
         self.payload == other.payload
             && self.comment_range == other.comment_range
@@ -103,14 +103,14 @@ impl PartialEq for SqlcompBlock {
     }
 }
 
-impl Eq for SqlcompBlock {}
+impl Eq for SqlayBlock {}
 
-/// Scan SQL source for canonical `@sqlcomp` block comments.
+/// Scan SQL source for canonical `@sqlay` block comments.
 ///
 /// # Errors
 ///
 /// Returns a diagnostic when a SQL block comment is not terminated.
-pub fn scan_sqlcomp_blocks(source: &str) -> core::DiagnosticResult<SqlcompBlockScan> {
+pub fn scan_sqlay_blocks(source: &str) -> core::DiagnosticResult<SqlayBlockScan> {
     Scanner::new(source).scan()
 }
 
@@ -142,8 +142,8 @@ struct Scanner<'a> {
     source: &'a str,
     index: usize,
     position: TextPosition,
-    blocks: Vec<SqlcompBlock>,
-    sql_without_sqlcomp_blocks: String,
+    blocks: Vec<SqlayBlock>,
+    sql_without_sqlay_blocks: String,
 }
 
 impl<'a> Scanner<'a> {
@@ -153,11 +153,11 @@ impl<'a> Scanner<'a> {
             index: 0,
             position: TextPosition::START,
             blocks: Vec::new(),
-            sql_without_sqlcomp_blocks: String::with_capacity(source.len()),
+            sql_without_sqlay_blocks: String::with_capacity(source.len()),
         }
     }
 
-    fn scan(mut self) -> core::DiagnosticResult<SqlcompBlockScan> {
+    fn scan(mut self) -> core::DiagnosticResult<SqlayBlockScan> {
         while !self.is_at_end() {
             if self.starts_with("/*") {
                 self.scan_block_comment()?;
@@ -170,9 +170,9 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        Ok(SqlcompBlockScan::new(
+        Ok(SqlayBlockScan::new(
             self.blocks,
-            self.sql_without_sqlcomp_blocks,
+            self.sql_without_sqlay_blocks,
         ))
     }
 
@@ -219,26 +219,26 @@ impl<'a> Scanner<'a> {
         comment_end_index: usize,
     ) {
         let body = &self.source[body_start_index..body_end_index];
-        if let Some(marker_offset) = sqlcomp_marker_offset(body) {
-            let payload_start_index = body_start_index + marker_offset + SQLCOMP_MARKER.len();
+        if let Some(marker_offset) = sqlay_marker_offset(body) {
+            let payload_start_index = body_start_index + marker_offset + SQLAY_MARKER.len();
             let payload = self.source[payload_start_index..body_end_index].to_owned();
             let comment_range =
                 source_range_for_span(self.source, comment_start_index, comment_end_index);
             let payload_range =
                 source_range_for_span(self.source, payload_start_index, body_end_index);
 
-            self.blocks.push(SqlcompBlock::from_scan(
+            self.blocks.push(SqlayBlock::from_scan(
                 payload,
                 comment_range,
                 payload_range,
                 comment_start_index,
                 comment_end_index,
             ));
-            self.sql_without_sqlcomp_blocks.push_str(&blank_comment(
+            self.sql_without_sqlay_blocks.push_str(&blank_comment(
                 &self.source[comment_start_index..comment_end_index],
             ));
         } else {
-            self.sql_without_sqlcomp_blocks
+            self.sql_without_sqlay_blocks
                 .push_str(&self.source[comment_start_index..comment_end_index]);
         }
     }
@@ -282,7 +282,7 @@ impl<'a> Scanner<'a> {
         let char = self
             .advance_current()
             .expect("copy_current should only be called before EOF");
-        self.sql_without_sqlcomp_blocks.push(char);
+        self.sql_without_sqlay_blocks.push(char);
     }
 
     fn advance_current(&mut self) -> Option<char> {
@@ -318,10 +318,10 @@ pub(super) const fn is_quote_delimiter(char: char) -> bool {
     matches!(char, '\'' | '"' | '`')
 }
 
-fn sqlcomp_marker_offset(body: &str) -> Option<usize> {
+fn sqlay_marker_offset(body: &str) -> Option<usize> {
     let trimmed = body.trim_start();
     let offset = body.len() - trimmed.len();
-    let after_marker = trimmed.strip_prefix(SQLCOMP_MARKER)?;
+    let after_marker = trimmed.strip_prefix(SQLAY_MARKER)?;
     let marker_has_boundary = after_marker
         .chars()
         .next()

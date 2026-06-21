@@ -1046,44 +1046,44 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlcomp"
+name = "sqlay"
 version = "0.1.0"
 dependencies = [
- "sqlcomp-cli",
+ "sqlay-cli",
 ]
 
 [[package]]
-name = "sqlcomp-adapters"
+name = "sqlay-adapters"
 version = "0.1.0"
 dependencies = [
  "deser-hjson",
  "serde",
  "serde_json",
- "sqlcomp-app",
- "sqlcomp-core",
+ "sqlay-app",
+ "sqlay-core",
  "sqlparser",
  "sqlx",
  "tokio",
 ]
 
 [[package]]
-name = "sqlcomp-app"
+name = "sqlay-app"
 version = "0.1.0"
 dependencies = [
- "sqlcomp-core",
+ "sqlay-core",
 ]
 
 [[package]]
-name = "sqlcomp-cli"
+name = "sqlay-cli"
 version = "0.1.0"
 dependencies = [
- "sqlcomp-adapters",
- "sqlcomp-app",
- "sqlcomp-core",
+ "sqlay-adapters",
+ "sqlay-app",
+ "sqlay-core",
 ]
 
 [[package]]
-name = "sqlcomp-core"
+name = "sqlay-core"
 version = "0.1.0"
 
 [[package]]

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use sqlcomp_app::TargetGenerator;
-use sqlcomp_core as core;
+use sqlay_app::TargetGenerator;
+use sqlay_core as core;
 
 use super::super::TypeScriptTargetGenerator;
 use super::support::{
@@ -52,11 +52,11 @@ fn generator_keeps_slotless_files_on_static_builder_surface_when_slots_are_compi
 
     let static_contents = file_contents(
         &files,
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/static.ts"),
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/static.ts"),
     );
     let dynamic_contents = file_contents(
         &files,
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/dynamic.ts"),
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/dynamic.ts"),
     );
 
     assert!(!static_contents.contains("type SqlParam = unknown;"));
@@ -91,7 +91,7 @@ fn generator_maps_nested_sql_paths_under_output_dir() {
     assert_eq!(files.files().len(), 1);
     assert_eq!(
         files.files()[0].path(),
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/admin/users.ts")
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/admin/users.ts")
     );
     assert!(
         files.files()[0]
@@ -138,7 +138,7 @@ fn generator_embeds_cross_file_fragment_branches_in_query_source_output() {
     assert_eq!(files.files().len(), 1);
     assert_eq!(
         files.files()[0].path(),
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts")
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts")
     );
     let users_contents = files.files()[0].contents();
     assert!(users_contents.contains("type SqlParam = unknown;"));
@@ -178,7 +178,7 @@ fn generator_generates_param_queries() {
 
     let users_contents = file_contents(
         &files,
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
     );
     assert!(users_contents.contains("export type findUser_Input = {\n  email: string;\n};"));
     assert!(users_contents.contains(
@@ -205,7 +205,7 @@ fn generator_combines_queries_from_same_sql_file_into_one_module() {
     assert_eq!(files.files().len(), 2);
     let users_contents = file_contents(
         &files,
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
     );
     assert!(users_contents.contains("export function listUsers("));
     assert!(users_contents.contains("export function findLatestUser("));

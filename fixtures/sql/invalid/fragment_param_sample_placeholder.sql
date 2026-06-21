@@ -1,9 +1,9 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: fragmentParamSamplePlaceholder
 }
 */
-  AND p.bigint_nn_col = /* @sqlcomp { type: param id: bigintValue } */
+  AND p.bigint_nn_col = /* @sqlay { type: param id: bigintValue } */
     ?
-    /* @sqlcomp { type: paramEnd } */
+    /* @sqlay { type: paramEnd } */

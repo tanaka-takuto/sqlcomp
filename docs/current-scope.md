@@ -1,20 +1,20 @@
 # Current Scope
 
-This document is the active entrypoint for what `sqlcomp` currently supports and
+This document is the active entrypoint for what `sqlay` currently supports and
 where near-term work should point. The original MVP remains documented in
 [Initial MVP Baseline](./mvp.md) and the accepted ADRs.
 
 ## Supported Capability Set
 
-`sqlcomp` currently supports:
+`sqlay` currently supports:
 
-- SQL source files annotated with `@sqlcomp` Hjson block comments.
+- SQL source files annotated with `@sqlay` Hjson block comments.
 - `type: query` annotations with an explicit `id` and optional
   `cardinality: one | many`.
 - MySQL 8.x analysis for query blocks that contain exactly one `SELECT` statement.
 - TypeScript SQL builder generation that preserves SQL source paths under
   `output.dir`.
-- `sqlcomp.config.json` project configuration, discovered from the working
+- `sqlay.config.json` project configuration, discovered from the working
   directory upward when `--config` is omitted. For `check` and `compile`, an
   explicit config path is accepted before the command or as a command option.
 - `source.include` and `source.exclude` paths resolved from the configuration
@@ -37,9 +37,9 @@ directly readable and executable in database tools:
 ```sql
 SELECT u.id, u.email
 FROM users AS u
-WHERE u.email = /* @sqlcomp { type: param id: email } */
+WHERE u.email = /* @sqlay { type: param id: email } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ```
 
 For compilation, each Param range is replaced with one MySQL `?` placeholder. Input
@@ -48,15 +48,15 @@ possible, or from an inline `valueType` override. `nullable: true` marks nullabl
 input values. Repeated Param IDs are supported when all occurrences agree on type
 and nullability.
 
-`valueType` uses lower-case sqlcomp CoreType names, not TypeScript union syntax. For
+`valueType` uses lower-case sqlay CoreType names, not TypeScript union syntax. For
 a nullable datetime input, write `valueType: datetime` with `nullable: true`; the
 generated TypeScript input field is `string | null` because datetime values map to
 strings:
 
 ```sql
-WHERE u.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+WHERE u.created_at < /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
   '2026-01-01 00:00:00'
-  /* @sqlcomp { type: paramEnd } */
+  /* @sqlay { type: paramEnd } */
 ```
 
 ```ts
@@ -85,7 +85,7 @@ Larger expansions should be captured in ADRs before implementation.
 
 Configuration placement matters for generated path preservation. If SQL files live
 in a sibling directory such as `sql/` next to `configs/`, place
-`sqlcomp.config.json` at the common project root instead of including `../sql/**`
+`sqlay.config.json` at the common project root instead of including `../sql/**`
 from a nested config file.
 
 The initial SELECT `Slot`/`Fragment` design is captured in
@@ -111,12 +111,13 @@ The current scope is defined by these accepted ADRs:
 
 - [ADR 0001: Use MySQL 8.x as the MVP Dialect](./adr/0001-use-mysql-8-for-mvp.md)
 - [ADR 0002: Use TypeScript SQL Builders as the First Target Generator](./adr/0002-use-typescript-target-generator-first.md)
-- [ADR 0003: Use Hjson `@sqlcomp` Comments](./adr/0003-use-hjson-sqlcomp-comments.md)
+- [ADR 0003: Use Hjson `@sqlay` Comments](./adr/0003-use-hjson-sqlay-comments.md)
 - [ADR 0004: Limit the MVP to Query-only SELECT Support](./adr/0004-limit-mvp-to-query-only-select.md)
 - [ADR 0005: Do Not Automatically Transform Generated Names](./adr/0005-do-not-transform-generated-names.md)
 - [ADR 0006: Define MVP CLI, Config, and Generation Workflow](./adr/0006-define-mvp-cli-config-and-generation-workflow.md)
 - [ADR 0007: Use Examples and Fixtures as Generated E2E Artifacts](./adr/0007-use-examples-and-fixtures-as-generated-e2e-artifacts.md)
 - [ADR 0008: Define SELECT Param Support](./adr/0008-define-select-param-support.md)
+- [ADR 0009: Define Initial SELECT Slot/Fragment Support](./adr/0009-define-initial-select-slot-fragment-support.md)
 
 ## Out Of Scope
 

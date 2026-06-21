@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`sqlcomp` is designed to generate code for statically typed languages. The MVP needs
+`sqlay` is designed to generate code for statically typed languages. The MVP needs
 one target generator that can prove query validation, result type extraction, and
 generated API shape without taking on driver execution concerns.
 

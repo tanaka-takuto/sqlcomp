@@ -36,7 +36,7 @@ fn query_compiler_builds_core_ir_with_empty_paramless_input_and_result_columns()
 fn query_compiler_builds_input_fields_and_param_bindings_from_resolved_param_metadata() {
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUser".to_owned(), None),
-        "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email nullable: true } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */ AND id = /* @sqlcomp { type: param id: userId } */ 1 /* @sqlcomp { type: paramEnd } */ OR email = /* @sqlcomp { type: param id: email nullable: true } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */;".to_owned(),
+        "SELECT id FROM users WHERE email = /* @sqlay { type: param id: email nullable: true } */ 'test@example.test' /* @sqlay { type: paramEnd } */ AND id = /* @sqlay { type: param id: userId } */ 1 /* @sqlay { type: paramEnd } */ OR email = /* @sqlay { type: param id: email nullable: true } */ 'ada@example.test' /* @sqlay { type: paramEnd } */;".to_owned(),
     )
     .with_analysis_sql("SELECT id FROM users WHERE email = ? AND id = ? OR email = ?;".to_owned())
     .with_param_usages(vec![

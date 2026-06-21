@@ -1,14 +1,14 @@
 /// Standard project configuration file name.
-pub const CONFIG_FILE_NAME: &str = "sqlcomp.config.json";
+pub const CONFIG_FILE_NAME: &str = "sqlay.config.json";
 
-/// Starter configuration written by `sqlcomp init`.
+/// Starter configuration written by `sqlay init`.
 pub const STARTER_CONFIG_TEMPLATE: &str = r#"{
   "source": {
     "include": ["sql/**/*.sql"],
     "exclude": []
   },
   "output": {
-    "dir": "src/generated/sqlcomp"
+    "dir": "src/generated/sqlay"
   },
   "database": {
     "dialect": "mysql",

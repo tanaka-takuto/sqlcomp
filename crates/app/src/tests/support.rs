@@ -9,7 +9,7 @@ pub(super) fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
             vec!["sql/**/*.sql".to_owned()],
             vec!["sql/private/**/*.sql".to_owned()],
         ),
-        core::OutputConfig::new("src/generated/sqlcomp".to_owned()),
+        core::OutputConfig::new("src/generated/sqlay".to_owned()),
         core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
         core::TargetConfig::new(core::TargetLanguage::TypeScript),
     )
@@ -37,7 +37,7 @@ pub(super) fn slot_param_order_fixture() -> (core::RawQuery, core::RawFragment) 
         .expect("Slot insertion point exists before email predicate");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeAndRole] } */ AND u.email = ?;"
+        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1/* @sqlay { type: slot id: filter targets: [activeAndRole] } */ AND u.email = ?;"
             .to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
@@ -93,7 +93,7 @@ pub(super) fn repeated_slot_dynamic_ir_fixture() -> (core::RawQuery, core::RawFr
         .expect("second Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */ AND EXISTS (SELECT 1 FROM users AS ux WHERE ux.id = u.id/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */);"
+        "SELECT u.id FROM users AS u WHERE u.tenant_id = ? AND 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */ AND EXISTS (SELECT 1 FROM users AS ux WHERE ux.id = u.id/* @sqlay { type: slot id: filter targets: [activeOnly] } */);"
             .to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
@@ -138,7 +138,7 @@ pub(super) fn repeated_slot_dynamic_ir_fixture() -> (core::RawQuery, core::RawFr
 pub(super) fn row_shape_mismatch_report(
     variant_columns: Vec<core::DbResultColumn>,
 ) -> core::DiagnosticReport {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
     let slot_index = query_sql
@@ -146,7 +146,7 @@ pub(super) fn row_shape_mismatch_report(
         .expect("Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [shapeChanger] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [shapeChanger] } */;".to_owned(),
     )
     .with_analysis_sql(query_sql.to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(

@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 /// TypeScript symbols generated from one compiled query ID.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataDirectColumns
@@ -7,7 +7,7 @@
 SELECT *
 FROM fixture_all_column_type;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataJoinColumns
@@ -28,7 +28,7 @@ FROM fixture_all_column_type AS p
 INNER JOIN fixture_child AS c
   ON c.parent_bigint_nn_col = p.bigint_nn_col;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataLeftJoinColumns
@@ -47,7 +47,7 @@ FROM fixture_all_column_type AS p
 LEFT JOIN fixture_child AS c
   ON c.parent_bigint_nn_col = p.bigint_nn_col;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataExpressions
@@ -65,7 +65,7 @@ FROM fixture_all_column_type AS p
 LEFT JOIN fixture_child AS c
   ON c.parent_bigint_nn_col = p.bigint_nn_col;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataAggregateExpressions
@@ -82,7 +82,7 @@ SELECT
 FROM fixture_all_column_type AS p
 GROUP BY p.bool_col;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataOddColumnNames
@@ -94,7 +94,7 @@ SELECT
   varchar_320_nn_col AS `class`
 FROM fixture_all_column_type;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: typeMetadataSingleRow

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The MVP needs examples that users can read to understand practical `sqlcomp` usage.
+The MVP needs examples that users can read to understand practical `sqlay` usage.
 Those examples should not be hand-written approximations of generated output. If an
 example contains generated TypeScript, that TypeScript should be the actual output of
 the compiler for the example SQL and database schema.
@@ -38,9 +38,9 @@ SQL files under `sql/**/*.sql` generate files such as `generated/sql/books.ts`.
 
 SQL fixtures use `fixture_` as the database object prefix. SQL fixture source files
 live under `fixtures/sql/valid/` and `fixtures/sql/invalid/`, with
-`fixtures/sql/sqlcomp.valid.config.json` and
-`fixtures/sql/sqlcomp.invalid.config.json` making each side executable as an
-isolated sqlcomp project. The primary positive MySQL fixture should be named by
+`fixtures/sql/sqlay.valid.config.json` and
+`fixtures/sql/sqlay.invalid.config.json` making each side executable as an
+isolated sqlay project. The primary positive MySQL fixture should be named by
 purpose, such as `fixtures/sql/valid/type_metadata_matrix.sql`, rather than by a
 broad name such as `metadata.sql`. Practical business-style reads belong in
 examples, not SQL fixtures.
@@ -52,7 +52,7 @@ DB-backed generated-output checks use this model:
 
 1. Copy the example or fixture project into a temporary directory.
 2. Reset the relevant database objects by loading idempotent schema and seed files.
-3. Run `sqlcomp compile` against the temporary copy.
+3. Run `sqlay compile` against the temporary copy.
 4. Compare the temporary generated output with the committed expected generated
    output byte for byte.
 5. Run `tsc --noEmit` for the generated TypeScript surface.

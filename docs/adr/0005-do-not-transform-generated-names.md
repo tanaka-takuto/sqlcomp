@@ -12,7 +12,7 @@ rules, target-language assumptions, and edge cases.
 
 ## Decision
 
-`sqlcomp` does not automatically transform query IDs into different case styles.
+`sqlay` does not automatically transform query IDs into different case styles.
 
 The query `id` must be a valid portable identifier:
 

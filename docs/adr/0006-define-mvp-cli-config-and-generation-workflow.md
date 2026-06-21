@@ -16,7 +16,7 @@ exposing Rust-specific conventions as the primary interface.
 
 ## Decision
 
-The MVP uses `sqlcomp.config.json` as the standard configuration file name. The
+The MVP uses `sqlay.config.json` as the standard configuration file name. The
 file is parsed as JSON with comments and trailing commas allowed. This keeps the
 file familiar to TypeScript ecosystem users while still allowing commented local
 configuration.
@@ -30,7 +30,7 @@ The MVP configuration shape is nested by responsibility:
     "exclude": [],
   },
   "output": {
-    "dir": "src/generated/sqlcomp",
+    "dir": "src/generated/sqlay",
   },
   "database": {
     "dialect": "mysql",
@@ -46,28 +46,28 @@ For the MVP, `source.include`, `output.dir`, `database.dialect`,
 `database.urlEnv`, and `target.language` are required. `source.exclude` is
 optional.
 
-When `--config` is not provided, `sqlcomp` searches from the current working
-directory upward for `sqlcomp.config.json`. Paths inside the configuration are
+When `--config` is not provided, `sqlay` searches from the current working
+directory upward for `sqlay.config.json`. Paths inside the configuration are
 resolved relative to the directory containing that configuration file. Generated
 TypeScript files preserve the input SQL path relative to that same configuration
 directory. Matched source files must stay inside the configuration directory;
-projects with SQL files in sibling directories should place `sqlcomp.config.json`
+projects with SQL files in sibling directories should place `sqlay.config.json`
 at their common project root.
 
 The MVP exposes three commands:
 
-- `sqlcomp init` creates a config template and refuses to overwrite an existing
+- `sqlay init` creates a config template and refuses to overwrite an existing
   config file.
-- `sqlcomp check` runs the full compile pipeline, including MySQL metadata
+- `sqlay check` runs the full compile pipeline, including MySQL metadata
   lookup, but does not write generated files.
-- `sqlcomp compile` writes generated TypeScript files.
+- `sqlay compile` writes generated TypeScript files.
 
 Database connection URLs are read from the process environment using the
 configured `database.urlEnv` name. The CLI does not load `.env` files implicitly.
 
-Generated files include a generated-code header. `sqlcomp compile` treats
+Generated files include a generated-code header. `sqlay compile` treats
 `output.dir` as a generated area and overwrites same-path files. Stale generated
-files are removed only when `sqlcomp compile --clean` is used.
+files are removed only when `sqlay compile --clean` is used.
 
 The project should provide a local MySQL 8.x development environment and run
 MySQL-backed integration checks in CI before the MVP is considered complete.

@@ -3,17 +3,17 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use sqlcomp_adapters::config_jsonc::{JsoncConfigLoader, JsoncConfigTemplateWriter};
-use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
-use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
-use sqlcomp_adapters::source_fs::FileSystemSourceReader;
-use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
-use sqlcomp_app::{
+use sqlay_adapters::config_jsonc::{JsoncConfigLoader, JsoncConfigTemplateWriter};
+use sqlay_adapters::dialect_mysql::MysqlDialectAnalyzer;
+use sqlay_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
+use sqlay_adapters::output_fs::FileSystemGeneratedFileWriter;
+use sqlay_adapters::source_fs::FileSystemSourceReader;
+use sqlay_adapters::target::typescript::TypeScriptTargetGenerator;
+use sqlay_app::{
     self as app, CompilePipeline, ConfigLoader, DefaultCompilationPlanner, DefaultCompileUseCase,
     DefaultProjectInitializer, DefaultQueryCompiler,
 };
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::args::{Command, ConfiguredCommand, parse_args};
 use crate::diagnostics::{fail, print_diagnostics, single_cli_error};
@@ -35,7 +35,7 @@ impl app::CompileUseCasePorts for DefaultPipeline {
     type GeneratedFileWriter = FileSystemGeneratedFileWriter;
 }
 
-/// Run the `sqlcomp` command-line interface.
+/// Run the `sqlay` command-line interface.
 #[must_use]
 pub fn run() -> ExitCode {
     run_with_args(std::env::args_os())
@@ -133,7 +133,7 @@ fn run_init_command() -> ExitCode {
         Ok(current_dir) => current_dir,
         Err(error) => {
             return fail(&single_cli_error(format!(
-                "failed to determine current directory while creating `sqlcomp.config.json`: {error}"
+                "failed to determine current directory while creating `sqlay.config.json`: {error}"
             )));
         }
     };

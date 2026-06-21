@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `sqlcomp`.
+Thanks for contributing to `sqlay`.
 
 This repository uses GitHub issue templates, a pull request template, and local Git hooks to keep contributions consistent.
 
@@ -46,7 +46,7 @@ script/mysql-up.sh
 The Compose service uses deterministic development-only credentials:
 
 ```sh
-export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
+export DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay'
 ```
 
 The Compose service starts an empty development database. Example and fixture
@@ -81,13 +81,13 @@ npm run typecheck:fixtures
 Run the MySQL-backed example E2E check against a running MySQL service:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-examples.sh
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-examples.sh
 ```
 
 Run the MySQL-backed fixture checks against a running MySQL service:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-mysql-fixtures.sh
 ```
 
 ## Set up Git hooks

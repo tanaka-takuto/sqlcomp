@@ -1,12 +1,12 @@
-use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
-use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
-use sqlcomp_adapters::source_fs::{FileSystemSourceReader, split_sqlcomp_query_blocks};
-use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
-use sqlcomp_app::{
+use sqlay_adapters::dialect_mysql::MysqlDialectAnalyzer;
+use sqlay_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
+use sqlay_adapters::output_fs::FileSystemGeneratedFileWriter;
+use sqlay_adapters::source_fs::{FileSystemSourceReader, split_sqlay_query_blocks};
+use sqlay_adapters::target::typescript::TypeScriptTargetGenerator;
+use sqlay_app::{
     CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase, DefaultQueryCompiler,
 };
-use sqlcomp_core as core;
+use sqlay_core as core;
 use sqlx::MySqlConnection;
 
 pub(super) const DATABASE_URL_ENV: &str = "DATABASE_URL";
@@ -26,9 +26,9 @@ pub(super) const QUERY_FIXTURES: &[&str] = &[
 ];
 
 pub(super) const VALID_CONFIG: &str =
-    include_str!("../../../../../fixtures/sql/sqlcomp.valid.config.json");
+    include_str!("../../../../../fixtures/sql/sqlay.valid.config.json");
 pub(super) const INVALID_CONFIG: &str =
-    include_str!("../../../../../fixtures/sql/sqlcomp.invalid.config.json");
+    include_str!("../../../../../fixtures/sql/sqlay.invalid.config.json");
 pub(super) const FRAGMENT_PARAM_INFERENCE_FAILURE: &str =
     include_str!("../../../../../fixtures/sql/invalid/fragment_param_inference_failure.sql");
 pub(super) const PARAM_CONFLICTING_REPEATED_NULLABILITY: &str =
@@ -96,7 +96,7 @@ pub(super) fn assert_mysql_invalid_fixture_error_contains(
     source: &str,
     expected: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let project_dir = unique_temp_dir("sqlcomp-invalid-param-fixture");
+    let project_dir = unique_temp_dir("sqlay-invalid-param-fixture");
     let valid_dir = project_dir.join("valid");
     std::fs::create_dir_all(&valid_dir)?;
     std::fs::write(valid_dir.join(file_name), source)?;
@@ -171,10 +171,8 @@ pub(super) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
 }
 
-pub(super) fn extract_sqlcomp_queries(
-    fixture: &'static str,
-) -> core::DiagnosticResult<Vec<String>> {
-    Ok(split_sqlcomp_query_blocks(fixture)?
+pub(super) fn extract_sqlay_queries(fixture: &'static str) -> core::DiagnosticResult<Vec<String>> {
+    Ok(split_sqlay_query_blocks(fixture)?
         .into_iter()
         .map(|query| query.analysis_sql().trim().to_owned())
         .collect())

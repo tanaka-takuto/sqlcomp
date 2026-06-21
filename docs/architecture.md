@@ -1,6 +1,6 @@
 # Architecture
 
-`sqlcomp` is implemented as a Rust CLI with a small set of components connected by
+`sqlay` is implemented as a Rust CLI with a small set of components connected by
 explicit intermediate representations. The components are named by responsibility so
 their database and target-language dependencies stay visible.
 
@@ -10,11 +10,11 @@ MVP baseline is recorded in [Initial MVP Baseline](./mvp.md).
 
 ## Crate Layout
 
-`sqlcomp` is a Cargo workspace. Component boundaries are represented as separate
+`sqlay` is a Cargo workspace. Component boundaries are represented as separate
 workspace crates, not only as Rust modules, so dependency direction is enforced by
 `Cargo.toml` path dependencies.
 
-The root `src/` directory belongs only to the final `sqlcomp` binary package.
+The root `src/` directory belongs only to the final `sqlay` binary package.
 Reusable implementation crates live under `crates/`, which is the conventional
 workspace layout for multiple Rust packages in one repository.
 
@@ -23,35 +23,35 @@ moves from intake toward generation, but crate dependencies point inward. Inner
 crates never depend on outer crates.
 
 ```text
-sqlcomp binary crate
-  -> sqlcomp-cli
+sqlay binary crate
+  -> sqlay-cli
 
-sqlcomp-cli
-  -> sqlcomp-app
-  -> sqlcomp-adapters
+sqlay-cli
+  -> sqlay-app
+  -> sqlay-adapters
 
-sqlcomp-adapters
-  -> sqlcomp-app
-  -> sqlcomp-core
+sqlay-adapters
+  -> sqlay-app
+  -> sqlay-core
 
-sqlcomp-app
-  -> sqlcomp-core
+sqlay-app
+  -> sqlay-core
 
-sqlcomp-core
-  -> no sqlcomp-* dependencies
+sqlay-core
+  -> no sqlay-* dependencies
 ```
 
-Only `sqlcomp-cli` may depend on both `sqlcomp-app` and `sqlcomp-adapters`.
-`sqlcomp-cli` is the composition root: it wires concrete adapters into application
-ports. `sqlcomp-adapters` groups infrastructure adapters as modules such as
+Only `sqlay-cli` may depend on both `sqlay-app` and `sqlay-adapters`.
+`sqlay-cli` is the composition root: it wires concrete adapters into application
+ports. `sqlay-adapters` groups infrastructure adapters as modules such as
 `config_jsonc`, `source_fs`, `dialect_mysql`, `metadata/<database>/<driver>`,
 `target`, and `output_fs`. The current sqlx-backed MySQL metadata adapter lives
 under `metadata/mysql/sqlx`. Target-language adapters live under `target/<language>`
 directories, such as `target/typescript`, with shared target helpers owned by
 `target`.
 Adapter modules implement ports from
-`sqlcomp-app` and exchange only `sqlcomp-core` types. `sqlcomp-app` owns use cases
-and port traits. `sqlcomp-core` owns shared domain vocabulary and language-neutral
+`sqlay-app` and exchange only `sqlay-core` types. `sqlay-app` owns use cases
+and port traits. `sqlay-core` owns shared domain vocabulary and language-neutral
 IR. A new dependency edge between workspace crates is an architecture decision, not
 an incidental import.
 
@@ -89,7 +89,7 @@ generators map the Core IR into language-specific code.
 ## Diagnostics and Errors
 
 Components that can fail with user-facing errors return shared diagnostic
-primitives from `sqlcomp-core` instead of formatting final CLI output themselves.
+primitives from `sqlay-core` instead of formatting final CLI output themselves.
 Diagnostics carry a human-readable message and may include file path and one-based
 source location context when that information is available.
 
@@ -103,13 +103,13 @@ The CLI Driver owns command selection, configuration discovery, process environm
 access, and user-facing diagnostics. It should not parse SQL or generate
 TypeScript directly.
 
-The CLI crate is also the composition root. It may depend on `sqlcomp-app`,
-`sqlcomp-core`, and all concrete adapter crates. No inner crate may depend on the
+The CLI crate is also the composition root. It may depend on `sqlay-app`,
+`sqlay-core`, and all concrete adapter crates. No inner crate may depend on the
 CLI crate.
 
 The supported command surface is:
 
-- `init` writes a starter `sqlcomp.config.json`.
+- `init` writes a starter `sqlay.config.json`.
 - `check` runs the full compile pipeline without writing generated files.
 - `compile` writes generated TypeScript files.
 
@@ -122,7 +122,7 @@ Config Loader resolves the project configuration before Source Intake runs.
 
 Responsibilities:
 
-- find `sqlcomp.config.json` from the current working directory upward when
+- find `sqlay.config.json` from the current working directory upward when
   `--config` is not provided.
 - parse JSON with comments and trailing commas allowed.
 - validate the supported values for source, output, database, and target
@@ -146,20 +146,20 @@ Responsibilities:
 - carry the resolved output directory.
 - carry the database URL and target selection for downstream components.
 
-Projects with SQL files in sibling directories should place `sqlcomp.config.json`
-at their common root. A nested config such as `configs/sqlcomp.qa.json` cannot use
+Projects with SQL files in sibling directories should place `sqlay.config.json`
+at their common root. A nested config such as `configs/sqlay.qa.json` cannot use
 `../sql/**/*.sql` to pull sources from outside the config directory without
 breaking the config-relative output path model.
 
 ## Source Intake
 
-Source Intake reads SQL files and extracts sqlcomp source units. It does not decide
+Source Intake reads SQL files and extracts sqlay source units. It does not decide
 whether the SQL is valid MySQL, PostgreSQL, or another dialect.
 
 Responsibilities:
 
 - read `.sql` files.
-- find `@sqlcomp` comments.
+- find `@sqlay` comments.
 - parse Hjson metadata payloads.
 - split files into raw query and fragment source units.
 - preserve each query block's raw SQL string.
@@ -174,7 +174,7 @@ configured dialect analyzer to interpret.
 The canonical query annotation form is:
 
 ```sql
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -201,7 +201,7 @@ recognized inside query and fragment bodies as defined by
 For initial `Fragment` intake, `type: fragment` starts a global source unit with an
 explicit `id` and a body that ends before the next global `query` or `fragment`
 annotation. Fragment source units preserve their raw SQL body exactly and also carry
-analysis SQL where `@sqlcomp` Param ranges are replaced with placeholders. Raw `?`
+analysis SQL where `@sqlay` Param ranges are replaced with placeholders. Raw `?`
 placeholders are rejected in fragment bodies just as they are in query bodies.
 
 For initial `Slot` intake, query-local `type: slot` markers are parsed, validated,
@@ -262,7 +262,7 @@ Responsibilities:
 See also:
 
 - [ADR 0001: Use MySQL 8.x as the MVP dialect](./adr/0001-use-mysql-8-for-mvp.md)
-- [ADR 0003: Use Hjson `@sqlcomp` comments](./adr/0003-use-hjson-sqlcomp-comments.md)
+- [ADR 0003: Use Hjson `@sqlay` comments](./adr/0003-use-hjson-sqlay-comments.md)
 
 ## Application Use Cases and Ports
 
@@ -274,7 +274,7 @@ Responsibilities:
 - define ports such as config loading, source reading, dialect analysis, metadata
   lookup, target generation, and generated-file writing.
 - coordinate `init`, `check`, and `compile` workflows.
-- depend only on `sqlcomp-core`.
+- depend only on `sqlay-core`.
 - avoid filesystem, database, SQL parser, and TypeScript formatting implementation
   details.
 
@@ -362,7 +362,7 @@ The supported target generator emits TypeScript SQL builder code. Generated code
 returns SQL text and parameter arrays, not database execution behavior.
 
 Generated TypeScript is emitted per SQL file while preserving the input path
-relative to the directory containing `sqlcomp.config.json`. If one SQL file
+relative to the directory containing `sqlay.config.json`. If one SQL file
 contains multiple queries, the corresponding TypeScript file contains multiple
 generated query functions and type aliases.
 

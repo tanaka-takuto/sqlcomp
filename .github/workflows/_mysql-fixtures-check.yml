@@ -14,21 +14,21 @@ jobs:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_DATABASE: sqlcomp
-          MYSQL_PASSWORD: sqlcomp
-          MYSQL_ROOT_PASSWORD: sqlcomp_root
-          MYSQL_USER: sqlcomp
+          MYSQL_DATABASE: sqlay
+          MYSQL_PASSWORD: sqlay
+          MYSQL_ROOT_PASSWORD: sqlay_root
+          MYSQL_USER: sqlay
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="MYSQL_PWD=sqlcomp mysql --protocol=TCP -h 127.0.0.1 -usqlcomp
-          --database=sqlcomp --execute='SELECT 1' --silent"
+          --health-cmd="MYSQL_PWD=sqlay mysql --protocol=TCP -h 127.0.0.1 -usqlay
+          --database=sqlay --execute='SELECT 1' --silent"
           --health-interval=2s
           --health-timeout=5s
           --health-retries=30
           --health-start-period=30s
     env:
-      DATABASE_URL: mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp
+      DATABASE_URL: mysql://sqlay:sqlay@127.0.0.1:3306/sqlay
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

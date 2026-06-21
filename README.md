@@ -1,10 +1,16 @@
-# sqlcomp
+# sqlay
 
-SQL Compose & Compile.
+SQL Inlay.
 
-`sqlcomp` is a Rust CLI for writing plain SQL files while generating typed target
+`sqlay` is a Rust CLI for writing plain SQL files while generating typed target
 language builders. The current supported workflow focuses on MySQL 8.x `SELECT`
 queries, inline `Param` value binding, and TypeScript SQL builder generation.
+
+## Why sqlay?
+
+`sqlay` is `SQL` + `inlay`. SQL remains the readable base material, while explicit
+composition openings such as Slots accept validated Fragments as inlays instead of
+arbitrary string concatenation.
 
 See [`docs/current-scope.md`](./docs/current-scope.md),
 [`docs/vision.md`](./docs/vision.md), and
@@ -15,13 +21,13 @@ and architecture. The completed initial MVP baseline remains in
 ## Usage
 
 Create the starter project configuration from the directory that should contain
-`sqlcomp.config.json`:
+`sqlay.config.json`:
 
 ```sh
-sqlcomp init
+sqlay init
 ```
 
-`sqlcomp init` writes a starter `sqlcomp.config.json` and refuses to overwrite an
+`sqlay init` writes a starter `sqlay.config.json` and refuses to overwrite an
 existing config file. The starter config uses the supported project shape:
 
 ```json
@@ -31,7 +37,7 @@ existing config file. The starter config uses the supported project shape:
     "exclude": []
   },
   "output": {
-    "dir": "src/generated/sqlcomp"
+    "dir": "src/generated/sqlay"
   },
   "database": {
     "dialect": "mysql",
@@ -45,18 +51,18 @@ existing config file. The starter config uses the supported project shape:
 
 The config is parsed as JSON with comments and trailing commas allowed. Source and
 output paths are resolved relative to the directory containing
-`sqlcomp.config.json`. Matched SQL files must remain inside that configuration
+`sqlay.config.json`. Matched SQL files must remain inside that configuration
 directory so generated paths can be preserved relative to it. Place
-`sqlcomp.config.json` at the project root when source SQL lives in sibling
+`sqlay.config.json` at the project root when source SQL lives in sibling
 directories such as `sql/` next to `configs/`.
 
 Run a database-backed dry run with:
 
 ```sh
-DATABASE_URL='mysql://user:password@host:3306/database' sqlcomp check
+DATABASE_URL='mysql://user:password@host:3306/database' sqlay check
 ```
 
-`sqlcomp check` loads the config, reads SQL files, validates MySQL 8.x `SELECT`
+`sqlay check` loads the config, reads SQL files, validates MySQL 8.x `SELECT`
 queries, resolves inline `Param` inputs, looks up MySQL metadata, and builds
 generated TypeScript in memory without writing files. The database URL is read from
 the process environment variable named by `database.urlEnv`; the CLI does not
@@ -65,14 +71,14 @@ implicitly load `.env` files.
 Write generated TypeScript with:
 
 ```sh
-DATABASE_URL='mysql://user:password@host:3306/database' sqlcomp compile
+DATABASE_URL='mysql://user:password@host:3306/database' sqlay compile
 ```
 
-`sqlcomp compile` runs the same pipeline as `check` and writes TypeScript SQL
+`sqlay compile` runs the same pipeline as `check` and writes TypeScript SQL
 builder files under `output.dir`. Generated paths preserve each input SQL path
 relative to the configuration directory; for example, `sql/books.sql` generates
-`src/generated/sqlcomp/sql/books.ts` with the starter config. Normal `compile`
-overwrites same-path generated files. Use `sqlcomp compile --clean` to also remove
+`src/generated/sqlay/sql/books.ts` with the starter config. Normal `compile`
+overwrites same-path generated files. Use `sqlay compile --clean` to also remove
 stale managed generated files.
 
 Generated TypeScript includes a generated-code header, input types, database-backed
@@ -86,7 +92,7 @@ Dynamic values are written with paired inline `Param` markers around sample SQL
 expressions:
 
 ```sql
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findBook
@@ -94,9 +100,9 @@ expressions:
 */
 SELECT b.title
 FROM books AS b
-WHERE b.isbn = /* @sqlcomp { type: param id: isbn } */
+WHERE b.isbn = /* @sqlay { type: param id: isbn } */
   '9780131103627'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ```
 
 Raw `?` placeholders are not accepted in source SQL; use `Param` markers so the SQL
@@ -104,13 +110,13 @@ file remains readable in database tools and the generated builder receives typed
 input. Param type inference uses qualified column context such as `b.isbn`; add a
 `valueType` override when a Param is not next to a supported qualified column.
 
-For nullable inputs, keep `valueType` to a sqlcomp CoreType name and add
+For nullable inputs, keep `valueType` to a sqlay CoreType name and add
 `nullable: true` instead of writing a TypeScript union:
 
 ```sql
-WHERE b.published_at < /* @sqlcomp { type: param id: publishedBefore valueType: datetime nullable: true } */
+WHERE b.published_at < /* @sqlay { type: param id: publishedBefore valueType: datetime nullable: true } */
   '2026-01-01 00:00:00'
-  /* @sqlcomp { type: paramEnd } */
+  /* @sqlay { type: paramEnd } */
 ```
 
 ```ts
@@ -135,7 +141,7 @@ Fragment-only SQL files are valid inputs, but they do not produce path-matching
 for each query that uses them.
 
 ```sql
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: staffPicksOnly
@@ -150,17 +156,17 @@ for each query that uses them.
       AND filter_c.slug = 'staff-picks'
   )
 
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: byBookFormat
 }
 */
-  AND b.format = /* @sqlcomp { type: param id: format } */
+  AND b.format = /* @sqlay { type: param id: format } */
     'paperback'
-    /* @sqlcomp { type: paramEnd } */
+    /* @sqlay { type: paramEnd } */
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listAvailableBooks
@@ -169,7 +175,7 @@ for each query that uses them.
 SELECT b.id, b.title
 FROM bookstore_books AS b
 WHERE b.stock_quantity > 0
-/* @sqlcomp { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */;
+/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */;
 ```
 
 Generated slot inputs use `$fragment` as the branch discriminant. Fragment Params
@@ -191,7 +197,7 @@ listAvailableBooks({
 listAvailableBooks();
 ```
 
-During `check` and `compile`, sqlcomp validates every Slot expansion variant up to
+During `check` and `compile`, sqlay validates every Slot expansion variant up to
 the 256 variant limit. All variants must keep the same result row shape and
 effective cardinality as the all-slots-unselected base variant. Fragment-local
 slots and required slots are reserved for future work.
@@ -210,7 +216,7 @@ container healthcheck before the command exits.
 Use this connection URL for local checks:
 
 ```sh
-export DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp'
+export DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay'
 ```
 
 The local MySQL service starts an empty development database. Example and fixture
@@ -246,11 +252,11 @@ npm run typecheck:fixtures
 Run the MySQL-backed example E2E check against a running MySQL service with:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-examples.sh
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-examples.sh
 ```
 
 Run the MySQL-backed fixture checks with:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-mysql-fixtures.sh
 ```

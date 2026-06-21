@@ -1,9 +1,9 @@
 [package]
-name = "sqlcomp-cli"
+name = "sqlay-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Internal sqlcomp CLI orchestration crate."
+description = "Internal sqlay CLI orchestration crate."
 repository.workspace = true
 publish = false
 
@@ -11,6 +11,6 @@ publish = false
 workspace = true
 
 [dependencies]
-sqlcomp-adapters = { path = "../adapters" }
-sqlcomp-app = { path = "../app" }
-sqlcomp-core = { path = "../core" }
+sqlay-adapters = { path = "../adapters" }
+sqlay-app = { path = "../app" }
+sqlay-core = { path = "../core" }

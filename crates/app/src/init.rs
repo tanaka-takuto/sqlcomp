@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::{CONFIG_FILE_NAME, ConfigTemplateWriter, STARTER_CONFIG_TEMPLATE};
 
-/// Application service for initializing a sqlcomp project config.
+/// Application service for initializing a sqlay project config.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultProjectInitializer;
 

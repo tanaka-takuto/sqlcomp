@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::super::{render_sql_property, typescript_string_literal};
 

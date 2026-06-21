@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 /// Map one `MySQL` result column description into core metadata.
 #[must_use]

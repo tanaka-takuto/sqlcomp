@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::diagnostics::{param_usage_error, query_error};
 use super::slot_variants::{

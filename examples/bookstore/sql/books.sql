@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listAvailableBooks
@@ -26,7 +26,7 @@ LEFT JOIN bookstore_reviews AS r
   ON r.book_id = b.id
   AND r.approved = 1
 WHERE b.stock_quantity > 0
-/* @sqlcomp { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
+/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
 GROUP BY
   b.id,
   b.isbn,
@@ -38,7 +38,7 @@ GROUP BY
   b.reorder_level
 ORDER BY b.title;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findBookDetail
@@ -78,12 +78,12 @@ SELECT
 FROM bookstore_books AS b
 INNER JOIN bookstore_authors AS a
   ON a.id = b.author_id
-WHERE b.isbn = /* @sqlcomp { type: param id: isbn } */
+WHERE b.isbn = /* @sqlay { type: param id: isbn } */
   '9780441478125'
-  /* @sqlcomp { type: paramEnd } */
+  /* @sqlay { type: paramEnd } */
 LIMIT 1;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listBooksNeedingRestock
@@ -103,7 +103,7 @@ FROM bookstore_books AS b
 WHERE b.stock_quantity <= b.reorder_level
 ORDER BY unitsBelowTarget DESC, b.title;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listTopRatedBooks
@@ -122,7 +122,7 @@ INNER JOIN bookstore_reviews AS r
   ON r.book_id = b.id
   AND r.approved = 1
 WHERE 1 = 1
-/* @sqlcomp { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
+/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
 GROUP BY
   b.id,
   b.title,

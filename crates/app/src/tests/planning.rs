@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn planner_resolves_config_paths_from_config_directory() {
-    let config_dir = PathBuf::from("/tmp/sqlcomp-project/packages/api");
+    let config_dir = PathBuf::from("/tmp/sqlay-project/packages/api");
     let config = project_config(config_dir.clone());
 
     let plan = DefaultCompilationPlanner
@@ -16,14 +16,14 @@ fn planner_resolves_config_paths_from_config_directory() {
         plan.source_exclude(),
         [config_dir.join("sql/private/**/*.sql")]
     );
-    assert_eq!(plan.output_dir(), config_dir.join("src/generated/sqlcomp"));
+    assert_eq!(plan.output_dir(), config_dir.join("src/generated/sqlay"));
     assert_eq!(plan.database(), config.database());
     assert_eq!(plan.target(), config.target());
 }
 
 #[test]
 fn source_relative_path_uses_config_directory() {
-    let config_dir = PathBuf::from("/tmp/sqlcomp-project");
+    let config_dir = PathBuf::from("/tmp/sqlay-project");
     let config = project_config(config_dir.clone());
     let plan = DefaultCompilationPlanner
         .plan(&config)
@@ -38,7 +38,7 @@ fn source_relative_path_uses_config_directory() {
 
 #[test]
 fn source_relative_path_rejects_paths_outside_config_directory() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let plan = DefaultCompilationPlanner
         .plan(&config)
         .expect("valid config should produce a plan");

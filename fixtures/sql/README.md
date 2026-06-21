@@ -6,10 +6,10 @@ MVP and post-MVP Param coverage. They are test fixtures, not user-facing example
 - `schema.sql` resets the metadata-oriented MySQL tables used by these fixtures,
   such as `fixture_all_column_type` and `fixture_child`.
 - `seed.sql` inserts deterministic rows for metadata checks.
-- `sqlcomp.valid.config.json` compiles `valid/**/*.sql`.
-- `sqlcomp.invalid.config.json` points at `invalid/**/*.sql` for source-level
+- `sqlay.valid.config.json` compiles `valid/**/*.sql`.
+- `sqlay.invalid.config.json` points at `invalid/**/*.sql` for source-level
   diagnostics fixtures.
-- `valid/type_metadata_matrix.sql` contains `@sqlcomp` query blocks that exercise
+- `valid/type_metadata_matrix.sql` contains `@sqlay` query blocks that exercise
   result metadata for direct columns, aliases, joins, expressions, aggregate
   expressions, nullable columns, non-null columns, non-identifier column names, and
   MySQL type coverage.
@@ -34,5 +34,5 @@ From the repository root, run the DB-backed fixture check against a running MySQ
 service:
 
 ```sh
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-mysql-fixtures.sh
 ```

@@ -1,14 +1,14 @@
-use sqlcomp_adapters::config_jsonc::JsoncConfigLoader;
-use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
-use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
-use sqlcomp_adapters::source_fs::FileSystemSourceReader;
-use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
-use sqlcomp_app::{
+use sqlay_adapters::config_jsonc::JsoncConfigLoader;
+use sqlay_adapters::dialect_mysql::MysqlDialectAnalyzer;
+use sqlay_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
+use sqlay_adapters::output_fs::FileSystemGeneratedFileWriter;
+use sqlay_adapters::source_fs::FileSystemSourceReader;
+use sqlay_adapters::target::typescript::TypeScriptTargetGenerator;
+use sqlay_app::{
     CompilePipeline, ConfigLoader, DefaultCompilationPlanner, DefaultCompileUseCase,
     DefaultQueryCompiler,
 };
-use sqlcomp_core as core;
+use sqlay_core as core;
 use sqlx::{Connection, MySqlConnection};
 
 use super::fixture_support::{
@@ -34,7 +34,7 @@ fn check_command_dry_runs_fixture_sql_without_writing_generated_files()
         runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
     }
 
-    let project_dir = unique_temp_dir("sqlcomp-check-mysql-fixture");
+    let project_dir = unique_temp_dir("sqlay-check-mysql-fixture");
     let valid_dir = project_dir.join("valid");
     std::fs::create_dir_all(&valid_dir)?;
     std::fs::write(
@@ -82,7 +82,7 @@ fn compile_generates_one_typescript_module_for_multiple_queries_in_one_sql_file(
         runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
     }
 
-    let project_dir = unique_temp_dir("sqlcomp-compile-multiple-query-fixture");
+    let project_dir = unique_temp_dir("sqlay-compile-multiple-query-fixture");
     let valid_dir = project_dir.join("valid");
     std::fs::create_dir_all(&valid_dir)?;
     std::fs::write(valid_dir.join("generation_surface.sql"), QUERY_FIXTURES[1])?;
@@ -112,7 +112,7 @@ fn compile_generates_one_typescript_module_for_multiple_queries_in_one_sql_file(
     );
     assert!(
         generated.starts_with(core::GENERATED_FILE_HEADER),
-        "generated file should include the sqlcomp header"
+        "generated file should include the sqlay header"
     );
 
     let expected_queries = [
@@ -178,10 +178,10 @@ fn compile_preserves_config_relative_paths_for_multiple_sql_files_from_nested_di
         runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
     }
 
-    let project_dir = unique_temp_dir("sqlcomp-compile-config-relative-path-fixture");
+    let project_dir = unique_temp_dir("sqlay-compile-config-relative-path-fixture");
     let nested_current_dir = project_dir.join("valid/nested");
     std::fs::create_dir_all(&nested_current_dir)?;
-    std::fs::write(project_dir.join("sqlcomp.config.json"), VALID_CONFIG)?;
+    std::fs::write(project_dir.join("sqlay.config.json"), VALID_CONFIG)?;
     std::fs::write(
         project_dir.join("valid/generation_surface.sql"),
         QUERY_FIXTURES[1],
@@ -207,7 +207,7 @@ fn compile_preserves_config_relative_paths_for_multiple_sql_files_from_nested_di
     assert_eq!(
         config.config_dir(),
         project_dir.as_path(),
-        "config discovery should resolve paths from sqlcomp.config.json, not the nested start directory"
+        "config discovery should resolve paths from sqlay.config.json, not the nested start directory"
     );
     assert_eq!(
         generated_relative_files(&project_dir.join("generated"))?,

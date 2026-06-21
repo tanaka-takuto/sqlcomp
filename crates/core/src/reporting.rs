@@ -393,12 +393,12 @@ mod tests {
     fn report_formats_multiple_diagnostics_on_separate_lines() {
         let report = DiagnosticReport::from_diagnostics(vec![
             Diagnostic::error("invalid config"),
-            Diagnostic::note("read sqlcomp.config.json"),
+            Diagnostic::note("read sqlay.config.json"),
         ]);
 
         assert_eq!(
             report.to_string(),
-            "error: invalid config\nnote: read sqlcomp.config.json"
+            "error: invalid config\nnote: read sqlay.config.json"
         );
     }
 }

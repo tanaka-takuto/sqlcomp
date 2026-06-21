@@ -7,7 +7,7 @@ mod source_units;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path: &Path) {
     assert_duplicate_source_unit_report(
@@ -66,7 +66,7 @@ fn write_sql(path: &Path, contents: &str) {
 }
 
 fn test_project_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("sqlcomp-source-fs-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sqlay-source-fs-{name}-{}", std::process::id()));
     if dir.exists() {
         fs::remove_dir_all(&dir).expect("stale test project directory should be removed");
     }
