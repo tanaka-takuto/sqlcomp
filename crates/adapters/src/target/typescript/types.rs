@@ -150,7 +150,7 @@ pub(super) fn typescript_params_expression(params: &[core::ParamBinding]) -> Str
             "[{}]",
             params
                 .iter()
-                .map(|param| format!("input.{}", param.input_name()))
+                .map(|param| input_param_access("input", param.input_name()))
                 .collect::<Vec<_>>()
                 .join(", ")
         )

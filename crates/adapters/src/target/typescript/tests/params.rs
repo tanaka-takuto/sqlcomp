@@ -100,6 +100,35 @@ export function findCustomerActivity(
 }
 
 #[test]
+fn renders_param_expression_with_safe_property_access() {
+    let query = core::CompiledQuery::new(
+        core::QueryId::new("findCustomer".to_owned()),
+        "SELECT id FROM customers WHERE email = ?;".to_owned(),
+        core::Cardinality::Many,
+        vec![core::InputField::new(
+            "customer email".to_owned(),
+            core::CoreType::String,
+            false,
+        )],
+        vec![core::ResultColumn::new(
+            "id".to_owned(),
+            core::CoreType::Int64,
+            false,
+        )],
+    )
+    .with_params(vec![core::ParamBinding::new(
+        "customer email".to_owned(),
+        core::CoreType::String,
+        false,
+    )]);
+
+    let rendered = render_query(&query);
+
+    assert!(rendered.contains("  \"customer email\": string;"));
+    assert!(rendered.contains(r#"params: [input["customer email"]] as const,"#));
+}
+
+#[test]
 fn renders_param_types_with_existing_core_type_mapping() {
     let query = core::CompiledQuery::new(
         core::QueryId::new("inspectParamTypes".to_owned()),
