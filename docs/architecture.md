@@ -434,6 +434,15 @@ CLI, generated-output, filesystem, and database-backed behavior should be tested
 the appropriate package-level `tests/` directory so the test boundary matches the
 public library or binary behavior.
 
+Tests should protect product behavior or a stable repository contract rather than
+incidental test harness internals. Product-facing tests include SQL parsing,
+analysis, generation, CLI diagnostics and summaries, generated output shape,
+example and fixture type-checking, and documented check-script exit behavior. Tests
+may use fakes, mocks, and temporary projects to make those contracts deterministic,
+but assertions should stay focused on the contract under test. Avoid tests whose
+only subject is fake command behavior, mock rejection behavior, or other harness
+self-checks unless that harness behavior is itself a documented stable contract.
+
 Generated TypeScript should be type-checked in CI with `tsc --noEmit` once the
 generator exists. This verifies that generated builders are usable in ordinary
 TypeScript projects without adding runtime dependencies.
