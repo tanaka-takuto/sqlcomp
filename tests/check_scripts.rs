@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -151,6 +151,48 @@ fn structure_check_rejects_unbaselined_large_module_directory() {
     assert!(
         stderr.contains("private subdirectory"),
         "stderr should suggest directory splitting: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_rejects_generic_module_names() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-generic-name");
+    let repo = fixture.root.join("repo");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    write_file(&repo.join("crates/app/src/utils.rs"), "// escape hatch\n");
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "structure check should fail for generic module names"
+    );
+    assert!(
+        stderr.contains("uses generic module name utils.rs"),
+        "stderr should identify the forbidden filename: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_ignores_symlinked_rust_files_outside_repo() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-external-symlink");
+    let repo = fixture.root.join("repo");
+    let outside = fixture.root.join("outside.rs");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    write_file(&outside, "// outside repo\n");
+    std::fs::create_dir_all(repo.join("crates/app/src"))
+        .expect("fixture module directory should be created");
+    symlink(&outside, repo.join("crates/app/src/outside.rs"))
+        .expect("fixture symlink should be created");
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

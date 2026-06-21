@@ -295,8 +295,20 @@ def find_rust_files(repo_root: Path) -> list[Path]:
         root = repo_root / source_root
         if not root.exists():
             continue
-        rust_files.extend(path for path in root.rglob("*.rs") if path.is_file())
+        rust_files.extend(
+            path for path in root.rglob("*.rs") if is_repository_rust_file(repo_root, path)
+        )
     return sorted(rust_files, key=lambda path: relative_path(repo_root, path))
+
+
+def is_repository_rust_file(repo_root: Path, path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        path.resolve().relative_to(repo_root)
+    except ValueError:
+        return False
+    return True
 
 
 def count_rust_files_by_directory(
