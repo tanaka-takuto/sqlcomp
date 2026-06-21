@@ -6,7 +6,7 @@
 
 pub mod config_jsonc;
 pub mod dialect_mysql;
-pub mod metadata_mysql_sqlx;
+pub mod metadata;
 pub mod output_fs;
 pub mod source_fs;
 pub mod target;
