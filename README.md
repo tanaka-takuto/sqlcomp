@@ -76,9 +76,11 @@ overwrites same-path generated files. Use `sqlcomp compile --clean` to also remo
 stale managed generated files.
 
 Generated TypeScript includes a generated-code header, input types, database-backed
-row and output types, and builder functions that return SQL text plus a readonly
-`params` tuple. Generated code does not execute queries or depend on a database
-driver.
+row and output types, and builder functions that return SQL text plus readonly
+parameter arrays. Slotless and direct-Param-only builders use readonly tuples for
+fixed parameter shapes; Slot query builders use readonly arrays because selected
+branches can change the parameter shape at runtime. Generated code does not execute
+queries or depend on a database driver.
 
 Dynamic values are written with paired inline `Param` markers around sample SQL
 expressions:
