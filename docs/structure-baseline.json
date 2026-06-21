@@ -40,25 +40,11 @@
       "splitPlan": "Separate config parsing, validation, and path resolution helpers before increasing this file."
     },
     {
-      "path": "crates/adapters/src/metadata_mysql_sqlx.rs",
-      "lineCount": 2044,
-      "kind": "production",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Separate MySQL describe logic, column metadata mapping, and Param inference helpers before increasing this file."
-    },
-    {
       "path": "crates/adapters/src/source_fs.rs",
       "lineCount": 4393,
       "kind": "production",
       "allowAboveHardLimit": true,
       "splitPlan": "Split source scanning, metadata parsing, inline markers, discovery, diagnostics, and tests into private source_fs modules before increasing this file."
-    },
-    {
-      "path": "crates/adapters/tests/mysql_fixture_metadata.rs",
-      "lineCount": 1304,
-      "kind": "test",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Split MySQL fixture metadata scenarios into narrower integration test files before increasing this file."
     },
     {
       "path": "tests/cli_binary.rs",

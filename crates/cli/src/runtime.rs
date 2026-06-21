@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use sqlcomp_adapters::config_jsonc::{JsoncConfigLoader, JsoncConfigTemplateWriter};
 use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::metadata_mysql_sqlx::SqlxMysqlMetadataProvider;
+use sqlcomp_adapters::metadata::mysql::sqlx::SqlxMysqlMetadataProvider;
 use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlcomp_adapters::source_fs::FileSystemSourceReader;
 use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
