@@ -1397,6 +1397,53 @@ export type listUsers_Input"
         );
     }
 
+    /// Verifies fragment-only source sets do not produce header-only modules.
+    #[test]
+    fn generator_returns_no_files_when_no_queries_are_compiled() {
+        let plan = compilation_plan();
+
+        let files = TypeScriptTargetGenerator
+            .generate(&plan, &[])
+            .expect("fragment-only source sets should not produce generated files");
+
+        assert!(files.files().is_empty());
+    }
+
+    /// Verifies cross-file Fragment SQL is embedded into the owning query module.
+    #[test]
+    fn generator_embeds_cross_file_fragment_branches_in_query_source_output() {
+        let plan = compilation_plan();
+        let dynamic_body = core::CompiledDynamicQuery::new(
+            vec![
+                sql_segment("SELECT id FROM users WHERE 1 = 1", Vec::new()),
+                sql_segment(";", Vec::new()),
+            ],
+            vec![core::CompiledSlotOccurrence::new("filter".to_owned())],
+            vec![slot_definition(
+                "filter",
+                vec![slot_branch("activeOnly", "\nAND active = 1", Vec::new())],
+            )],
+        );
+        let query = compiled_query("listUsers", "SELECT id FROM users WHERE 1 = 1;")
+            .with_dynamic_body(dynamic_body)
+            .with_source_path("sql/users.sql");
+
+        let files = TypeScriptTargetGenerator
+            .generate(&plan, &[query])
+            .expect("query output should embed selected fragment SQL branches");
+
+        assert_eq!(files.files().len(), 1);
+        assert_eq!(
+            files.files()[0].path(),
+            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts")
+        );
+        let users_contents = files.files()[0].contents();
+        assert!(users_contents.contains("type SqlParam = unknown;"));
+        assert!(users_contents.contains("switch (_input.filter?.$fragment)"));
+        assert!(users_contents.contains(r#"sqlParts.push("\nAND active = 1");"#));
+        assert!(!users_contents.contains("activeOnly_Input"));
+    }
+
     #[test]
     fn generator_generates_param_queries() {
         let plan = compilation_plan();
