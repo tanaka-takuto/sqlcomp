@@ -27,12 +27,12 @@ where near-term work should point. The original MVP remains documented in
   validation variants, Slot input types, and runtime TypeScript SQL branch builders.
 
 Generated TypeScript builders return SQL text and parameter arrays. They do not
-execute queries and do not depend on a database driver.
+execute queries or mutations and do not depend on a database driver.
 
 ## Param Support
 
-Inline `Param` markers wrap a sample SQL expression so source queries remain
-directly readable and executable in database tools:
+Inline `Param` markers wrap a sample SQL expression so source SQL remains directly
+readable and executable in database tools:
 
 ```sql
 SELECT u.id, u.email
@@ -43,10 +43,10 @@ WHERE u.email = /* @sqlay { type: param id: email } */
 ```
 
 For compilation, each Param range is replaced with one MySQL `?` placeholder. Input
-types are inferred from qualified direct MySQL column context such as `u.email` when
-possible, or from an inline `valueType` override. `nullable: true` marks nullable
-input values. Repeated Param IDs are supported when all occurrences agree on type
-and nullability.
+types are inferred from supported direct MySQL column contexts when possible, or
+from an inline `valueType` override. `nullable: true` marks nullable input values.
+Repeated Param IDs are supported when all occurrences agree on type and
+nullability.
 
 `valueType` uses lower-case sqlay CoreType names, not TypeScript union syntax. For
 a nullable datetime input, write `valueType: datetime` with `nullable: true`; the
@@ -66,18 +66,62 @@ export type listUsers_Input = {
 ```
 
 Optional direct Param input properties are not currently supported because omitting
-a direct Param input would require changing the SQL structure. Current query authors
+a direct Param input would require changing the SQL structure. Current authors
 should either use a nullable sentinel pattern such as `param IS NULL OR column =
-param`, write separate queries for distinct shapes, or use Slot/Fragment selection
-for supported dynamic SQL composition slices.
+param`, write separate builders for distinct shapes, or use Slot/Fragment
+selection for supported dynamic SQL composition slices.
+
+## Accepted Mutation Direction
+
+[ADR 0010](./adr/0010-define-initial-mysql-mutation-builder-support.md) defines the
+accepted direction for initial MySQL mutation builders. The mutation feature is a
+typed SQL builder capability, not a generated database execution layer.
+
+The accepted mutation source unit is:
+
+```sql
+/* @sqlay
+{
+  type: mutation
+  id: createUser
+}
+*/
+INSERT INTO users (email, name)
+VALUES (
+  /* @sqlay { type: param id: email } */
+  'ada@example.test'
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: name } */
+  'Ada'
+  /* @sqlay { type: paramEnd } */
+);
+```
+
+Initial mutation support targets MySQL `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`
+builders. Generated mutation builders return SQL text and params only. They do not
+generate result row types, output types, execution functions, transaction helpers,
+or driver-specific result wrappers.
+
+Mutation `Param` inference is schema-backed and limited to supported direct column
+contexts such as `INSERT` column lists, `SET column = param`, and qualified
+predicate columns. Mutation SQL is never executed during `check` or `compile`.
+
+Mutation Slot/Fragment composition uses the same optional single-select Slot model
+as SELECT queries, but validation is mutation-specific: every variant must remain a
+supported single mutation statement with the same statement kind as the base
+variant.
 
 ## Near-Term Direction
 
-The near-term direction is to stabilize the current SELECT builder workflow:
+The near-term direction is to stabilize the current SELECT builder workflow while
+implementing ADR 0010 in focused slices:
 
-- keep contributor and user documentation aligned with the post-MVP scope.
-- keep diagnostics and CLI help explicit about supported dialects, statement kinds,
-  target languages, and Param syntax.
+- keep contributor and user documentation aligned with the supported and accepted
+  post-MVP scope.
+- keep diagnostics and CLI help explicit about supported dialects, statement
+  kinds, target languages, and Param syntax.
+- preserve generated-code driver independence while documenting practical
+  `mysql2/promise` execution patterns for mutation builders.
 - maintain examples, fixtures, and generated TypeScript artifacts as executable
   coverage for the supported workflow.
 
@@ -87,23 +131,6 @@ Configuration placement matters for generated path preservation. If SQL files li
 in a sibling directory such as `sql/` next to `configs/`, place
 `sqlay.config.json` at the common project root instead of including `../sql/**`
 from a nested config file.
-
-The initial SELECT `Slot`/`Fragment` design is captured in
-[ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md). The current
-implementation has started landing validation slices for that ADR: query-local
-Slots and global Fragments can be resolved into concrete validation variants during
-`check` and `compile`; variants use source-authored whitespace without compiler
-normalization and preserve expanded-SQL Param ordering. Validation rejects queries
-that would produce more than 256 variants, unknown Slot targets, or duplicate Slot
-targets before dialect analysis. Validation also rejects expanded variants whose
-effective cardinality, after any explicit query metadata override is applied, or
-result row shape differs from the all-slots-unselected base variant, and repeated
-Slot occurrences whose selected Fragment Param type or nullability conflicts.
-TypeScript generation now includes Slot input types with optional `$fragment`
-discriminated branch objects, nesting Fragment Params inside the selected Slot
-branch, and runtime builders that assemble selected SQL segments and Params in
-expanded SQL order. CLI success summaries report Fragment, unique Slot, and
-validated variant counts.
 
 ## Defining ADRs
 
@@ -118,17 +145,21 @@ The current scope is defined by these accepted ADRs:
 - [ADR 0007: Use Examples and Fixtures as Generated E2E Artifacts](./adr/0007-use-examples-and-fixtures-as-generated-e2e-artifacts.md)
 - [ADR 0008: Define SELECT Param Support](./adr/0008-define-select-param-support.md)
 - [ADR 0009: Define Initial SELECT Slot/Fragment Support](./adr/0009-define-initial-select-slot-fragment-support.md)
+- [ADR 0010: Define Initial MySQL Mutation Builder Support](./adr/0010-define-initial-mysql-mutation-builder-support.md)
 
 ## Out Of Scope
 
 The following remain intentionally unsupported:
 
-- `Slot` and `Fragment` features outside the initial ADR 0009 design, including
-  required slots, default fragments, multi-select slots, fragment-local slots,
-  fragment include or alias, and result-shape-changing variants.
+- `Slot` and `Fragment` features outside the initial ADR 0009 and ADR 0010 design,
+  including required slots, default fragments, multi-select slots, fragment-local
+  slots, fragment include or alias, and result-shape-changing SELECT variants.
 - optional direct Param input properties that would require SQL structure changes.
-- `INSERT`, `UPDATE`, `DELETE`, DDL, `CALL`, and other non-SELECT statements.
-- multi-statement query blocks.
+- mutation forms outside ADR 0010, including multi-table `UPDATE` and `DELETE`,
+  `INSERT ... SELECT`, `REPLACE ... SELECT`, top-level CTE mutations, `CALL`,
+  `LOAD DATA`, `TRUNCATE`, DDL, transaction control, and administrative
+  statements.
+- multi-statement source units.
 - generated database execution functions.
 - non-MySQL dialects.
 - non-TypeScript target generators.
