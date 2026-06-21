@@ -46,14 +46,14 @@ Only `sqlay-cli` may depend on both `sqlay-app` and `sqlay-adapters`.
 ports. `sqlay-adapters` groups infrastructure adapters as modules such as
 `config_jsonc`, `source_fs`, `dialect_mysql`, `metadata/<database>/<driver>`,
 `target`, and `output_fs`. The current sqlx-backed MySQL metadata adapter lives
-under `metadata/mysql/sqlx`. Target-language adapters live under `target/<language>`
-directories, such as `target/typescript`, with shared target helpers owned by
-`target`.
-Adapter modules implement ports from
-`sqlay-app` and exchange only `sqlay-core` types. `sqlay-app` owns use cases
-and port traits. `sqlay-core` owns shared domain vocabulary and language-neutral
-IR. A new dependency edge between workspace crates is an architecture decision, not
-an incidental import.
+under `metadata/mysql/sqlx`. Target-language adapters live under
+`target/<language>` directories, such as `target/typescript`, with shared target
+helpers owned by `target`.
+
+Adapter modules implement ports from `sqlay-app` and exchange only `sqlay-core`
+types. `sqlay-app` owns use cases and port traits. `sqlay-core` owns shared domain
+vocabulary and language-neutral IR. A new dependency edge between workspace crates
+is an architecture decision, not an incidental import.
 
 ## Component Flow
 
@@ -63,28 +63,41 @@ CLI Driver
   -> Compilation Plan
 
 Source Intake
-  -> RawQuery
+  -> RawSourceUnit(Query | Mutation | Fragment)
 
 Dialect Analyzer
   RawQuery + dialect rules
   -> AnalyzedQuery
 
+Mutation Analyzer
+  RawMutation + dialect rules
+  -> AnalyzedMutation
+
 Metadata Provider
-  RawQuery.sql + database connection
+  RawQuery + database connection
   -> DbQueryMetadata
 
+Schema Metadata Provider
+  RawMutation + information_schema
+  -> DbMutationMetadata
+
 Application Use Case + Core IR
-  RawQuery + AnalyzedQuery + DbQueryMetadata
-  -> CompiledQuery
+  RawSourceUnit + analysis + metadata
+  -> CompiledBuilder(Query | Mutation)
 
 Target Generator
-  CompiledQuery
+  CompiledBuilder values
   -> generated files
 ```
 
 This structure avoids a direct `database dialect x target language` implementation
-matrix. Database-specific logic maps database behavior into the Core IR. Target
-generators map the Core IR into language-specific code.
+matrix. Database-specific logic maps database behavior into Core IR. Target
+generators map Core IR into language-specific code.
+
+Mutation analysis is intentionally separate from SELECT query analysis. SELECT
+queries can use database describe metadata for result columns. Mutations must never
+be executed during `check` or `compile`, so their metadata path is limited to schema
+metadata needed for Param type inference.
 
 ## Diagnostics and Errors
 
@@ -100,12 +113,12 @@ diagnostics to the CLI boundary.
 ## CLI Driver
 
 The CLI Driver owns command selection, configuration discovery, process environment
-access, and user-facing diagnostics. It should not parse SQL or generate
-TypeScript directly.
+access, and user-facing diagnostics. It should not parse SQL or generate TypeScript
+directly.
 
 The CLI crate is also the composition root. It may depend on `sqlay-app`,
-`sqlay-core`, and all concrete adapter crates. No inner crate may depend on the
-CLI crate.
+`sqlay-core`, and all concrete adapter crates. No inner crate may depend on the CLI
+crate.
 
 The supported command surface is:
 
@@ -125,8 +138,7 @@ Responsibilities:
 - find `sqlay.config.json` from the current working directory upward when
   `--config` is not provided.
 - parse JSON with comments and trailing commas allowed.
-- validate the supported values for source, output, database, and target
-  settings.
+- validate the supported values for source, output, database, and target settings.
 - resolve source and output paths relative to the configuration file directory.
 - require matched source files to remain inside the configuration directory, so
   output paths can be derived relative to one stable project root.
@@ -146,8 +158,8 @@ Responsibilities:
 - carry the resolved output directory.
 - carry the database URL and target selection for downstream components.
 
-Projects with SQL files in sibling directories should place `sqlay.config.json`
-at their common root. A nested config such as `configs/sqlay.qa.json` cannot use
+Projects with SQL files in sibling directories should place `sqlay.config.json` at
+their common root. A nested config such as `configs/sqlay.qa.json` cannot use
 `../sql/**/*.sql` to pull sources from outside the config directory without
 breaking the config-relative output path model.
 
@@ -161,15 +173,15 @@ Responsibilities:
 - read `.sql` files.
 - find `@sqlay` comments.
 - parse Hjson metadata payloads.
-- split files into raw query and fragment source units.
-- preserve each query block's raw SQL string.
+- split files into source-ordered query, mutation, and fragment units.
+- preserve each query, mutation, or fragment body's raw SQL string.
 - collect independent source-intake diagnostics across discovered SQL files before
   returning failure.
 
 Source Intake is not fully independent from SQL syntax because it must scan SQL
 comments and avoid corrupting string literals or comment-like text. However, it
-should avoid database semantic decisions. It should produce `RawQuery` values for the
-configured dialect analyzer to interpret.
+should avoid database semantic decisions. It should produce `RawSourceUnit` values
+for configured analyzers and application validation to interpret.
 
 The canonical query annotation form is:
 
@@ -183,57 +195,75 @@ The canonical query annotation form is:
 SELECT id, name FROM users;
 ```
 
+The canonical mutation annotation form is:
+
+```sql
+/* @sqlay
+{
+  type: mutation
+  id: createUser
+}
+*/
+INSERT INTO users (email, name)
+VALUES (
+  /* @sqlay { type: param id: email } */
+  'ada@example.test'
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: name } */
+  'Ada'
+  /* @sqlay { type: paramEnd } */
+);
+```
+
 For query annotations:
 
 - `type: query` is required.
 - `id` is required and is never inferred.
 - `id` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
 - `id` must be unique across the full compile run.
-- `cardinality` is optional and may override compiler inference.
-- one SQL file may contain multiple query annotations.
+- `cardinality` is optional and may override SELECT cardinality inference.
 
-For SELECT `Param` intake, `type: query` remains the only annotation that starts a
-new query block. Inline `type: param` and `type: paramEnd` annotations are
-recognized inside query and fragment bodies as defined by
-[ADR 0008](./adr/0008-define-select-param-support.md) and
-[ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md).
+For mutation annotations:
 
-For initial `Fragment` intake, `type: fragment` starts a global source unit with an
-explicit `id` and a body that ends before the next global `query` or `fragment`
-annotation. Fragment source units preserve their raw SQL body exactly and also carry
-analysis SQL where `@sqlay` Param ranges are replaced with placeholders. Raw `?`
-placeholders are rejected in fragment bodies just as they are in query bodies.
+- `type: mutation` is required.
+- `id` is required and is never inferred.
+- `id` must match `^[A-Za-z_][A-Za-z0-9_]*$`.
+- `id` must be unique across the full compile run.
+- no statement kind, result, or execution metadata is accepted initially.
 
-For initial `Slot` intake, query-local `type: slot` markers are parsed, validated,
-recorded as zero-width insertion points, and removed from the SQL text used for
-downstream analysis. During `check` and `compile`, application validation enumerates
-the optional Slot replacement variants defined by ADR 0009, resolves each Slot
-target against global fragments collected from the same compile run, and sends each
-expanded SQL string to dialect analysis and metadata lookup without adding,
-trimming, or normalizing whitespace. Expanded variants carry Param usages in
-expanded-SQL left-to-right placeholder order, including fragment Params once for
-each selected Slot occurrence. Variant enumeration follows unique Slot ID first-seen
-order, treats each unique Slot as one unselected choice plus one choice per target,
-and rejects queries that would produce more than 256 variants. Unknown targets and
-duplicate target IDs inside one `targets` array are rejected before dialect
-analysis.
-Repeated Slot IDs in one query are accepted only when their `targets` arrays match
-exactly, including order; validation enumerates variants per unique Slot ID rather
-than per marker occurrence. Query direct Param IDs and Slot IDs are rejected when
-they collide because they share the generated input namespace. Fragments that are
-not referenced by any Slot target produce non-fatal warnings. Variant cardinality
-and result row shape must match the all-slots-unselected base variant before
-generation can proceed. TypeScript generation emits Slot input type members and
-runtime SQL branch builders from the compiled dynamic query IR.
+For `Param` intake, inline `type: param` and `type: paramEnd` annotations are
+recognized inside query, mutation, and fragment bodies. For analysis and
+generation, each Param range is replaced with one MySQL positional placeholder.
+Raw `?` placeholders are rejected in source SQL.
 
-## Dialect Analyzer
+For `Fragment` intake, `type: fragment` starts a global source unit with an
+explicit `id` and a body that ends before the next global `query`, `mutation`, or
+`fragment` annotation. Fragment source units preserve their raw SQL body exactly.
+A fragment is valid only in insertion context; query and mutation validation decide
+whether a fragment composes into valid SQL at each slot.
+
+For `Slot` intake, query-local and mutation-local `type: slot` markers are parsed,
+validated, recorded as zero-width insertion points, and removed from the SQL text
+used for downstream analysis. Initial slots remain optional single-select slots:
+each unique Slot ID contributes one unselected choice plus one choice per target
+fragment.
+
+Repeated Slot IDs in one query or mutation are accepted only when their `targets`
+arrays match exactly, including order. Direct Param IDs and Slot IDs collide when
+they would share the same generated input namespace. Fragment Params are nested
+inside selected slot branch objects.
+
+Fragments that are not referenced by any Slot target produce non-fatal warnings.
+
+## Dialect and Mutation Analyzers
 
 The Dialect Analyzer interprets a `RawQuery` as SQL for one configured database
-dialect.
+dialect. The Mutation Analyzer interprets a `RawMutation` under the same dialect
+boundary.
 
-The currently supported dialect analyzer is MySQL 8.x.
+The currently supported dialect is MySQL 8.x.
 
-Responsibilities:
+Query analyzer responsibilities:
 
 - parse the raw SQL according to dialect rules.
 - reject unsupported statement forms.
@@ -241,28 +271,52 @@ Responsibilities:
 - infer dialect-dependent query facts such as `LIMIT 1` cardinality.
 - produce `AnalyzedQuery` without target-language concerns.
 
+Mutation analyzer responsibilities:
+
+- parse the raw SQL according to dialect rules.
+- reject unsupported statement forms.
+- verify that each mutation block contains exactly one supported mutation
+  statement.
+- accept initial `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` forms defined by
+  [ADR 0010](./adr/0010-define-initial-mysql-mutation-builder-support.md).
+- reject multi-table `UPDATE` and `DELETE`, `INSERT ... SELECT`,
+  `REPLACE ... SELECT`, top-level CTE mutations, `CALL`, `LOAD DATA`, `TRUNCATE`,
+  DDL, transaction control, administrative statements, and multi-statement units.
+- require `WHERE` on `UPDATE` and `DELETE` without attempting semantic predicate
+  safety analysis.
+- expose mutation facts such as statement kind and target table information for
+  application validation and Param inference.
+
 Future PostgreSQL or SQLite support should add new dialect analyzers rather than
 branching inside target generators.
 
 ## Metadata Provider
 
-The Metadata Provider obtains database metadata for an analyzed query.
+The Metadata Provider obtains database metadata for analyzed source units.
 
-The provider connects to MySQL 8.x and derives result column metadata without
-executing user data queries. The Rust database client is `sqlx`.
+For SELECT queries, the provider connects to MySQL 8.x and derives result column
+metadata without fetching user data. The Rust database client is `sqlx`.
 
-Responsibilities:
+Query metadata responsibilities:
 
 - connect to the configured database.
-- describe a query without fetching user data.
+- describe a SELECT query without fetching user data rows.
 - return database-native column names, database types, and nullability metadata.
-- for SELECT `Param` support, read current-database `information_schema.columns`
-  metadata used for direct column-context input type inference.
+- read current-database `information_schema.columns` metadata used for direct
+  column-context input type inference.
+
+Mutation metadata responsibilities:
+
+- connect to the configured database only for schema metadata.
+- read current-database `information_schema.columns` metadata used for supported
+  direct column-context input type inference.
+- never execute mutation SQL.
+- never rely on rollback-based execution to infer mutation behavior.
 
 See also:
 
 - [ADR 0001: Use MySQL 8.x as the MVP dialect](./adr/0001-use-mysql-8-for-mvp.md)
-- [ADR 0003: Use Hjson `@sqlay` comments](./adr/0003-use-hjson-sqlay-comments.md)
+- [ADR 0010: Define Initial MySQL Mutation Builder Support](./adr/0010-define-initial-mysql-mutation-builder-support.md)
 
 ## Application Use Cases and Ports
 
@@ -278,6 +332,10 @@ Responsibilities:
 - avoid filesystem, database, SQL parser, and TypeScript formatting implementation
   details.
 
+Application flow should preserve source order across mixed query and mutation
+builders. Fragment-only files do not generate path-matching TypeScript files, but
+their fragments may be embedded into query or mutation builder files that use them.
+
 ## Compilation Core
 
 Compilation Core is the innermost crate. It owns shared domain vocabulary and
@@ -287,9 +345,17 @@ metadata providers, target generators, or the CLI.
 IR means intermediate representation: an internal data structure that is no longer
 raw SQL input, but is not yet TypeScript, Go, Rust, or any other generated language.
 
+SELECT query IR and mutation IR should stay separate because they have different
+contracts. Queries have result rows and cardinality. Mutations do not.
+
 Example Core IR shape:
 
 ```rust
+enum CompiledBuilder {
+    Query(CompiledQuery),
+    Mutation(CompiledMutation),
+}
+
 struct CompiledQuery {
     id: QueryId,
     sql: String,
@@ -299,31 +365,12 @@ struct CompiledQuery {
     row: Vec<ResultColumn>,
 }
 
-struct ResultColumn {
-    name: String,
-    ty: CoreType,
-    nullable: bool,
-}
-
-struct ParamBinding {
-    input_name: String,
-    ty: CoreType,
-    nullable: bool,
-}
-
-enum CoreType {
-    Bool,
-    Int32,
-    Int64,
-    Float64,
-    Decimal,
-    String,
-    Bytes,
-    Date,
-    Time,
-    DateTime,
-    Json,
-    Unknown,
+struct CompiledMutation {
+    id: MutationId,
+    sql: String,
+    kind: MutationKind,
+    input: Vec<InputField>,
+    params: Vec<ParamBinding>,
 }
 ```
 
@@ -347,27 +394,29 @@ PostgreSQL-to-Go from becoming separate hard-coded paths.
 Core metadata should be conservative:
 
 - database nullability metadata is used when available.
-- unknown nullability maps to nullable output.
-- precision-sensitive types such as `BIGINT`, `DECIMAL`, and date/time values should
-  avoid lossy JavaScript conversions in the TypeScript target generator.
+- unknown nullability maps to nullable output for SELECT result rows.
+- precision-sensitive types such as `BIGINT`, `DECIMAL`, and date/time values
+  should avoid lossy JavaScript conversions in the TypeScript target generator.
 
 ## Target Generator
 
 Target Generators convert Core IR into generated files for a target language. They
 should not parse or reinterpret database-specific SQL syntax. The SQL text inside a
-generated file may be MySQL or another dialect, but the generator treats that SQL as
-validated text carried by the Core IR.
+generated file may be MySQL or another dialect, but the generator treats that SQL
+as validated text carried by the Core IR.
 
 The supported target generator emits TypeScript SQL builder code. Generated code
 returns SQL text and parameter arrays, not database execution behavior.
 
 Generated TypeScript is emitted per SQL file while preserving the input path
-relative to the directory containing `sqlay.config.json`. If one SQL file
-contains multiple queries, the corresponding TypeScript file contains multiple
-generated query functions and type aliases.
+relative to the directory containing `sqlay.config.json`. If one SQL file contains
+multiple queries and mutations, the corresponding TypeScript file contains multiple
+generated builder functions and type aliases in source order.
 
-Generated names are not case-converted. The query `id` is used exactly as written,
-with fixed suffixes for generated TypeScript types:
+Generated names are not case-converted. The source-unit `id` is used exactly as
+written, with fixed suffixes for generated TypeScript types.
+
+For a SELECT query:
 
 ```ts
 export type listUsers_Input = Record<string, never>;
@@ -389,11 +438,32 @@ export function listUsers(
 }
 ```
 
-For Slot queries, generated input types add each unique Slot ID as an optional
+For a mutation:
+
+```ts
+export type createUser_Input = {
+  email: string;
+  name: string;
+};
+
+export function createUser(
+  input: createUser_Input,
+): { sql: string; params: readonly [string, string] } {
+  return {
+    sql: "INSERT INTO users (email, name) VALUES (?, ?);",
+    params: [input.email, input.name] as const,
+  };
+}
+```
+
+Mutation builders do not generate `Row` or `Output` aliases because sqlay does not
+execute statements or own driver result objects.
+
+For Slot builders, generated input types add each unique Slot ID as an optional
 top-level property. Each Slot property is a `$fragment` discriminated object or
 union of objects in `targets` order. Fragment Params are nested inside the selected
 branch object and are not exported as independent fragment input aliases. Generated
-Slot query functions use a private `SqlParam` alias, append SQL segments with
+Slot builder functions use a private `SqlParam` alias, append SQL segments with
 `sqlParts.push(...)`, branch on `input.slotId?.$fragment` without a default case,
 and return `sqlParts.join("")` with Params appended in expanded SQL order.
 
@@ -418,11 +488,12 @@ reset.
 Examples and fixtures have different responsibilities. `examples/` contains
 user-facing sample projects with generated TypeScript output that is actual compiler
 output. `fixtures/` contains implementation-focused test inputs and expected
-artifacts for coverage, edge cases, and diagnostics. DB-backed generated-output
-checks should regenerate examples and fixtures in temporary directories, compare the
-generated output byte for byte with committed expected artifacts, and type-check the
-generated TypeScript. These checks should not use Git working-tree diffs as their
-oracle.
+artifacts for coverage, edge cases, and diagnostics.
+
+DB-backed generated-output checks should regenerate examples and fixtures in
+temporary directories, compare the generated output byte for byte with committed
+expected artifacts, and type-check the generated TypeScript. These checks should not
+use Git working-tree diffs as their oracle.
 
 Rust tests should follow the conventional crate layout:
 
@@ -434,22 +505,20 @@ Rust tests should follow the conventional crate layout:
 
 This placement is intentional. Component-local behavior should be tested from
 inside the component module so private helpers can stay private. Cross-component,
-CLI, generated-output, filesystem, and database-backed behavior should be tested from
-the appropriate package-level `tests/` directory so the test boundary matches the
-public library or binary behavior.
+CLI, generated-output, filesystem, and database-backed behavior should be tested
+from the appropriate package-level `tests/` directory so the test boundary matches
+the public library or binary behavior.
 
 Tests should protect product behavior or a stable repository contract rather than
 incidental test harness internals. Product-facing tests include SQL parsing,
 analysis, generation, CLI diagnostics and summaries, generated output shape,
 example and fixture type-checking, and documented check-script exit behavior. Tests
 may use fakes, mocks, and temporary projects to make those contracts deterministic,
-but assertions should stay focused on the contract under test. Avoid tests whose
-only subject is fake command behavior, mock rejection behavior, or other harness
-self-checks unless that harness behavior is itself a documented stable contract.
+but assertions should stay focused on the contract under test.
 
-Generated TypeScript should be type-checked in CI with `tsc --noEmit` once the
-generator exists. This verifies that generated builders are usable in ordinary
-TypeScript projects without adding runtime dependencies.
+Generated TypeScript should be type-checked in CI with `tsc --noEmit`. This
+verifies that generated builders are usable in ordinary TypeScript projects without
+adding runtime dependencies.
 
 See also:
 
@@ -457,3 +526,4 @@ See also:
 - [ADR 0002: Use TypeScript SQL builders as the first target generator](./adr/0002-use-typescript-target-generator-first.md)
 - [ADR 0005: Do not automatically transform generated names](./adr/0005-do-not-transform-generated-names.md)
 - [ADR 0007: Use examples and fixtures as generated E2E artifacts](./adr/0007-use-examples-and-fixtures-as-generated-e2e-artifacts.md)
+- [ADR 0010: Define Initial MySQL Mutation Builder Support](./adr/0010-define-initial-mysql-mutation-builder-support.md)
