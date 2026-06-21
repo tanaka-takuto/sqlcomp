@@ -27,7 +27,8 @@ MVP and post-MVP Param coverage. They are test fixtures, not user-facing example
 - `valid/nested/path_mapping.sql` verifies that generated output preserves nested
   config-relative source paths.
 - `generated/` contains committed generated TypeScript expected artifacts.
-- `invalid/` contains negative SQL source and Param diagnostics fixtures.
+- `invalid/` contains negative SQL source, Param, and Slot/Fragment diagnostics
+  fixtures.
 
 From the repository root, run the DB-backed fixture check against a running MySQL
 service:

@@ -32,12 +32,18 @@ const QUERY_FIXTURES: &[&str] = &[
 
 const VALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.valid.config.json");
 const INVALID_CONFIG: &str = include_str!("../../../fixtures/sql/sqlcomp.invalid.config.json");
+const FRAGMENT_PARAM_INFERENCE_FAILURE: &str =
+    include_str!("../../../fixtures/sql/invalid/fragment_param_inference_failure.sql");
 const PARAM_CONFLICTING_REPEATED_NULLABILITY: &str =
     include_str!("../../../fixtures/sql/invalid/param_conflicting_repeated_nullability.sql");
 const PARAM_CONFLICTING_REPEATED_TYPE: &str =
     include_str!("../../../fixtures/sql/invalid/param_conflicting_repeated_type.sql");
 const PARAM_UNSUPPORTED_INFERENCE_CONTEXT: &str =
     include_str!("../../../fixtures/sql/invalid/param_unsupported_inference_context.sql");
+const REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT: &str =
+    include_str!("../../../fixtures/sql/invalid/repeated_slot_fragment_param_type_conflict.sql");
+const SLOT_VARIANT_ROW_SHAPE_MISMATCH: &str =
+    include_str!("../../../fixtures/sql/invalid/slot_variant_row_shape_mismatch.sql");
 const EXPECTED_GENERATION_SURFACE: &str =
     include_str!("../../../fixtures/sql/generated/valid/generation_surface.ts");
 const EXPECTED_NESTED_PATH_MAPPING: &str =
@@ -761,6 +767,31 @@ fn mysql_fixtures_use_sql_valid_invalid_layout() {
         "fixtures/sql/invalid/param_unsupported_inference_context.sql",
         "fixtures/sql/invalid/param_conflicting_repeated_type.sql",
         "fixtures/sql/invalid/param_conflicting_repeated_nullability.sql",
+        "fixtures/sql/invalid/duplicate_fragment_ids.sql",
+        "fixtures/sql/invalid/duplicate_query_fragment_id.sql",
+        "fixtures/sql/invalid/fragment_invalid_id.sql",
+        "fixtures/sql/invalid/fragment_unknown_metadata_field.sql",
+        "fixtures/sql/invalid/fragment_raw_statement_separator.sql",
+        "fixtures/sql/invalid/fragment_raw_placeholder.sql",
+        "fixtures/sql/invalid/fragment_param_sample_placeholder.sql",
+        "fixtures/sql/invalid/top_level_param.sql",
+        "fixtures/sql/invalid/top_level_param_end.sql",
+        "fixtures/sql/invalid/top_level_slot.sql",
+        "fixtures/sql/invalid/slot_in_fragment_body.sql",
+        "fixtures/sql/invalid/slot_unknown_metadata_field.sql",
+        "fixtures/sql/invalid/slot_empty_targets.sql",
+        "fixtures/sql/invalid/slot_non_string_target.sql",
+        "fixtures/sql/invalid/slot_duplicate_target.sql",
+        "fixtures/sql/invalid/slot_unknown_target.sql",
+        "fixtures/sql/invalid/repeated_slot_different_targets.sql",
+        "fixtures/sql/invalid/repeated_slot_same_targets_different_order.sql",
+        "fixtures/sql/invalid/direct_param_slot_id_collision.sql",
+        "fixtures/sql/invalid/slot_variant_limit_exceeded.sql",
+        "fixtures/sql/invalid/slot_variant_invalid_selected_fragment.sql",
+        "fixtures/sql/invalid/fragment_param_inference_failure.sql",
+        "fixtures/sql/invalid/repeated_slot_fragment_param_type_conflict.sql",
+        "fixtures/sql/invalid/slot_variant_row_shape_mismatch.sql",
+        "fixtures/sql/invalid/slot_variant_cardinality_mismatch.sql",
     ] {
         assert!(
             repo_path(required_path).exists(),
@@ -912,6 +943,55 @@ fn mysql_param_invalid_fixtures_report_expected_diagnostics()
     for (file_name, source, expected) in cases {
         assert_mysql_invalid_fixture_error_contains(&database_url, file_name, source, expected)?;
     }
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn mysql_slot_fragment_invalid_fixtures_report_expected_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    let cases = [
+        (
+            "fragment_param_inference_failure.sql",
+            FRAGMENT_PARAM_INFERENCE_FAILURE,
+            "Param `lowerText` requires `valueType` because no supported qualified column context was found",
+        ),
+        (
+            "repeated_slot_fragment_param_type_conflict.sql",
+            REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT,
+            "conflicting Fragment Param `value` type in query `repeatedSlotFragmentParamTypeConflict`, Slot `comparator`, Fragment `equalsValue`",
+        ),
+        (
+            "slot_variant_row_shape_mismatch.sql",
+            SLOT_VARIANT_ROW_SHAPE_MISMATCH,
+            "Slot expansion variant for query `slotVariantRowShapeMismatch` returned 2 result columns, but the base variant returned 1",
+        ),
+    ];
+
+    for (file_name, source, expected) in cases {
+        assert_mysql_invalid_fixture_error_contains(&database_url, file_name, source, expected)?;
+    }
+
+    assert_mysql_invalid_fixture_error_contains(
+        &database_url,
+        "fragment_param_inference_failure.sql",
+        FRAGMENT_PARAM_INFERENCE_FAILURE,
+        "while validating Slot expansion variant for query `fragmentParamInferenceFailure` with selections: filter=lowerTextFilter",
+    )?;
 
     Ok(())
 }
@@ -1105,7 +1185,7 @@ fn assert_mysql_invalid_fixture_error_contains(
         generated_file_writer: &FileSystemGeneratedFileWriter,
     };
     let report = DefaultCompileUseCase::check(&config, &pipeline)
-        .expect_err("invalid Param fixture should fail the compile pipeline");
+        .expect_err("invalid fixture should fail the compile pipeline");
     let messages = diagnostic_messages(&report);
 
     assert!(
