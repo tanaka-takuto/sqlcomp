@@ -19,13 +19,6 @@
   },
   "files": [
     {
-      "path": "crates/adapters/src/source_fs.rs",
-      "lineCount": 4393,
-      "kind": "production",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Split source scanning, metadata parsing, inline markers, discovery, diagnostics, and tests into private source_fs modules before increasing this file."
-    },
-    {
       "path": "tests/cli_binary.rs",
       "lineCount": 1142,
       "kind": "test",
