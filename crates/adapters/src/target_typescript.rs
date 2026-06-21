@@ -1152,6 +1152,76 @@ export type listUsers_Input"
     }
 
     #[test]
+    fn generator_keeps_slotless_files_on_static_builder_surface_when_slots_are_compiled_elsewhere()
+    {
+        let plan = compilation_plan();
+        let no_param_query =
+            compiled_query("listUsers", "SELECT id FROM users;").with_source_path("sql/static.sql");
+        let param_query = core::CompiledQuery::new(
+            core::QueryId::new("findUserByEmail".to_owned()),
+            "SELECT id FROM users WHERE email = ?;".to_owned(),
+            core::Cardinality::Many,
+            vec![core::InputField::new(
+                "email".to_owned(),
+                core::CoreType::String,
+                false,
+            )],
+            vec![core::ResultColumn::new(
+                "id".to_owned(),
+                core::CoreType::Int64,
+                false,
+            )],
+        )
+        .with_params(vec![param("email", core::CoreType::String, false)])
+        .with_source_path("sql/static.sql");
+        let dynamic_body = core::CompiledDynamicQuery::new(
+            vec![
+                sql_segment("SELECT id FROM users WHERE 1 = 1", Vec::new()),
+                sql_segment(";", Vec::new()),
+            ],
+            vec![core::CompiledSlotOccurrence::new("filter".to_owned())],
+            vec![slot_definition(
+                "filter",
+                vec![slot_branch("activeOnly", " AND active = 1", Vec::new())],
+            )],
+        );
+        let slot_query = compiled_query("searchUsers", "SELECT id FROM users WHERE 1 = 1;")
+            .with_dynamic_body(dynamic_body)
+            .with_source_path("sql/dynamic.sql");
+
+        let files = TypeScriptTargetGenerator
+            .generate(&plan, &[no_param_query, param_query, slot_query])
+            .expect("generator should preserve each file's generated surface independently");
+
+        let static_contents = file_contents(
+            &files,
+            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/static.ts"),
+        );
+        let dynamic_contents = file_contents(
+            &files,
+            Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/dynamic.ts"),
+        );
+
+        assert!(!static_contents.contains("type SqlParam = unknown;"));
+        assert!(!static_contents.contains("sqlParts"));
+        assert!(!static_contents.contains("readonly SqlParam[]"));
+        assert!(static_contents.contains("export type listUsers_Input = Record<string, never>;"));
+        assert!(static_contents.contains(
+            "export function listUsers(\n  _input: listUsers_Input = {},\n): { sql: string; params: readonly [] }"
+        ));
+        assert!(static_contents.contains(r#"sql: "SELECT id FROM users;","#));
+        assert!(static_contents.contains("params: [] as const,"));
+        assert!(static_contents.contains(
+            "export function findUserByEmail(\n  input: findUserByEmail_Input,\n): { sql: string; params: readonly [string] }"
+        ));
+        assert!(static_contents.contains(r#"sql: "SELECT id FROM users WHERE email = ?;","#));
+        assert!(static_contents.contains("params: [input.email] as const,"));
+
+        assert!(dynamic_contents.contains("type SqlParam = unknown;"));
+        assert!(dynamic_contents.contains("sqlParts.join(\"\")"));
+    }
+
+    #[test]
     fn renders_result_column_names_as_typescript_property_names_without_transforming() {
         let query = core::CompiledQuery::new(
             core::QueryId::new("selectOddColumns".to_owned()),
