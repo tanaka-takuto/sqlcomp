@@ -42,7 +42,7 @@ parse_database_url() {
 check-mysql-fixtures: DATABASE_URL is required.
 
 Example:
-  DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-mysql-fixtures.sh
+  DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-mysql-fixtures.sh
 EOF
     exit 1
   fi
@@ -158,14 +158,14 @@ require_command "npm" "install Node.js from https://nodejs.org/"
 parse_database_url
 select_mysql_client
 
-tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/sqlcomp-mysql-fixtures.XXXXXX")
+tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/sqlay-mysql-fixtures.XXXXXX")
 trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
 
 fixture_root=$repo_root/fixtures/sql
 tmp_fixture=$tmp_root/sql
 
 cp -R "$fixture_root" "$tmp_fixture"
-cp "$tmp_fixture/sqlcomp.valid.config.json" "$tmp_fixture/sqlcomp.config.json"
+cp "$tmp_fixture/sqlay.valid.config.json" "$tmp_fixture/sqlay.config.json"
 rm -rf "$tmp_fixture/generated"
 
 load_mysql_file "$fixture_root/schema.sql"
@@ -177,5 +177,5 @@ load_mysql_file "$fixture_root/seed.sql"
 )
 compare_directories "$fixture_root/generated" "$tmp_fixture/generated"
 cd "$repo_root"
-cargo test --locked -p sqlcomp-adapters --all-features --tests -- --ignored --nocapture
+cargo test --locked -p sqlay-adapters --all-features --tests -- --ignored --nocapture
 npm exec -- tsc --noEmit --project "$tmp_fixture/tsconfig.json"

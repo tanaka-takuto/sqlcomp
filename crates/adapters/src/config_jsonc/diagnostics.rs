@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 pub(super) fn push_missing_field(
     diagnostics: &mut core::DiagnosticReport,

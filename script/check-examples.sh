@@ -42,7 +42,7 @@ parse_database_url() {
 check-examples: DATABASE_URL is required.
 
 Example:
-  DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' script/check-examples.sh
+  DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' script/check-examples.sh
 EOF
     exit 1
   fi
@@ -158,7 +158,7 @@ require_command "npm" "install Node.js from https://nodejs.org/"
 parse_database_url
 select_mysql_client
 
-tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/sqlcomp-examples.XXXXXX")
+tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/sqlay-examples.XXXXXX")
 trap 'rm -rf "$tmp_root"' EXIT HUP INT TERM
 
 example_root=$repo_root/examples/bookstore
@@ -171,6 +171,6 @@ load_mysql_file "$example_root/schema.sql"
 load_mysql_file "$example_root/seed.sql"
 
 cd "$repo_root"
-DATABASE_URL=$DATABASE_URL cargo run --locked -- compile --config "$tmp_example/sqlcomp.config.json"
+DATABASE_URL=$DATABASE_URL cargo run --locked -- compile --config "$tmp_example/sqlay.config.json"
 compare_directories "$example_root/generated" "$tmp_example/generated"
 npm exec -- tsc --noEmit --project "$tmp_example/tsconfig.json"

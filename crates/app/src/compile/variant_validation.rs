@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::diagnostics::{query_error, with_slot_variant_context};
 use super::slot_variants::AnalyzedQueryVariant;

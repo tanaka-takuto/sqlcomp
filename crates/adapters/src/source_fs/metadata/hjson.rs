@@ -1,17 +1,17 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::source_fs::diagnostics::metadata_error;
-use crate::source_fs::scanner::SqlcompBlock;
+use crate::source_fs::scanner::SqlayBlock;
 
-pub(super) fn parse_sqlcomp_metadata_object(
-    block: &SqlcompBlock,
+pub(super) fn parse_sqlay_metadata_object(
+    block: &SqlayBlock,
 ) -> core::DiagnosticResult<Map<String, Value>> {
-    let value = parse_sqlcomp_metadata_value(block)?;
+    let value = parse_sqlay_metadata_value(block)?;
     let Value::Object(metadata) = value else {
         return Err(metadata_error(
-            "`@sqlcomp` metadata must be an object",
+            "`@sqlay` metadata must be an object",
             block.payload_range(),
         ));
     };
@@ -19,14 +19,14 @@ pub(super) fn parse_sqlcomp_metadata_object(
     Ok(metadata)
 }
 
-pub(super) fn parse_sqlcomp_metadata_value(block: &SqlcompBlock) -> core::DiagnosticResult<Value> {
-    match deserialize_sqlcomp_metadata(block) {
+pub(super) fn parse_sqlay_metadata_value(block: &SqlayBlock) -> core::DiagnosticResult<Value> {
+    match deserialize_sqlay_metadata(block) {
         Ok(value) => Ok(value),
-        Err(report) => parse_flat_sqlcomp_metadata_value(block.payload()).ok_or(report),
+        Err(report) => parse_flat_sqlay_metadata_value(block.payload()).ok_or(report),
     }
 }
 
-pub(super) fn deserialize_sqlcomp_metadata<T>(block: &SqlcompBlock) -> core::DiagnosticResult<T>
+pub(super) fn deserialize_sqlay_metadata<T>(block: &SqlayBlock) -> core::DiagnosticResult<T>
 where
     T: DeserializeOwned,
 {
@@ -38,14 +38,14 @@ where
             {
                 return Ok(value);
             }
-            if let Some(value) = parse_flat_sqlcomp_metadata_value(block.payload())
+            if let Some(value) = parse_flat_sqlay_metadata_value(block.payload())
                 && let Ok(value) = serde_json::from_value::<T>(value)
             {
                 return Ok(value);
             }
 
             Err(metadata_error(
-                format!("failed to parse `@sqlcomp` metadata as Hjson: {error}"),
+                format!("failed to parse `@sqlay` metadata as Hjson: {error}"),
                 block.payload_range(),
             ))
         }
@@ -126,7 +126,7 @@ fn metadata_key_starts(source: &str) -> bool {
     false
 }
 
-fn parse_flat_sqlcomp_metadata_value(payload: &str) -> Option<Value> {
+fn parse_flat_sqlay_metadata_value(payload: &str) -> Option<Value> {
     let normalized = normalize_inline_hjson_metadata(payload)?;
     let trimmed = normalized.trim();
     let inner = trimmed.strip_prefix('{')?.strip_suffix('}')?;

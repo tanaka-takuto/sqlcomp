@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`sqlcomp` is intended to support multiple SQL dialects over time. The MVP still needs
+`sqlay` is intended to support multiple SQL dialects over time. The MVP still needs
 one concrete dialect so parsing, metadata extraction, and generated type mapping can
 be validated end to end.
 

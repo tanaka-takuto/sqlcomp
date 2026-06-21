@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::diagnostics::{
     parse_error_location, push_error, push_missing_field, single_error_report,
@@ -17,7 +17,7 @@ pub(super) fn parse_config(
 ) -> core::DiagnosticResult<core::ProjectConfig> {
     let normalized = normalize_jsonc(source).map_err(|message| {
         single_error_report(
-            format!("failed to parse `sqlcomp.config.json` as JSONC: {message}"),
+            format!("failed to parse `sqlay.config.json` as JSONC: {message}"),
             path.map(core::SourceLocation::for_path),
         )
     })?;
@@ -25,7 +25,7 @@ pub(super) fn parse_config(
     let raw = serde_json::from_str::<RawProjectConfig>(&normalized).map_err(|error| {
         let location = parse_error_location(path, &error);
         single_error_report(
-            format!("failed to parse `sqlcomp.config.json` as JSONC: {error}"),
+            format!("failed to parse `sqlay.config.json` as JSONC: {error}"),
             location,
         )
     })?;

@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 pub(super) fn compilation_plan() -> core::CompilationPlan {
     core::CompilationPlan::new(
-        PathBuf::from("/tmp/sqlcomp-project"),
-        vec![PathBuf::from("/tmp/sqlcomp-project/sql/**/*.sql")],
+        PathBuf::from("/tmp/sqlay-project"),
+        vec![PathBuf::from("/tmp/sqlay-project/sql/**/*.sql")],
         Vec::new(),
-        PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp"),
+        PathBuf::from("/tmp/sqlay-project/src/generated/sqlay"),
         core::DatabaseConfig::new(core::DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
         core::TargetConfig::new(core::TargetLanguage::TypeScript),
     )

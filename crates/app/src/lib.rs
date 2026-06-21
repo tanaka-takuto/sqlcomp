@@ -1,7 +1,7 @@
 //! Application use cases and ports.
 //!
-//! This crate depends only on `sqlcomp-core`. Adapter crates implement these
-//! ports; `sqlcomp-app` must not depend on concrete adapters.
+//! This crate depends only on `sqlay-core`. Adapter crates implement these
+//! ports; `sqlay-app` must not depend on concrete adapters.
 
 mod compile;
 mod constants;

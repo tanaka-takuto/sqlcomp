@@ -3,11 +3,11 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DATABASE_URL: &str = "mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp";
+const DATABASE_URL: &str = "mysql://sqlay:sqlay@127.0.0.1:3306/sqlay";
 
 #[test]
 fn example_check_typechecks_temporary_generated_project() {
-    let fixture = ScriptFixture::new("sqlcomp-check-examples");
+    let fixture = ScriptFixture::new("sqlay-check-examples");
 
     let output = fixture.run_script("script/check-examples.sh");
 
@@ -21,7 +21,7 @@ fn example_check_typechecks_temporary_generated_project() {
 
 #[test]
 fn mysql_fixture_check_typechecks_temporary_generated_project() {
-    let fixture = ScriptFixture::new("sqlcomp-check-mysql-fixtures");
+    let fixture = ScriptFixture::new("sqlay-check-mysql-fixtures");
 
     let output = fixture.run_script("script/check-mysql-fixtures.sh");
 
@@ -35,7 +35,7 @@ fn mysql_fixture_check_typechecks_temporary_generated_project() {
 
 #[test]
 fn coverage_check_uses_line_percent_threshold_and_writes_lcov() {
-    let fixture = ScriptFixture::new("sqlcomp-check-coverage");
+    let fixture = ScriptFixture::new("sqlay-check-coverage");
 
     let output = fixture.run_script("script/check-coverage.sh");
 
@@ -49,7 +49,7 @@ fn coverage_check_uses_line_percent_threshold_and_writes_lcov() {
 
 #[test]
 fn structure_check_accepts_committed_baseline() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure");
+    let fixture = ScriptFixture::new("sqlay-check-structure");
 
     let output = fixture.run_script("script/check-structure.sh");
 
@@ -63,7 +63,7 @@ fn structure_check_accepts_committed_baseline() {
 
 #[test]
 fn structure_check_rejects_unbaselined_large_source_file() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure-large-file");
+    let fixture = ScriptFixture::new("sqlay-check-structure-large-file");
     let repo = fixture.root.join("repo");
     write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
     write_file(
@@ -90,7 +90,7 @@ fn structure_check_rejects_unbaselined_large_source_file() {
 
 #[test]
 fn structure_check_rejects_baseline_growth() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure-ratchet");
+    let fixture = ScriptFixture::new("sqlay-check-structure-ratchet");
     let repo = fixture.root.join("repo");
     write_structure_baseline(
         &repo,
@@ -127,7 +127,7 @@ fn structure_check_rejects_baseline_growth() {
 
 #[test]
 fn structure_check_rejects_unbaselined_large_module_directory() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure-large-directory");
+    let fixture = ScriptFixture::new("sqlay-check-structure-large-directory");
     let repo = fixture.root.join("repo");
     write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
     for index in 0..9 {
@@ -156,7 +156,7 @@ fn structure_check_rejects_unbaselined_large_module_directory() {
 
 #[test]
 fn structure_check_rejects_generic_module_names() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure-generic-name");
+    let fixture = ScriptFixture::new("sqlay-check-structure-generic-name");
     let repo = fixture.root.join("repo");
     write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
     write_file(&repo.join("crates/app/src/utils.rs"), "// escape hatch\n");
@@ -176,7 +176,7 @@ fn structure_check_rejects_generic_module_names() {
 
 #[test]
 fn structure_check_ignores_symlinked_rust_files_outside_repo() {
-    let fixture = ScriptFixture::new("sqlcomp-check-structure-external-symlink");
+    let fixture = ScriptFixture::new("sqlay-check-structure-external-symlink");
     let repo = fixture.root.join("repo");
     let outside = fixture.root.join("outside.rs");
     write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
@@ -241,7 +241,7 @@ impl ScriptFixture {
             .env("DATABASE_URL", DATABASE_URL)
             .env("HOME", &self.home)
             .env("PATH", path)
-            .env("SQLCOMP_REPO_ROOT", target_repo_root)
+            .env("SQLAY_REPO_ROOT", target_repo_root)
             .env("TMPDIR", &self.root)
             .output()
             .expect("check script should run")
@@ -274,12 +274,12 @@ case "$1" in
 
     if [ -n "$config_path" ]; then
       project_dir=$(CDPATH= cd "$(dirname "$config_path")" && pwd)
-      copy_generated "$SQLCOMP_REPO_ROOT/examples/bookstore/generated" "$project_dir"
+      copy_generated "$SQLAY_REPO_ROOT/examples/bookstore/generated" "$project_dir"
       exit 0
     fi
 
     project_dir=$(CDPATH= cd "../.." && pwd)
-    copy_generated "$SQLCOMP_REPO_ROOT/fixtures/sql/generated" "$project_dir"
+    copy_generated "$SQLAY_REPO_ROOT/fixtures/sql/generated" "$project_dir"
     ;;
   test)
     ;;
@@ -329,8 +329,8 @@ if [ "$#" -ne 6 ] \
 fi
 
 case "$6" in
-  "$TMPDIR"/sqlcomp-examples.*/bookstore/tsconfig.json) ;;
-  "$TMPDIR"/sqlcomp-mysql-fixtures.*/sql/tsconfig.json) ;;
+  "$TMPDIR"/sqlay-examples.*/bookstore/tsconfig.json) ;;
+  "$TMPDIR"/sqlay-mysql-fixtures.*/sql/tsconfig.json) ;;
   *)
     echo "expected npm to typecheck a temporary generated project, got: $*" >&2
     exit 64

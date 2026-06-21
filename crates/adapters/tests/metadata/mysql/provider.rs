@@ -1,15 +1,15 @@
-use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
-use sqlcomp_adapters::metadata::mysql::sqlx::{
+use sqlay_adapters::dialect_mysql::MysqlDialectAnalyzer;
+use sqlay_adapters::metadata::mysql::sqlx::{
     SqlxMysqlMetadataProvider, map_mysql_result_column_metadata,
 };
-use sqlcomp_adapters::source_fs::split_sqlcomp_query_blocks;
-use sqlcomp_app::{DialectAnalyzer, MetadataProvider};
-use sqlcomp_core as core;
+use sqlay_adapters::source_fs::split_sqlay_query_blocks;
+use sqlay_app::{DialectAnalyzer, MetadataProvider};
+use sqlay_core as core;
 use sqlx::{AssertSqlSafe, Column, Connection, Executor, MySqlConnection, SqlSafeStr, TypeInfo};
 
 use super::fixture_support::{
     DATABASE_URL_ENV, INIT_FIXTURES, MYSQL_FIXTURE_LOCK, QUERY_FIXTURES,
-    execute_fixture_statements, extract_sqlcomp_queries, raw_query,
+    execute_fixture_statements, extract_sqlay_queries, raw_query,
 };
 use super::type_coverage::{assert_fixture_core_type_matrix, assert_fixture_nullability_matrix};
 
@@ -36,7 +36,7 @@ fn sqlx_mysql_metadata_provider_returns_fixture_query_metadata()
     let mut mapped_columns = Vec::new();
 
     for fixture in QUERY_FIXTURES {
-        for query in split_sqlcomp_query_blocks(fixture)? {
+        for query in split_sqlay_query_blocks(fixture)? {
             query_count += 1;
 
             let analysis = analyzer.analyze(&query)?;
@@ -53,7 +53,7 @@ fn sqlx_mysql_metadata_provider_returns_fixture_query_metadata()
 
     assert!(
         query_count > 0,
-        "query fixtures should contain @sqlcomp blocks"
+        "query fixtures should contain @sqlay blocks"
     );
     assert_fixture_core_type_matrix(&mapped_columns);
     assert_fixture_nullability_matrix(&mapped_columns);
@@ -148,7 +148,7 @@ fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::
     let mut query_count = 0;
     let mut mapped_columns = Vec::new();
     for fixture in QUERY_FIXTURES {
-        for sql in extract_sqlcomp_queries(fixture)? {
+        for sql in extract_sqlay_queries(fixture)? {
             query_count += 1;
 
             let description =
@@ -179,7 +179,7 @@ fn mysql_fixtures_load_and_describe_query_metadata() -> Result<(), Box<dyn std::
 
     assert!(
         query_count > 0,
-        "query fixtures should contain @sqlcomp blocks"
+        "query fixtures should contain @sqlay blocks"
     );
     assert_fixture_core_type_matrix(&mapped_columns);
     assert_fixture_nullability_matrix(&mapped_columns);

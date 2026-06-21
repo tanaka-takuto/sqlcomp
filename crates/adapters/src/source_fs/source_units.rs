@@ -1,10 +1,10 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::source_fs::inline_markers::{
     reject_fragment_statement_separator, replace_inline_markers, validate_inline_markers,
 };
-use crate::source_fs::metadata::{ParsedSqlcompBlock, SqlcompAnnotation, parse_sqlcomp_annotation};
-use crate::source_fs::scanner::{SqlcompBlockScan, scan_sqlcomp_blocks, source_range_for_sql_body};
+use crate::source_fs::metadata::{ParsedSqlayBlock, SqlayAnnotation, parse_sqlay_annotation};
+use crate::source_fs::scanner::{SqlayBlockScan, scan_sqlay_blocks, source_range_for_sql_body};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SourceUnits {
@@ -36,28 +36,28 @@ impl SourceUnits {
 ///
 /// # Errors
 ///
-/// Returns diagnostics when sqlcomp block scanning fails or any query metadata
+/// Returns diagnostics when sqlay block scanning fails or any query metadata
 /// payload is invalid.
-pub fn split_sqlcomp_query_blocks(source: &str) -> core::DiagnosticResult<Vec<core::RawQuery>> {
-    split_sqlcomp_source_units(source).map(|source_units| source_units.queries)
+pub fn split_sqlay_query_blocks(source: &str) -> core::DiagnosticResult<Vec<core::RawQuery>> {
+    split_sqlay_source_units(source).map(|source_units| source_units.queries)
 }
 
-pub(super) fn split_sqlcomp_source_units(source: &str) -> core::DiagnosticResult<SourceUnits> {
-    let scan = scan_sqlcomp_blocks(source)?;
-    split_sqlcomp_source_units_from_scan(source, &scan)
+pub(super) fn split_sqlay_source_units(source: &str) -> core::DiagnosticResult<SourceUnits> {
+    let scan = scan_sqlay_blocks(source)?;
+    split_sqlay_source_units_from_scan(source, &scan)
 }
 
-pub(super) fn split_sqlcomp_source_units_from_scan(
+pub(super) fn split_sqlay_source_units_from_scan(
     source: &str,
-    scan: &SqlcompBlockScan,
+    scan: &SqlayBlockScan,
 ) -> core::DiagnosticResult<SourceUnits> {
     let blocks = scan.blocks();
     let mut parsed_blocks = Vec::with_capacity(blocks.len());
 
     for block in blocks {
-        parsed_blocks.push(ParsedSqlcompBlock {
+        parsed_blocks.push(ParsedSqlayBlock {
             block,
-            annotation: parse_sqlcomp_annotation(block)?,
+            annotation: parse_sqlay_annotation(block)?,
         });
     }
 
@@ -88,7 +88,7 @@ pub(super) fn split_sqlcomp_source_units_from_scan(
         ));
 
         match &parsed_block.annotation {
-            SqlcompAnnotation::Query(metadata) => {
+            SqlayAnnotation::Query(metadata) => {
                 let replacement =
                     replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
 
@@ -100,7 +100,7 @@ pub(super) fn split_sqlcomp_source_units_from_scan(
                         .with_source_location(location),
                 );
             }
-            SqlcompAnnotation::Fragment(metadata) => {
+            SqlayAnnotation::Fragment(metadata) => {
                 reject_fragment_statement_separator(source, body_start, body_end)?;
                 let replacement =
                     replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
@@ -112,9 +112,7 @@ pub(super) fn split_sqlcomp_source_units_from_scan(
                         .with_source_location(location),
                 );
             }
-            SqlcompAnnotation::Param(_)
-            | SqlcompAnnotation::ParamEnd
-            | SqlcompAnnotation::Slot(_) => {
+            SqlayAnnotation::Param(_) | SqlayAnnotation::ParamEnd | SqlayAnnotation::Slot(_) => {
                 unreachable!("source unit indexes only point at global annotations");
             }
         }
@@ -123,9 +121,9 @@ pub(super) fn split_sqlcomp_source_units_from_scan(
     Ok(SourceUnits::new(queries, fragments))
 }
 
-const fn is_global_source_unit(parsed_block: &ParsedSqlcompBlock<'_>) -> bool {
+const fn is_global_source_unit(parsed_block: &ParsedSqlayBlock<'_>) -> bool {
     matches!(
         parsed_block.annotation,
-        SqlcompAnnotation::Query(_) | SqlcompAnnotation::Fragment(_)
+        SqlayAnnotation::Query(_) | SqlayAnnotation::Fragment(_)
     )
 }

@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 pub fn fail(report: &core::DiagnosticReport) -> ExitCode {
     eprintln!("{report}");

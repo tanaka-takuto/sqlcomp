@@ -3,12 +3,12 @@ use super::*;
 
 #[test]
 fn check_rejects_slot_variant_cardinality_mismatch_without_override() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let slot_index = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -55,12 +55,12 @@ fn check_rejects_slot_variant_cardinality_mismatch_without_override() {
 
 #[test]
 fn check_applies_explicit_cardinality_override_before_slot_variant_comparison() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let slot_index = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), Some(core::Cardinality::Many)),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: limiter targets: [limitOne] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -173,11 +173,11 @@ fn check_rejects_slot_variant_row_shape_nullability_mismatch() {
 
 #[test]
 fn check_rejects_repeated_slot_id_with_different_target_order() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: filter targets: [byEmail, activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly, byEmail] } *//* @sqlay { type: slot id: filter targets: [byEmail, activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![
@@ -236,11 +236,11 @@ fn check_rejects_repeated_slot_id_with_different_target_order() {
 
 #[test]
 fn check_rejects_slot_id_collision_with_query_direct_param_id() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE u.email = ?/* @sqlcomp { type: slot id: email targets: [activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE u.email = ?/* @sqlay { type: slot id: email targets: [activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE u.email = ?;".to_owned())
     .with_param_usages(vec![core::ParamUsage::new(
@@ -292,11 +292,11 @@ fn check_rejects_slot_id_collision_with_query_direct_param_id() {
 
 #[test]
 fn check_warns_for_unused_fragments() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -354,14 +354,14 @@ fn check_warns_for_unused_fragments() {
 
 #[test]
 fn check_rejects_slot_expansion_above_variant_limit() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let targets = (0..256)
         .map(|index| format!("fragment{index}"))
         .collect::<Vec<_>>();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [fragment0] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [fragment0] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(

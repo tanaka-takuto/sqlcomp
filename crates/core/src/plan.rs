@@ -34,7 +34,7 @@ impl CompilationPlan {
         }
     }
 
-    /// Directory containing `sqlcomp.config.json`.
+    /// Directory containing `sqlay.config.json`.
     #[must_use]
     pub fn config_dir(&self) -> &Path {
         &self.config_dir
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn source_relative_path_returns_config_relative_path() {
-        let config_dir = PathBuf::from("/tmp/sqlcomp-project");
+        let config_dir = PathBuf::from("/tmp/sqlay-project");
         let plan = compilation_plan(config_dir.clone());
 
         let relative_path = plan
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn source_relative_path_rejects_parent_dir_after_config_prefix() {
-        let config_dir = PathBuf::from("/tmp/sqlcomp-project");
+        let config_dir = PathBuf::from("/tmp/sqlay-project");
         let plan = compilation_plan(config_dir.clone());
 
         assert_eq!(
@@ -122,7 +122,7 @@ mod tests {
             config_dir,
             vec![PathBuf::from("sql/**/*.sql")],
             Vec::new(),
-            PathBuf::from("src/generated/sqlcomp"),
+            PathBuf::from("src/generated/sqlay"),
             DatabaseConfig::new(DatabaseDialect::MySql, "DATABASE_URL".to_owned()),
             TargetConfig::new(TargetLanguage::TypeScript),
         )

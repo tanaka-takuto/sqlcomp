@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::DialectAnalyzer;
 

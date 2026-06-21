@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::{
     CompilationPlanner, DialectAnalyzer, GeneratedFileWriter, MetadataProvider, QueryCompiler,

@@ -19,7 +19,7 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/tanaka-takuto/sqlcomp"
+repository = "https://github.com/tanaka-takuto/sqlay"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -33,22 +33,22 @@ nursery = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 
 [package]
-name = "sqlcomp"
+name = "sqlay"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "SQL Compose & Compile CLI."
+description = "SQL Inlay CLI."
 repository.workspace = true
 readme = "README.md"
 keywords = ["codegen", "mysql", "sql", "typescript"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
-name = "sqlcomp"
+name = "sqlay"
 path = "src/main.rs"
 
 [lints]
 workspace = true
 
 [dependencies]
-sqlcomp-cli = { path = "crates/cli" }
+sqlay-cli = { path = "crates/cli" }

@@ -1,5 +1,5 @@
 use super::fixture_support::{
-    INIT_FIXTURES, INVALID_CONFIG, QUERY_FIXTURES, VALID_CONFIG, extract_sqlcomp_queries, repo_path,
+    INIT_FIXTURES, INVALID_CONFIG, QUERY_FIXTURES, VALID_CONFIG, extract_sqlay_queries, repo_path,
 };
 use super::type_coverage::{FIXTURE_ALL_COLUMN_TYPE_COVERAGE, fixture_all_column_type_columns};
 
@@ -40,8 +40,8 @@ fn mysql_fixtures_use_meta_schema_names() {
 #[test]
 fn mysql_fixtures_use_sql_valid_invalid_layout() {
     for required_path in [
-        "fixtures/sql/sqlcomp.valid.config.json",
-        "fixtures/sql/sqlcomp.invalid.config.json",
+        "fixtures/sql/sqlay.valid.config.json",
+        "fixtures/sql/sqlay.invalid.config.json",
         "fixtures/sql/valid/type_metadata_matrix.sql",
         "fixtures/sql/valid/generation_surface.sql",
         "fixtures/sql/valid/param_bindings.sql",
@@ -85,9 +85,9 @@ fn mysql_fixtures_use_sql_valid_invalid_layout() {
     }
 
     for legacy_path in [
-        "fixtures/mysql/sqlcomp.config.json",
+        "fixtures/mysql/sqlay.config.json",
         "fixtures/mysql/queries/type_metadata_matrix.sql",
-        "fixtures/sqlcomp/invalid/non_select.sql",
+        "fixtures/sqlay/invalid/non_select.sql",
     ] {
         assert!(
             !repo_path(legacy_path).exists(),
@@ -142,10 +142,10 @@ fn fixture_all_column_type_schema_covers_nullable_and_not_null_pairs() {
 }
 
 #[test]
-fn extracts_sqlcomp_query_bodies() {
-    let queries = extract_sqlcomp_queries(
+fn extracts_sqlay_query_bodies() {
+    let queries = extract_sqlay_queries(
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: first
@@ -153,7 +153,7 @@ fn extracts_sqlcomp_query_bodies() {
 */
 SELECT 1;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: second
@@ -168,10 +168,10 @@ SELECT 2;
 }
 
 #[test]
-fn extracted_sqlcomp_query_bodies_use_param_analysis_sql() {
-    let queries = extract_sqlcomp_queries(
+fn extracted_sqlay_query_bodies_use_param_analysis_sql() {
+    let queries = extract_sqlay_queries(
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUser
@@ -179,9 +179,9 @@ fn extracted_sqlcomp_query_bodies_use_param_analysis_sql() {
 */
 SELECT id
 FROM users
-WHERE email = /* @sqlcomp { type: param id: email valueType: string } */
+WHERE email = /* @sqlay { type: param id: email valueType: string } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ",
     )
     .expect("Param query extraction should pass source intake");

@@ -1,9 +1,9 @@
 [package]
-name = "sqlcomp-core"
+name = "sqlay-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Internal sqlcomp compilation core crate."
+description = "Internal sqlay compilation core crate."
 repository.workspace = true
 publish = false
 

@@ -1,6 +1,6 @@
 # Vision
 
-`sqlcomp` is SQL Compose & Compile.
+`sqlay` is SQL Inlay.
 
 It is a CLI tool for writing plain SQL files while gaining compile-time type safety
 and predictable query composition for statically typed languages.
@@ -17,12 +17,12 @@ SQL files should remain usable as SQL. A developer should be able to copy or ope
 query in a normal database tool and understand what will run without first
 understanding generated code.
 
-`@sqlcomp` metadata is carried in SQL comments. The metadata may guide compilation,
+`@sqlay` metadata is carried in SQL comments. The metadata may guide compilation,
 but it must not require the SQL text to become a custom DSL.
 
 ### Explicit Design
 
-`sqlcomp` should prefer explicit user intent over implicit compiler behavior.
+`sqlay` should prefer explicit user intent over implicit compiler behavior.
 
 The compiler must not silently rewrite SQL structure, replace table aliases, infer
 public API names, or apply language-specific naming conventions. If a name matters
@@ -45,7 +45,7 @@ execute queries or require a database driver in generated TypeScript code.
 
 ### Flat Result Mapping
 
-Rows are mapped directly to language-level object types. `sqlcomp` does not
+Rows are mapped directly to language-level object types. `sqlay` does not
 generate nested object graphs or ORM-style models.
 
 ## Current Boundaries

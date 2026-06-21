@@ -5,17 +5,17 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
     environment:
-      MYSQL_DATABASE: sqlcomp
-      MYSQL_PASSWORD: sqlcomp
-      MYSQL_ROOT_PASSWORD: sqlcomp_root
-      MYSQL_USER: sqlcomp
+      MYSQL_DATABASE: sqlay
+      MYSQL_PASSWORD: sqlay
+      MYSQL_ROOT_PASSWORD: sqlay_root
+      MYSQL_USER: sqlay
     ports:
       - "3306:3306"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "MYSQL_PWD=sqlcomp mysql --protocol=TCP -h 127.0.0.1 -usqlcomp --database=sqlcomp --execute='SELECT 1' --silent",
+          "MYSQL_PWD=sqlay mysql --protocol=TCP -h 127.0.0.1 -usqlay --database=sqlay --execute='SELECT 1' --silent",
         ]
       interval: 2s
       timeout: 5s

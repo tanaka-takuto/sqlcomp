@@ -3,10 +3,10 @@ use super::*;
 
 #[test]
 fn check_runs_full_generation_pipeline_without_writing_files() {
-    let temp_dir = unique_temp_dir("sqlcomp-app-check-dry-run");
+    let temp_dir = unique_temp_dir("sqlay-app-check-dry-run");
     std::fs::create_dir_all(&temp_dir).expect("temp project dir should be created");
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
-    let generated_path = temp_dir.join("src/generated/sqlcomp/sql/users.ts");
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let generated_path = temp_dir.join("src/generated/sqlay/sql/users.ts");
     let calls = CallLog::default();
     let source_reader = FakeSourceReader::new(calls.clone());
     let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
@@ -38,7 +38,7 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
     assert_eq!(outcome.query_count(), 1);
     assert_eq!(
         outcome.output_dir(),
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp")
+        Path::new("/tmp/sqlay-project/src/generated/sqlay")
     );
     assert_eq!(
         outcome.query_summaries(),
@@ -65,9 +65,9 @@ fn check_runs_full_generation_pipeline_without_writing_files() {
 
 #[test]
 fn compile_writes_generated_files_from_the_shared_pipeline() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let generated_files = core::GeneratedFiles::new(vec![core::GeneratedFile::new(
-        PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+        PathBuf::from("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
         "generated".to_owned(),
     )]);
     let calls = CallLog::default();
@@ -96,12 +96,12 @@ fn compile_writes_generated_files_from_the_shared_pipeline() {
     assert_eq!(outcome.generated_file_count(), 1);
     assert_eq!(
         outcome.output_dir(),
-        Path::new("/tmp/sqlcomp-project/src/generated/sqlcomp")
+        Path::new("/tmp/sqlay-project/src/generated/sqlay")
     );
     assert_eq!(
         outcome.generated_file_paths(),
         [PathBuf::from(
-            "/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"
+            "/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"
         )]
     );
     assert_eq!(
@@ -137,7 +137,7 @@ fn check_reports_dialect_metadata_and_generation_errors_as_diagnostics() {
     ];
 
     for failure in cases {
-        let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+        let config = project_config(PathBuf::from("/tmp/sqlay-project"));
         let calls = CallLog::default();
         let source_reader = FakeSourceReader::new(calls.clone());
         let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone()).with_failure(failure);
@@ -166,9 +166,9 @@ fn check_reports_dialect_metadata_and_generation_errors_as_diagnostics() {
 
 #[test]
 fn compile_clean_writes_generated_files_and_removes_stale_files() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let generated_files = core::GeneratedFiles::new(vec![core::GeneratedFile::new(
-        PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp/sql/users.ts"),
+        PathBuf::from("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
         "generated".to_owned(),
     )]);
     let calls = CallLog::default();
@@ -215,7 +215,7 @@ fn compile_clean_writes_generated_files_and_removes_stale_files() {
     );
     assert_eq!(
         output_dir,
-        PathBuf::from("/tmp/sqlcomp-project/src/generated/sqlcomp")
+        PathBuf::from("/tmp/sqlay-project/src/generated/sqlay")
     );
     assert_eq!(current_files, generated_files);
 }

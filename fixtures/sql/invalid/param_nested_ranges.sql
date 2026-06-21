@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: paramNestedRanges
@@ -7,10 +7,10 @@
 SELECT
   p.bigint_nn_col AS bigintNnCol
 FROM fixture_all_column_type AS p
-WHERE p.bigint_nn_col = /* @sqlcomp { type: param id: outerValue } */
+WHERE p.bigint_nn_col = /* @sqlay { type: param id: outerValue } */
   (
-    /* @sqlcomp { type: param id: innerValue } */
+    /* @sqlay { type: param id: innerValue } */
     1
-    /* @sqlcomp { type: paramEnd } */
+    /* @sqlay { type: paramEnd } */
   )
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;

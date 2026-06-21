@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
-use sqlcomp_app::TargetGenerator;
-use sqlcomp_core as core;
+use sqlay_app::TargetGenerator;
+use sqlay_core as core;
 
 use super::builders::render_generated_file_contents_from_iter;
 

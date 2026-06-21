@@ -1,25 +1,25 @@
-use super::super::{SqlcompBlock, scan_sqlcomp_blocks};
+use super::super::{SqlayBlock, scan_sqlay_blocks};
 
 #[test]
 fn returns_empty_scan_when_no_annotation_exists() {
     let source = "SELECT 'plain sql' AS value;\n";
-    let scan = scan_sqlcomp_blocks(source).expect("plain SQL should scan");
+    let scan = scan_sqlay_blocks(source).expect("plain SQL should scan");
 
     assert!(scan.blocks().is_empty());
-    assert_eq!(scan.sql_without_sqlcomp_blocks(), source);
+    assert_eq!(scan.sql_without_sqlay_blocks(), source);
 }
 
 #[test]
-fn finds_one_sqlcomp_block_and_preserves_sql() {
+fn finds_one_sqlay_block_and_preserves_sql() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 { type: query, id: listUsers }
 */
 SELECT id FROM users;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+    let scan = scan_sqlay_blocks(source).expect("annotated SQL should scan");
 
     assert_eq!(scan.blocks().len(), 1);
     assert_eq!(
@@ -29,10 +29,10 @@ SELECT id FROM users;
     assert_eq!(scan.blocks()[0].comment_range().start().line(), 1);
     assert_eq!(scan.blocks()[0].comment_range().start().column(), 1);
     assert_eq!(scan.blocks()[0].payload_range().start().line(), 1);
-    assert_eq!(scan.blocks()[0].payload_range().start().column(), 12);
-    assert!(!scan.sql_without_sqlcomp_blocks().contains("@sqlcomp"));
+    assert_eq!(scan.blocks()[0].payload_range().start().column(), 10);
+    assert!(!scan.sql_without_sqlay_blocks().contains("@sqlay"));
     assert!(
-        scan.sql_without_sqlcomp_blocks()
+        scan.sql_without_sqlay_blocks()
             .ends_with("SELECT id FROM users;\n")
     );
 }
@@ -41,16 +41,16 @@ SELECT id FROM users;
 fn scanned_block_equality_ignores_internal_byte_offsets() {
     let source = r"
 
-/* @sqlcomp
+/* @sqlay
 { type: query, id: listUsers }
 */
 SELECT id FROM users;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let scan = scan_sqlcomp_blocks(source).expect("annotated SQL should scan");
+    let scan = scan_sqlay_blocks(source).expect("annotated SQL should scan");
     let scanned = &scan.blocks()[0];
-    let constructed = SqlcompBlock::new(
+    let constructed = SqlayBlock::new(
         scanned.payload().to_owned(),
         scanned.comment_range(),
         scanned.payload_range(),
@@ -60,65 +60,62 @@ SELECT id FROM users;
 }
 
 #[test]
-fn finds_multiple_sqlcomp_blocks() {
+fn finds_multiple_sqlay_blocks() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 { id: first }
 */
 SELECT 1;
-/* @sqlcomp
+/* @sqlay
 { id: second }
 */
 SELECT 2;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let scan = scan_sqlcomp_blocks(source).expect("multiple annotations should scan");
+    let scan = scan_sqlay_blocks(source).expect("multiple annotations should scan");
 
     assert_eq!(scan.blocks().len(), 2);
     assert_eq!(scan.blocks()[0].payload(), "\n{ id: first }\n");
     assert_eq!(scan.blocks()[1].payload(), "\n{ id: second }\n");
-    assert_eq!(
-        scan.sql_without_sqlcomp_blocks().matches("SELECT").count(),
-        2
-    );
+    assert_eq!(scan.sql_without_sqlay_blocks().matches("SELECT").count(), 2);
 }
 
 #[test]
 fn ignores_marker_like_text_inside_sql_strings() {
     let source = r#"
-SELECT '/* @sqlcomp { id: nope } */' AS literal, "/* @sqlcomp */" AS double_quoted;
+SELECT '/* @sqlay { id: nope } */' AS literal, "/* @sqlay */" AS double_quoted;
 "#
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let scan = scan_sqlcomp_blocks(source).expect("string literal should scan");
+    let scan = scan_sqlay_blocks(source).expect("string literal should scan");
 
     assert!(scan.blocks().is_empty());
-    assert_eq!(scan.sql_without_sqlcomp_blocks(), source);
+    assert_eq!(scan.sql_without_sqlay_blocks(), source);
 }
 
 #[test]
 fn ignores_marker_like_text_inside_line_comments() {
     let source = r"
--- /* @sqlcomp { id: nope } */
+-- /* @sqlay { id: nope } */
 SELECT 1;
-# /* @sqlcomp */
+# /* @sqlay */
 SELECT 2;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let scan = scan_sqlcomp_blocks(source).expect("line comments should scan");
+    let scan = scan_sqlay_blocks(source).expect("line comments should scan");
 
     assert!(scan.blocks().is_empty());
-    assert_eq!(scan.sql_without_sqlcomp_blocks(), source);
+    assert_eq!(scan.sql_without_sqlay_blocks(), source);
 }
 
 #[test]
 fn rejects_unterminated_block_comment() {
-    let report = scan_sqlcomp_blocks(
+    let report = scan_sqlay_blocks(
         r"
 SELECT 1;
-/* @sqlcomp
+/* @sqlay
 { id: broken }
 "
         .strip_prefix('\n')

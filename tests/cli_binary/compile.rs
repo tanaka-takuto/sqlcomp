@@ -7,20 +7,20 @@ use crate::support::{
 
 #[test]
 fn compile_prints_generated_or_updated_file_count() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-compile-success-summary");
+    let config_dir = unique_temp_dir("sqlay-cli-compile-success-summary");
     let sql_dir = config_dir.join("sql");
     std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
-    std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
         .expect("temp config should be written");
     std::fs::write(sql_dir.join("notes.sql"), "-- comment only\n")
         .expect("comment-only SQL should be written");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("compile")
         .current_dir(&config_dir)
         .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp compile should run");
+        .expect("sqlay compile should run");
 
     assert!(
         output.status.success(),
@@ -46,7 +46,7 @@ fn compile_prints_generated_or_updated_file_count() {
             "Output dir: {}",
             std::fs::canonicalize(&config_dir)
                 .expect("config dir should canonicalize")
-                .join("src/generated/sqlcomp")
+                .join("src/generated/sqlay")
                 .display()
         )),
         "stdout: {stdout}"
@@ -63,15 +63,15 @@ fn compile_prints_generated_or_updated_file_count() {
 
 #[test]
 fn compile_does_not_create_fragment_only_output_files() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-fragment-only-compile");
+    let config_dir = unique_temp_dir("sqlay-cli-fragment-only-compile");
     write_fragment_only_project(&config_dir);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("compile")
         .current_dir(&config_dir)
         .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp compile should run");
+        .expect("sqlay compile should run");
 
     assert!(
         output.status.success(),
@@ -88,7 +88,7 @@ fn compile_does_not_create_fragment_only_output_files() {
     );
     assert!(
         !config_dir
-            .join("src/generated/sqlcomp/sql/fragments.ts")
+            .join("src/generated/sqlay/sql/fragments.ts")
             .exists(),
         "fragment-only SQL files must not generate TypeScript output"
     );
@@ -100,17 +100,17 @@ fn compile_does_not_create_fragment_only_output_files() {
 
 #[test]
 fn compile_keeps_stale_fragment_only_output_without_clean() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-fragment-only-stale-compile");
+    let config_dir = unique_temp_dir("sqlay-cli-fragment-only-stale-compile");
     let output_dir = write_fragment_only_project(&config_dir);
     let stale_path = output_dir.join("fragments.ts");
     write_managed_generated_file(&stale_path);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("compile")
         .current_dir(&config_dir)
         .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp compile should run");
+        .expect("sqlay compile should run");
 
     assert!(
         output.status.success(),
@@ -129,17 +129,17 @@ fn compile_keeps_stale_fragment_only_output_without_clean() {
 
 #[test]
 fn compile_clean_removes_stale_fragment_only_output() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-fragment-only-clean");
+    let config_dir = unique_temp_dir("sqlay-cli-fragment-only-clean");
     let output_dir = write_fragment_only_project(&config_dir);
     let stale_path = output_dir.join("fragments.ts");
     write_managed_generated_file(&stale_path);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["compile", "--clean"])
         .current_dir(&config_dir)
         .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp compile --clean should run");
+        .expect("sqlay compile --clean should run");
 
     assert!(
         output.status.success(),
@@ -165,24 +165,24 @@ fn compile_clean_removes_stale_fragment_only_output() {
 
 #[test]
 fn compile_clean_prints_removed_stale_generated_file_count() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-compile-clean-success-summary");
-    let output_dir = config_dir.join("src/generated/sqlcomp/sql");
+    let config_dir = unique_temp_dir("sqlay-cli-compile-clean-success-summary");
+    let output_dir = config_dir.join("src/generated/sqlay/sql");
     std::fs::create_dir_all(&output_dir).expect("temp output dir should be created");
-    std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
         .expect("temp config should be written");
     let stale_path = output_dir.join("old_users.ts");
     std::fs::write(
         &stale_path,
-        "// @generated by sqlcomp. Do not edit.\nexport {}\n",
+        "// @generated by sqlay. Do not edit.\nexport {}\n",
     )
     .expect("stale generated file should be written");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["compile", "--clean"])
         .current_dir(&config_dir)
         .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
         .output()
-        .expect("sqlcomp compile --clean should run");
+        .expect("sqlay compile --clean should run");
 
     assert!(
         output.status.success(),
@@ -209,22 +209,22 @@ fn compile_clean_prints_removed_stale_generated_file_count() {
 
 #[test]
 fn compile_clean_uses_compile_pipeline_database_configuration() {
-    let config_dir = unique_temp_dir("sqlcomp-cli-compile-clean");
+    let config_dir = unique_temp_dir("sqlay-cli-compile-clean");
     std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
-    std::fs::write(config_dir.join("sqlcomp.config.json"), VALID_CONFIG)
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
         .expect("temp config should be written");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["compile", "--clean"])
         .current_dir(&config_dir)
         .env_remove(TEST_DATABASE_URL_ENV)
         .output()
-        .expect("sqlcomp compile should run");
+        .expect("sqlay compile should run");
 
     assert!(!output.status.success());
     assert!(
         String::from_utf8_lossy(&output.stderr).contains(
-            "environment variable `SQLCOMP_TEST_DATABASE_URL` configured by `database.urlEnv` is not set"
+            "environment variable `SQLAY_TEST_DATABASE_URL` configured by `database.urlEnv` is not set"
         ),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)

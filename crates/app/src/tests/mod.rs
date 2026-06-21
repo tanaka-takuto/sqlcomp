@@ -1,6 +1,6 @@
 pub use std::path::{Path, PathBuf};
 
-pub use sqlcomp_core as core;
+pub use sqlay_core as core;
 
 pub use crate::{
     CompilationPlanner, CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase,

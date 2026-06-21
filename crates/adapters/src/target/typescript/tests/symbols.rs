@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::super::QuerySymbols;
 

@@ -17,8 +17,8 @@ The executable check is:
 
 ```sh
 docker compose up -d --wait mysql
-DATABASE_URL='mysql://sqlcomp:sqlcomp@127.0.0.1:3306/sqlcomp' \
-  cargo test --locked -p sqlcomp-adapters --test mysql_metadata_spike -- --ignored --nocapture
+DATABASE_URL='mysql://sqlay:sqlay@127.0.0.1:3306/sqlay' \
+  cargo test --locked -p sqlay-adapters --test mysql_metadata_spike -- --ignored --nocapture
 ```
 
 The test creates a fixture table and calls `describe` for representative `SELECT`

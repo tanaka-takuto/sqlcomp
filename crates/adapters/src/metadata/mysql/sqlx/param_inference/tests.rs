@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::super::result_mapping::map_mysql_result_column_metadata;
 use super::super::schema_columns::MysqlSchemaColumn;

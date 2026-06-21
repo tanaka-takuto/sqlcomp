@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 /// Port for creating a starter project configuration file.
 pub trait ConfigTemplateWriter {
@@ -195,7 +195,7 @@ pub trait GeneratedFileWriter {
 
 /// Port for removing stale managed generated files.
 pub trait GeneratedFileCleaner {
-    /// Remove generated files under `output_dir` that are managed by sqlcomp and
+    /// Remove generated files under `output_dir` that are managed by sqlay and
     /// not present in `current_files`.
     ///
     /// Returns the number of stale generated files removed.

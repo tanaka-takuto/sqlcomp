@@ -2,5 +2,5 @@ mod fields;
 mod hjson;
 mod parsers;
 
-pub use parsers::parse_sqlcomp_query_metadata;
-pub(super) use parsers::{ParsedSqlcompBlock, SqlcompAnnotation, parse_sqlcomp_annotation};
+pub use parsers::parse_sqlay_query_metadata;
+pub(super) use parsers::{ParsedSqlayBlock, SqlayAnnotation, parse_sqlay_annotation};

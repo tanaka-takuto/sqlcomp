@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use sqlcomp_app::{CONFIG_FILE_NAME, CompilationPlanner, ConfigLoader};
-use sqlcomp_core as core;
+use sqlay_app::{CONFIG_FILE_NAME, CompilationPlanner, ConfigLoader};
+use sqlay_core as core;
 
 use super::JsoncConfigLoader;
 
@@ -14,7 +14,7 @@ const VALID_CONFIG: &str = r#"
     "exclude": ["sql/private/**/*.sql"]
   },
   "output": {
-    "dir": "src/generated/sqlcomp"
+    "dir": "src/generated/sqlay"
   },
   "database": {
     "dialect": "mysql",
@@ -36,7 +36,7 @@ mod parser {
         assert_eq!(config.config_dir(), Path::new("."));
         assert_eq!(config.source().include(), ["sql/**/*.sql"]);
         assert_eq!(config.source().exclude(), ["sql/private/**/*.sql"]);
-        assert_eq!(config.output().dir(), "src/generated/sqlcomp");
+        assert_eq!(config.output().dir(), "src/generated/sqlay");
         assert_eq!(config.database().dialect(), core::DatabaseDialect::MySql);
         assert_eq!(config.database().url_env(), "DATABASE_URL");
         assert_eq!(config.target().language(), core::TargetLanguage::TypeScript);
@@ -52,7 +52,7 @@ mod parser {
     "include": ["sql/**/*.sql",],
   },
   "output": {
-    "dir": "src/generated/sqlcomp", /* trailing commas are allowed */
+    "dir": "src/generated/sqlay", /* trailing commas are allowed */
   },
   "database": {
     "dialect": "mysql",
@@ -79,7 +79,7 @@ mod parser {
     "include": ["sql/**/*.sql"],
     "excludes": ["sql/private/**/*.sql"]
   },
-  "output": { "dir": "src/generated/sqlcomp" },
+  "output": { "dir": "src/generated/sqlay" },
   "database": {
     "dialect": "mysql",
     "urlEnv": "DATABASE_URL"
@@ -139,7 +139,7 @@ mod validation {
             r#"
 {
   "source": { "include": ["sql/**/*.sql"] },
-  "output": { "dir": "src/generated/sqlcomp" },
+  "output": { "dir": "src/generated/sqlay" },
   "database": {
     "dialect": "postgres",
     "urlEnv": "DATABASE_URL"
@@ -173,7 +173,7 @@ mod discovery {
 
     #[test]
     fn discovers_config_from_config_directory() {
-        let config_dir = unique_temp_dir("sqlcomp-config-discovery-root");
+        let config_dir = unique_temp_dir("sqlay-config-discovery-root");
         fs::create_dir_all(&config_dir).expect("temp config dir should be created");
         fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
             .expect("temp config should be written");
@@ -189,7 +189,7 @@ mod discovery {
 
     #[test]
     fn discovers_config_from_nested_child_directory() {
-        let config_dir = unique_temp_dir("sqlcomp-config-discovery-nested");
+        let config_dir = unique_temp_dir("sqlay-config-discovery-nested");
         let child_dir = config_dir.join("packages").join("api").join("sql");
         fs::create_dir_all(&child_dir).expect("temp child dir should be created");
         fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
@@ -206,7 +206,7 @@ mod discovery {
 
     #[test]
     fn reports_when_discovery_does_not_find_config() {
-        let start_dir = unique_temp_dir("sqlcomp-config-discovery-missing")
+        let start_dir = unique_temp_dir("sqlay-config-discovery-missing")
             .join("packages")
             .join("api");
         fs::create_dir_all(&start_dir).expect("temp child dir should be created");
@@ -232,7 +232,7 @@ mod discovery {
 
     #[test]
     fn explicit_path_bypasses_upward_discovery() {
-        let config_dir = unique_temp_dir("sqlcomp-config-explicit-bypass");
+        let config_dir = unique_temp_dir("sqlay-config-explicit-bypass");
         let child_dir = config_dir.join("packages").join("api");
         let explicit_path = child_dir.join(CONFIG_FILE_NAME);
         fs::create_dir_all(&child_dir).expect("temp child dir should be created");
@@ -283,13 +283,13 @@ mod paths {
 
     #[test]
     fn nested_discovery_plans_paths_from_config_directory() {
-        let config_dir = unique_temp_dir("sqlcomp-config-plan-nested");
+        let config_dir = unique_temp_dir("sqlay-config-plan-nested");
         let child_dir = config_dir.join("packages").join("api").join("src");
         fs::create_dir_all(&child_dir).expect("temp child dir should be created");
         fs::write(config_dir.join(CONFIG_FILE_NAME), VALID_CONFIG)
             .expect("temp config should be written");
 
-        let planner = sqlcomp_app::DefaultCompilationPlanner;
+        let planner = sqlay_app::DefaultCompilationPlanner;
         let root_config = JsoncConfigLoader::discover_from(&config_dir)
             .load()
             .expect("config should load from root");
@@ -314,7 +314,7 @@ mod paths {
         );
         assert_eq!(
             nested_plan.output_dir(),
-            config_dir.join("src/generated/sqlcomp")
+            config_dir.join("src/generated/sqlay")
         );
         assert_eq!(
             nested_plan.source_relative_path(config_dir.join("sql/nested/users/list.sql")),
@@ -335,7 +335,7 @@ fn diagnostic_messages(report: &core::DiagnosticReport) -> String {
 }
 
 fn unique_temp_config_path() -> PathBuf {
-    unique_temp_dir("sqlcomp-config-jsonc")
+    unique_temp_dir("sqlay-config-jsonc")
         .join("packages")
         .join("api")
         .join(CONFIG_FILE_NAME)

@@ -1,13 +1,13 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
-use super::super::source_units::split_sqlcomp_source_units;
-use super::super::split_sqlcomp_query_blocks;
+use super::super::source_units::split_sqlay_source_units;
+use super::super::split_sqlay_query_blocks;
 use super::diagnostic_messages;
 
 #[test]
 fn splits_one_query_block() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -17,18 +17,18 @@ SELECT id FROM users;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("query block should split");
+    let queries = split_sqlay_query_blocks(source).expect("query block should split");
 
     assert_eq!(queries.len(), 1);
     assert_eq!(queries[0].metadata().id(), "listUsers");
     assert_eq!(queries[0].sql(), "\nSELECT id FROM users;\n");
-    assert!(!queries[0].sql().contains("@sqlcomp"));
+    assert!(!queries[0].sql().contains("@sqlay"));
 }
 
 #[test]
 fn split_query_blocks_attach_sql_body_source_range() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -38,7 +38,7 @@ SELECT id FROM users;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("query block should split");
+    let queries = split_sqlay_query_blocks(source).expect("query block should split");
     let location = queries[0]
         .source_location()
         .expect("query should include source location");
@@ -54,14 +54,14 @@ SELECT id FROM users;
 #[test]
 fn splits_multiple_query_blocks_in_source_order() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: firstQuery
 }
 */
 SELECT 1;
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: secondQuery
@@ -72,7 +72,7 @@ SELECT 2;
 "
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("query blocks should split");
+    let queries = split_sqlay_query_blocks(source).expect("query blocks should split");
 
     assert_eq!(queries.len(), 2);
     assert_eq!(queries[0].metadata().id(), "firstQuery");
@@ -84,7 +84,7 @@ SELECT 2;
 #[test]
 fn splits_fragment_source_units_and_query_units_in_source_order() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -92,10 +92,10 @@ fn splits_fragment_source_units_and_query_units_in_source_order() {
 */
 -- ordinary SQL comment stays in the fragment body
 AND u.active = 1
-/* @sqlcomp { type: param id: tenantId valueType: int64 } */
+/* @sqlay { type: param id: tenantId valueType: int64 } */
 42
-/* @sqlcomp { type: paramEnd } */
-/* @sqlcomp
+/* @sqlay { type: paramEnd } */
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -106,13 +106,13 @@ SELECT u.id FROM users AS u;
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
 
-    let source_units = split_sqlcomp_source_units(source).expect("source units should split");
+    let source_units = split_sqlay_source_units(source).expect("source units should split");
 
     assert_eq!(source_units.fragments().len(), 1);
     assert_eq!(source_units.fragments()[0].metadata().id(), "activeOnly");
     assert_eq!(
         source_units.fragments()[0].sql(),
-        "\n-- ordinary SQL comment stays in the fragment body\nAND u.active = 1\n/* @sqlcomp { type: param id: tenantId valueType: int64 } */\n42\n/* @sqlcomp { type: paramEnd } */\n"
+        "\n-- ordinary SQL comment stays in the fragment body\nAND u.active = 1\n/* @sqlay { type: param id: tenantId valueType: int64 } */\n42\n/* @sqlay { type: paramEnd } */\n"
     );
     assert_eq!(
         source_units.fragments()[0].analysis_sql(),
@@ -144,7 +144,7 @@ fn rejects_invalid_fragment_metadata() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
 }
@@ -155,7 +155,7 @@ AND u.active = 1
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: true
@@ -167,7 +167,7 @@ AND u.active = 1
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: 1bad
@@ -179,7 +179,7 @@ AND u.active = 1
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -195,7 +195,7 @@ AND u.active = 1
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
         let report =
-            split_sqlcomp_source_units(source).expect_err("invalid fragment metadata rejected");
+            split_sqlay_source_units(source).expect_err("invalid fragment metadata rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -206,18 +206,18 @@ fn rejects_invalid_top_level_annotation_metadata() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   id: listUsers
 }
 */
 SELECT id FROM users;
 ",
-            "missing required `@sqlcomp` metadata field `type`",
+            "missing required `@sqlay` metadata field `type`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: mutation
   id: updateUser
@@ -225,14 +225,14 @@ SELECT id FROM users;
 */
 UPDATE users SET name = 'Ada';
 ",
-            "unsupported `@sqlcomp` annotation type `mutation`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`",
+            "unsupported `@sqlay` annotation type `mutation`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`",
         ),
     ] {
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
         let report =
-            split_sqlcomp_source_units(source).expect_err("invalid annotation metadata rejected");
+            split_sqlay_source_units(source).expect_err("invalid annotation metadata rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
     }
@@ -241,7 +241,7 @@ UPDATE users SET name = 'Ada';
 #[test]
 fn rejects_boolean_top_level_annotation_type_metadata_as_unsupported_type() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: false
   id: listUsers
@@ -252,12 +252,12 @@ SELECT id FROM users;
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
     let report =
-        split_sqlcomp_source_units(source).expect_err("unsupported annotation type rejected");
+        split_sqlay_source_units(source).expect_err("unsupported annotation type rejected");
 
     assert_eq!(
         diagnostic_messages(&report),
         [
-            "unsupported `@sqlcomp` annotation type `false`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`"
+            "unsupported `@sqlay` annotation type `false`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`"
         ]
     );
 }
@@ -265,7 +265,7 @@ SELECT id FROM users;
 #[test]
 fn rejects_statement_separators_in_fragment_bodies() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -276,7 +276,7 @@ AND u.active = 1;
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
 
-    let report = split_sqlcomp_source_units(source)
+    let report = split_sqlay_source_units(source)
         .expect_err("fragment statement separators should be rejected");
 
     assert_eq!(
@@ -288,7 +288,7 @@ AND u.active = 1;
 #[test]
 fn allows_statement_separator_text_inside_fragment_literals_and_comments() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: labelled
@@ -303,7 +303,7 @@ AND u.name = 'Ada''; Lovelace'
     .strip_prefix('\n')
     .expect("raw SQL test source should start with a newline");
 
-    let source_units = split_sqlcomp_source_units(source)
+    let source_units = split_sqlay_source_units(source)
         .expect("literal and comment semicolons should not be statement separators");
 
     assert_eq!(source_units.fragments().len(), 1);
@@ -318,7 +318,7 @@ fn rejects_raw_or_sample_placeholders_in_fragment_bodies() {
     for (source, expected_message) in [
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: byEmail
@@ -326,17 +326,17 @@ fn rejects_raw_or_sample_placeholders_in_fragment_bodies() {
 */
 AND u.email = ?
 ",
-            "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`",
+            "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`",
         ),
         (
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: byEmail
 }
 */
-AND u.email = /* @sqlcomp { type: param id: email valueType: string } */ ? /* @sqlcomp { type: paramEnd } */
+AND u.email = /* @sqlay { type: param id: email valueType: string } */ ? /* @sqlay { type: paramEnd } */
 ",
             "`?` placeholders are not allowed inside Param sample expressions",
         ),
@@ -344,8 +344,8 @@ AND u.email = /* @sqlcomp { type: param id: email valueType: string } */ ? /* @s
         let source = source
             .strip_prefix('\n')
             .expect("raw SQL test source should start with a newline");
-        let report = split_sqlcomp_source_units(source)
-            .expect_err("fragment placeholders should be rejected");
+        let report =
+            split_sqlay_source_units(source).expect_err("fragment placeholders should be rejected");
 
         assert_eq!(diagnostic_messages(&report), [expected_message]);
         assert!(
@@ -358,12 +358,12 @@ AND u.email = /* @sqlcomp { type: param id: email valueType: string } */ ? /* @s
 #[test]
 fn splits_adjacent_query_blocks() {
     let source = r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: firstQuery
 }
-*/SELECT 1;/* @sqlcomp
+*/SELECT 1;/* @sqlay
 {
   type: query
   id: secondQuery
@@ -371,7 +371,7 @@ fn splits_adjacent_query_blocks() {
 */SELECT 2;"
         .strip_prefix('\n')
         .expect("raw SQL test source should start with a newline");
-    let queries = split_sqlcomp_query_blocks(source).expect("adjacent queries should split");
+    let queries = split_sqlay_query_blocks(source).expect("adjacent queries should split");
 
     assert_eq!(queries.len(), 2);
     assert_eq!(queries[0].metadata().id(), "firstQuery");

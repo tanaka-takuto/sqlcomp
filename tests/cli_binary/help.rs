@@ -2,9 +2,9 @@ use std::process::Command;
 
 #[test]
 fn no_args_prints_top_level_help() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .output()
-        .expect("sqlcomp binary should run");
+        .expect("sqlay binary should run");
 
     assert!(
         output.status.success(),
@@ -14,13 +14,13 @@ fn no_args_prints_top_level_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
     assert!(
-        stdout.contains("sqlcomp <command> [options]"),
+        stdout.contains("sqlay <command> [options]"),
         "stdout: {stdout}"
     );
-    assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
-    assert!(stdout.contains("/* @sqlcomp"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay init"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay check"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay compile"), "stdout: {stdout}");
+    assert!(stdout.contains("/* @sqlay"), "stdout: {stdout}");
     assert!(stdout.contains("type: query"), "stdout: {stdout}");
     assert!(stdout.contains("id: listUsers"), "stdout: {stdout}");
     assert!(
@@ -35,13 +35,13 @@ fn no_args_prints_top_level_help() {
     );
     assert!(
         stdout.contains(
-            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+            "Place sqlay.config.json at the project root when SQL lives in sibling directories"
         ),
         "stdout: {stdout}"
     );
     assert!(stdout.contains("Query metadata:"), "stdout: {stdout}");
     assert!(
-        stdout.contains("use paired @sqlcomp Param markers around a sample expression"),
+        stdout.contains("use paired @sqlay Param markers around a sample expression"),
         "stdout: {stdout}"
     );
     assert!(
@@ -88,10 +88,10 @@ fn no_args_prints_top_level_help() {
 
 #[test]
 fn help_lists_supported_commands() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("--help")
         .output()
-        .expect("sqlcomp help should run");
+        .expect("sqlay help should run");
 
     assert!(
         output.status.success(),
@@ -99,17 +99,17 @@ fn help_lists_supported_commands() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay init"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay check"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay compile"), "stdout: {stdout}");
 }
 
 #[test]
 fn init_help_describes_init_behavior() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["init", "--help"])
         .output()
-        .expect("sqlcomp init help should run");
+        .expect("sqlay init help should run");
 
     assert!(
         output.status.success(),
@@ -118,9 +118,9 @@ fn init_help_describes_init_behavior() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp init"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay init"), "stdout: {stdout}");
     assert!(
-        stdout.contains("starter sqlcomp.config.json"),
+        stdout.contains("starter sqlay.config.json"),
         "stdout: {stdout}"
     );
     assert!(stdout.contains("refuses to overwrite"), "stdout: {stdout}");
@@ -128,10 +128,10 @@ fn init_help_describes_init_behavior() {
 
 #[test]
 fn check_help_describes_config_discovery_and_database_url() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["check", "--help"])
         .output()
-        .expect("sqlcomp check help should run");
+        .expect("sqlay check help should run");
 
     assert!(
         output.status.success(),
@@ -140,7 +140,7 @@ fn check_help_describes_config_discovery_and_database_url() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp check"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay check"), "stdout: {stdout}");
     assert!(stdout.contains("--config <path>"), "stdout: {stdout}");
     assert!(
         stdout.contains("searches from the current working directory upward"),
@@ -158,7 +158,7 @@ fn check_help_describes_config_discovery_and_database_url() {
     );
     assert!(
         stdout.contains(
-            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+            "Place sqlay.config.json at the project root when SQL lives in sibling directories"
         ),
         "stdout: {stdout}"
     );
@@ -206,10 +206,10 @@ fn check_help_describes_config_discovery_and_database_url() {
 
 #[test]
 fn compile_help_describes_output_writing_and_clean() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sqlcomp"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .args(["compile", "--help"])
         .output()
-        .expect("sqlcomp compile help should run");
+        .expect("sqlay compile help should run");
 
     assert!(
         output.status.success(),
@@ -218,7 +218,7 @@ fn compile_help_describes_output_writing_and_clean() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
-    assert!(stdout.contains("sqlcomp compile"), "stdout: {stdout}");
+    assert!(stdout.contains("sqlay compile"), "stdout: {stdout}");
     assert!(stdout.contains("--config <path>"), "stdout: {stdout}");
     assert!(
         stdout.contains("generated TypeScript files"),
@@ -236,7 +236,7 @@ fn compile_help_describes_output_writing_and_clean() {
     );
     assert!(
         stdout.contains(
-            "Place sqlcomp.config.json at the project root when SQL lives in sibling directories"
+            "Place sqlay.config.json at the project root when SQL lives in sibling directories"
         ),
         "stdout: {stdout}"
     );

@@ -1,5 +1,5 @@
-use sqlcomp_app as app;
-use sqlcomp_core as core;
+use sqlay_app as app;
+use sqlay_core as core;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -167,7 +167,7 @@ mod tests {
         let outcome = ConfiguredCommandOutcome::Check(app::CheckOutcome::new(
             core::DiagnosticReport::default(),
             2,
-            PathBuf::from("/tmp/project/src/generated/sqlcomp"),
+            PathBuf::from("/tmp/project/src/generated/sqlay"),
             vec![
                 app::QuerySummary::new(
                     "listUsers".to_owned(),
@@ -197,7 +197,7 @@ mod tests {
         assert!(summary.contains("Resolved 0 fragments."));
         assert!(summary.contains("Resolved 0 unique slots."));
         assert!(summary.contains("Validated 2 variants."));
-        assert!(summary.contains("Output dir: /tmp/project/src/generated/sqlcomp"));
+        assert!(summary.contains("Output dir: /tmp/project/src/generated/sqlay"));
         assert!(summary.contains("No files written."));
         assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
         assert!(
@@ -212,7 +212,7 @@ mod tests {
         let outcome = ConfiguredCommandOutcome::Compile(app::CompileOutcome::new(
             core::DiagnosticReport::default(),
             1,
-            PathBuf::from("/tmp/project/src/generated/sqlcomp"),
+            PathBuf::from("/tmp/project/src/generated/sqlay"),
             vec![app::QuerySummary::new(
                 "listUsers".to_owned(),
                 Some(PathBuf::from("sql/users.sql")),
@@ -222,7 +222,7 @@ mod tests {
                 1,
             )],
             vec![PathBuf::from(
-                "/tmp/project/src/generated/sqlcomp/sql/users.ts",
+                "/tmp/project/src/generated/sqlay/sql/users.ts",
             )],
             Some(1),
             0,
@@ -239,7 +239,7 @@ mod tests {
         assert!(summary.contains("Generated or updated 1 file."));
         assert!(summary.contains("Removed 1 stale generated file."));
         assert!(summary.contains("Generated files:"));
-        assert!(summary.contains("- /tmp/project/src/generated/sqlcomp/sql/users.ts"));
+        assert!(summary.contains("- /tmp/project/src/generated/sqlay/sql/users.ts"));
         assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
     }
 }

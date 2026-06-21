@@ -1,13 +1,13 @@
 pub const HELP: &str = "\
-SQL Compose & Compile.
+SQL Inlay.
 
 Usage:
-  sqlcomp <command> [options]
+  sqlay <command> [options]
 
 Commands:
-  sqlcomp init       Create a starter sqlcomp.config.json.
-  sqlcomp check      Load config and run the compile pipeline without writing generated files.
-  sqlcomp compile    Load config and write generated TypeScript files.
+  sqlay init       Create a starter sqlay.config.json.
+  sqlay check      Load config and run the compile pipeline without writing generated files.
+  sqlay compile    Load config and write generated TypeScript files.
 
 Options:
   -h, --help         Print this help.
@@ -15,7 +15,7 @@ Options:
   --clean            Remove stale generated files during compile.
 
 Minimal query annotation:
-  /* @sqlcomp
+  /* @sqlay
   {
     type: query
     id: listUsers
@@ -30,18 +30,18 @@ Query metadata:
   cardinality is optional: one or many. cardinality: exec is rejected.
 
 Directive boundary:
-  Compiler directives are @sqlcomp Hjson block comments.
+  Compiler directives are @sqlay Hjson block comments.
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
-  Do not write raw `?` placeholders in source SQL; use paired @sqlcomp Param markers around a sample expression.
+  Do not write raw `?` placeholders in source SQL; use paired @sqlay Param markers around a sample expression.
   Slot and Fragment composition is available for optional single-select query-local slots.
 
 Config path boundary:
   source.include paths must stay inside the config directory.
-  Place sqlcomp.config.json at the project root when SQL lives in sibling directories.
+  Place sqlay.config.json at the project root when SQL lives in sibling directories.
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
 
 Param marker example:
-  /* @sqlcomp
+  /* @sqlay
   {
     type: query
     id: listCustomersByFilter
@@ -49,18 +49,18 @@ Param marker example:
   */
   SELECT customers.id, customers.email
   FROM customers
-  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+  WHERE (customers.email = /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     'ada@example.test'
-    /* @sqlcomp { type: paramEnd } */
-    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    /* @sqlay { type: paramEnd } */
+    OR /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL)
-    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+    /* @sqlay { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       '2026-01-01 00:00:00'
-      /* @sqlcomp { type: paramEnd } */
-      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      /* @sqlay { type: paramEnd } */
+      OR /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       NULL
-      /* @sqlcomp { type: paramEnd } */ IS NULL);
+      /* @sqlay { type: paramEnd } */ IS NULL);
 
 Generated TypeScript input:
   export type listCustomersByFilter_Input = {
@@ -75,37 +75,37 @@ Param metadata:
 ";
 
 pub const INIT_HELP: &str = "\
-Create a starter sqlcomp.config.json.
+Create a starter sqlay.config.json.
 
 Usage:
-  sqlcomp init
+  sqlay init
 
 Behavior:
-  Writes a starter sqlcomp.config.json in the current directory and refuses to overwrite an existing config file.
-  Prints a minimal @sqlcomp query annotation and the next check command.
+  Writes a starter sqlay.config.json in the current directory and refuses to overwrite an existing config file.
+  Prints a minimal @sqlay query annotation and the next check command.
 
 Examples:
-  sqlcomp init
+  sqlay init
 ";
 
 pub const CHECK_HELP: &str = "\
 Check SQL sources without writing generated files.
 
 Usage:
-  sqlcomp check [options]
+  sqlay check [options]
 
 Behavior:
-  Loads sqlcomp.config.json, reads SQL files, validates MySQL SELECT queries, and renders generated TypeScript output in memory.
-  When --config is omitted, searches from the current working directory upward for sqlcomp.config.json.
+  Loads sqlay.config.json, reads SQL files, validates MySQL SELECT queries, and renders generated TypeScript output in memory.
+  When --config is omitted, searches from the current working directory upward for sqlay.config.json.
   Reads the database URL from the environment variable named by database.urlEnv.
   No files are written.
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
-  Place sqlcomp.config.json at the project root when SQL lives in sibling directories.
+  Place sqlay.config.json at the project root when SQL lives in sibling directories.
   The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, output.dir, and per-query Param, Slot, and variant counts.
 
 Param marker example:
-  /* @sqlcomp
+  /* @sqlay
   {
     type: query
     id: listCustomersByFilter
@@ -113,18 +113,18 @@ Param marker example:
   */
   SELECT customers.id, customers.email
   FROM customers
-  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+  WHERE (customers.email = /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     'ada@example.test'
-    /* @sqlcomp { type: paramEnd } */
-    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    /* @sqlay { type: paramEnd } */
+    OR /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL)
-    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+    /* @sqlay { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       '2026-01-01 00:00:00'
-      /* @sqlcomp { type: paramEnd } */
-      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      /* @sqlay { type: paramEnd } */
+      OR /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       NULL
-      /* @sqlcomp { type: paramEnd } */ IS NULL);
+      /* @sqlay { type: paramEnd } */ IS NULL);
 
 Generated TypeScript input:
   export type listCustomersByFilter_Input = {
@@ -142,28 +142,28 @@ Options:
   --config <path>    Use an explicit config path.
 
 Examples:
-  DATABASE_URL=... sqlcomp check
-  sqlcomp check --config ./sqlcomp.config.json
+  DATABASE_URL=... sqlay check
+  sqlay check --config ./sqlay.config.json
 ";
 
 pub const COMPILE_HELP: &str = "\
 Compile SQL sources to generated TypeScript files.
 
 Usage:
-  sqlcomp compile [options]
+  sqlay compile [options]
 
 Behavior:
-  Loads sqlcomp.config.json, validates SQL sources, and writes generated TypeScript files under output.dir.
-  When --config is omitted, searches from the current working directory upward for sqlcomp.config.json.
+  Loads sqlay.config.json, validates SQL sources, and writes generated TypeScript files under output.dir.
+  When --config is omitted, searches from the current working directory upward for sqlay.config.json.
   Reads the database URL from the environment variable named by database.urlEnv.
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
-  Place sqlcomp.config.json at the project root when SQL lives in sibling directories.
+  Place sqlay.config.json at the project root when SQL lives in sibling directories.
   The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, generated file paths, stale-file cleanup, and per-query Param, Slot, and variant counts.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:
-  /* @sqlcomp
+  /* @sqlay
   {
     type: query
     id: listCustomersByFilter
@@ -171,18 +171,18 @@ Param marker example:
   */
   SELECT customers.id, customers.email
   FROM customers
-  WHERE (customers.email = /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+  WHERE (customers.email = /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     'ada@example.test'
-    /* @sqlcomp { type: paramEnd } */
-    OR /* @sqlcomp { type: param id: emailFilter valueType: string nullable: true } */
+    /* @sqlay { type: paramEnd } */
+    OR /* @sqlay { type: param id: emailFilter valueType: string nullable: true } */
     NULL
-    /* @sqlcomp { type: paramEnd } */ IS NULL)
-    AND (customers.created_at < /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+    /* @sqlay { type: paramEnd } */ IS NULL)
+    AND (customers.created_at < /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       '2026-01-01 00:00:00'
-      /* @sqlcomp { type: paramEnd } */
-      OR /* @sqlcomp { type: param id: createdBefore valueType: datetime nullable: true } */
+      /* @sqlay { type: paramEnd } */
+      OR /* @sqlay { type: param id: createdBefore valueType: datetime nullable: true } */
       NULL
-      /* @sqlcomp { type: paramEnd } */ IS NULL);
+      /* @sqlay { type: paramEnd } */ IS NULL);
 
 Generated TypeScript input:
   export type listCustomersByFilter_Input = {
@@ -201,19 +201,19 @@ Options:
   --clean            Remove stale generated files that no longer correspond to input SQL files.
 
 Examples:
-  DATABASE_URL=... sqlcomp compile
-  sqlcomp compile --config ./sqlcomp.config.json --clean
+  DATABASE_URL=... sqlay compile
+  sqlay compile --config ./sqlay.config.json --clean
 ";
 
 pub const INIT_NEXT_STEPS: &str = r"
 Next:
-  DATABASE_URL=... sqlcomp check
+  DATABASE_URL=... sqlay check
 
-Compiler directives are @sqlcomp Hjson block comments. Ordinary SQL comments such as
+Compiler directives are @sqlay Hjson block comments. Ordinary SQL comments such as
 /* @param tenantKey */ are ignored as SQL comments.
 
 Add a query block such as:
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers

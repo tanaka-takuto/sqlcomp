@@ -1,5 +1,5 @@
 use ::sqlx::{AssertSqlSafe, MySqlConnection, Row, SqlSafeStr};
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::diagnostics::query_error;
 use super::param_inference::current_database_table_names;

@@ -7,7 +7,7 @@ mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 use sqlparser::ast::{Query as SqlQuery, Statement};
 use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;

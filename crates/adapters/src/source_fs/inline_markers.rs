@@ -1,12 +1,12 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::source_fs::diagnostics::metadata_error;
-use crate::source_fs::metadata::{ParsedSqlcompBlock, SqlcompAnnotation};
+use crate::source_fs::metadata::{ParsedSqlayBlock, SqlayAnnotation};
 use crate::source_fs::scanner::{
-    SqlcompBlock, is_quote_delimiter, source_range_for_span, source_range_for_sql_body,
+    SqlayBlock, is_quote_delimiter, source_range_for_span, source_range_for_sql_body,
 };
 
-const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`";
+const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`";
 
 pub(super) struct InlineMarkerReplacement {
     pub(super) analysis_sql: String,
@@ -18,7 +18,7 @@ pub(super) fn replace_inline_markers(
     source: &str,
     body_start: usize,
     body_end: usize,
-    parsed_blocks: &[ParsedSqlcompBlock<'_>],
+    parsed_blocks: &[ParsedSqlayBlock<'_>],
 ) -> core::DiagnosticResult<InlineMarkerReplacement> {
     let query_blocks = parsed_blocks
         .iter()
@@ -36,13 +36,13 @@ pub(super) fn replace_inline_markers(
     while index < query_blocks.len() {
         let parsed_block = query_blocks[index];
         match &parsed_block.annotation {
-            SqlcompAnnotation::Query(_) => {
+            SqlayAnnotation::Query(_) => {
                 index += 1;
             }
-            SqlcompAnnotation::Fragment(_) => {
+            SqlayAnnotation::Fragment(_) => {
                 unreachable!("fragment annotations are global source unit boundaries");
             }
-            SqlcompAnnotation::Slot(metadata) => {
+            SqlayAnnotation::Slot(metadata) => {
                 append_non_param_sql(
                     source,
                     cursor,
@@ -60,7 +60,7 @@ pub(super) fn replace_inline_markers(
                 cursor = parsed_block.block.comment_end_index();
                 index += 1;
             }
-            SqlcompAnnotation::Param(metadata) => {
+            SqlayAnnotation::Param(metadata) => {
                 append_non_param_sql(
                     source,
                     cursor,
@@ -71,7 +71,7 @@ pub(super) fn replace_inline_markers(
                 let Some(end_block) = query_blocks.get(index + 1).copied() else {
                     unreachable!("Param marker pairing is validated before replacement");
                 };
-                debug_assert!(matches!(end_block.annotation, SqlcompAnnotation::ParamEnd));
+                debug_assert!(matches!(end_block.annotation, SqlayAnnotation::ParamEnd));
 
                 let sample_start = parsed_block.block.comment_end_index();
                 let sample_end = end_block.block.comment_start_index();
@@ -97,7 +97,7 @@ pub(super) fn replace_inline_markers(
                 cursor = end_block.block.comment_end_index();
                 index += 2;
             }
-            SqlcompAnnotation::ParamEnd => {
+            SqlayAnnotation::ParamEnd => {
                 unreachable!("Param end markers are consumed with their matching Param marker");
             }
         }
@@ -187,20 +187,20 @@ fn first_statement_separator_index(source: &str, start: usize, end: usize) -> Op
     StatementSeparatorScanner::new(source, start, end).next_separator_index()
 }
 
-/// Validates the structural constraints of inline `@sqlcomp` markers.
+/// Validates the structural constraints of inline `@sqlay` markers.
 ///
 /// Ensures that `param` and `paramEnd` markers are paired without nesting, that inline
 /// markers appear only inside query or fragment bodies, that `slot` markers are used only
 /// in query bodies, and that `slot` markers do not nest within `param` ranges.
 pub(super) fn validate_inline_markers(
-    parsed_blocks: &[ParsedSqlcompBlock<'_>],
+    parsed_blocks: &[ParsedSqlayBlock<'_>],
 ) -> core::DiagnosticResult<()> {
     let mut context = InlineMarkerContext::OutsideSourceUnit;
-    let mut open_param_block: Option<&SqlcompBlock> = None;
+    let mut open_param_block: Option<&SqlayBlock> = None;
 
     for parsed_block in parsed_blocks {
         match parsed_block.annotation {
-            SqlcompAnnotation::Query(_) => {
+            SqlayAnnotation::Query(_) => {
                 if let Some(block) = open_param_block.take() {
                     return Err(metadata_error(
                         "`param` marker is missing a matching `paramEnd` marker",
@@ -209,7 +209,7 @@ pub(super) fn validate_inline_markers(
                 }
                 context = InlineMarkerContext::QueryBody;
             }
-            SqlcompAnnotation::Fragment(_) => {
+            SqlayAnnotation::Fragment(_) => {
                 if let Some(block) = open_param_block.take() {
                     return Err(metadata_error(
                         "`param` marker is missing a matching `paramEnd` marker",
@@ -218,7 +218,7 @@ pub(super) fn validate_inline_markers(
                 }
                 context = InlineMarkerContext::FragmentBody;
             }
-            SqlcompAnnotation::Param(_) => {
+            SqlayAnnotation::Param(_) => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
                         "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
@@ -233,7 +233,7 @@ pub(super) fn validate_inline_markers(
                 }
                 open_param_block = Some(parsed_block.block);
             }
-            SqlcompAnnotation::ParamEnd => {
+            SqlayAnnotation::ParamEnd => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
                         "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
@@ -247,7 +247,7 @@ pub(super) fn validate_inline_markers(
                     ));
                 }
             }
-            SqlcompAnnotation::Slot(_) => {
+            SqlayAnnotation::Slot(_) => {
                 match context {
                     InlineMarkerContext::OutsideSourceUnit => {
                         return Err(metadata_error(

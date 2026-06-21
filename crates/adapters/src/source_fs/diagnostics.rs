@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 pub(super) fn extend_diagnostics(
     diagnostics: &mut core::DiagnosticReport,
@@ -48,7 +48,7 @@ pub(super) fn attach_path(report: core::DiagnosticReport, path: &Path) -> core::
 
 pub(super) fn unannotated_sql_warning(path: &Path) -> core::Diagnostic {
     core::Diagnostic::warning(
-        "included SQL file contains SQL but no `@sqlcomp` query annotation; add a `/* @sqlcomp { type: query, id: ... } */` block before the query",
+        "included SQL file contains SQL but no `@sqlay` query annotation; add a `/* @sqlay { type: query, id: ... } */` block before the query",
     )
     .with_location(core::SourceLocation::for_path(path))
 }

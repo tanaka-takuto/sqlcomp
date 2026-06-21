@@ -3,11 +3,11 @@ use super::*;
 
 #[test]
 fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -77,11 +77,11 @@ fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
 
 #[test]
 fn check_reports_token_adjacent_slot_replacement_from_dialect_validation() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -137,11 +137,11 @@ fn check_reports_token_adjacent_slot_replacement_from_dialect_validation() {
 
 #[test]
 fn check_rejects_unknown_slot_target_with_slot_context() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [missingFilter] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [missingFilter] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -181,11 +181,11 @@ fn check_rejects_unknown_slot_target_with_slot_context() {
 
 #[test]
 fn check_rejects_duplicate_targets_within_one_slot() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, activeOnly] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly, activeOnly] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -233,11 +233,11 @@ fn check_rejects_duplicate_targets_within_one_slot() {
 
 #[test]
 fn check_preserves_slot_target_order_across_fragment_files() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [activeOnly, byEmail] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly, byEmail] } */;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1;".to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -294,12 +294,12 @@ fn check_preserves_slot_target_order_across_fragment_files() {
 
 #[test]
 fn check_enumerates_multiple_slot_expansion_variants_in_stable_order() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query_prefix = "SELECT u.id FROM users AS u WHERE 1 = 1";
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: zFilter targets: [activeOnly, byEmail] } *//* @sqlcomp { type: slot id: aTenant targets: [tenantOnly] } */ ORDER BY u.id;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: zFilter targets: [activeOnly, byEmail] } *//* @sqlay { type: slot id: aTenant targets: [tenantOnly] } */ ORDER BY u.id;".to_owned(),
     )
     .with_analysis_sql("SELECT u.id FROM users AS u WHERE 1 = 1 ORDER BY u.id;".to_owned())
     .with_slot_usages(vec![
@@ -377,7 +377,7 @@ fn check_enumerates_multiple_slot_expansion_variants_in_stable_order() {
 
 #[test]
 fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let first_insertion = "SELECT u.id FROM users AS u WHERE 1 = 1".len();
     let second_insertion =
@@ -385,7 +385,7 @@ fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
             .len();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: userFilter targets: [activeUser] } */ AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id/* @sqlcomp { type: slot id: userFilter targets: [activeUser] } */);".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: userFilter targets: [activeUser] } */ AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id/* @sqlay { type: slot id: userFilter targets: [activeUser] } */);".to_owned(),
     )
     .with_analysis_sql(
         "SELECT u.id FROM users AS u WHERE 1 = 1 AND EXISTS (SELECT 1 FROM user_roles AS ur WHERE ur.user_id = u.id);"
@@ -452,7 +452,7 @@ fn check_reuses_repeated_slot_id_selection_at_each_occurrence() {
 
 #[test]
 fn check_describes_expanded_slot_variants_with_sql_ordered_params() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let (query, fragment) = slot_param_order_fixture();
     let source_read = SourceRead::from_queries(vec![query])
@@ -507,7 +507,7 @@ fn check_describes_expanded_slot_variants_with_sql_ordered_params() {
 
 #[test]
 fn check_passes_dynamic_slot_core_ir_to_target_generation() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let (query, fragment) = slot_param_order_fixture();
     let source_read = SourceRead::from_queries(vec![query])
@@ -590,7 +590,7 @@ fn check_passes_dynamic_slot_core_ir_to_target_generation() {
 
 #[test]
 fn check_passes_repeated_slot_occurrences_to_dynamic_core_ir() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let (query, fragment) = repeated_slot_dynamic_ir_fixture();
     let source_read = SourceRead::from_queries(vec![query])

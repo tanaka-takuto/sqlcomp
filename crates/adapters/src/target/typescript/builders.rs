@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::literals::typescript_string_literal;
 use super::slots::{is_slot_query, render_dynamic_sql_segment, render_slot_switch};

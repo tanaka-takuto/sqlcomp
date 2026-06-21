@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_scopes() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let base_sql = "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id);";
     let user_slot_index = base_sql
@@ -14,7 +14,7 @@ fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_sc
         .expect("account Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlcomp { type: slot id: userKind targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlcomp { type: slot id: accountKind targets: [byKind] } */);"
+        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlay { type: slot id: userKind targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlay { type: slot id: accountKind targets: [byKind] } */);"
             .to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
@@ -36,7 +36,7 @@ fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_sc
     let fragment_sql = " AND x.kind = ?";
     let fragment = core::RawFragment::new(
         core::FragmentMetadata::new("byKind".to_owned()),
-        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+        " AND x.kind = /* @sqlay { type: param id: kind } */ 'sample' /* @sqlay { type: paramEnd } */".to_owned(),
     )
     .with_analysis_sql(fragment_sql.to_owned())
     .with_param_usages(vec![test_param_usage(
@@ -90,7 +90,7 @@ fn check_allows_same_fragment_param_id_with_different_types_in_different_slot_sc
 
 #[test]
 fn check_rejects_fragment_param_type_conflicts_across_repeated_slot_occurrences() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let base_sql = "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id);";
     let user_slot_index = base_sql
@@ -109,7 +109,7 @@ fn check_rejects_fragment_param_type_conflicts_across_repeated_slot_occurrences(
     );
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlcomp { type: slot id: filter targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlcomp { type: slot id: filter targets: [byKind] } */);"
+        "SELECT u.id FROM users AS u WHERE EXISTS (SELECT 1 FROM users AS x WHERE x.id = u.id/* @sqlay { type: slot id: filter targets: [byKind] } */) OR EXISTS (SELECT 1 FROM accounts AS x WHERE x.user_id = u.id/* @sqlay { type: slot id: filter targets: [byKind] } */);"
             .to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
@@ -131,7 +131,7 @@ fn check_rejects_fragment_param_type_conflicts_across_repeated_slot_occurrences(
     let fragment_sql = " AND x.kind = ?";
     let fragment = core::RawFragment::new(
         core::FragmentMetadata::new("byKind".to_owned()),
-        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+        " AND x.kind = /* @sqlay { type: param id: kind } */ 'sample' /* @sqlay { type: paramEnd } */".to_owned(),
     )
     .with_analysis_sql(fragment_sql.to_owned())
     .with_param_usages(vec![test_param_usage(
@@ -180,7 +180,7 @@ fn check_rejects_fragment_param_type_conflicts_across_repeated_slot_occurrences(
 
 #[test]
 fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let base_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
     let slot_index = base_sql
@@ -188,7 +188,7 @@ fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
         .expect("Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: mode targets: [numericContext] } *//* @sqlcomp { type: slot id: kindFilter targets: [byKind] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: mode targets: [numericContext] } *//* @sqlay { type: slot id: kindFilter targets: [byKind] } */;".to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
     .with_slot_usages(vec![
@@ -215,7 +215,7 @@ fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
     let by_kind_sql = " AND x.kind = ?";
     let by_kind = core::RawFragment::new(
         core::FragmentMetadata::new("byKind".to_owned()),
-        " AND x.kind = /* @sqlcomp { type: param id: kind } */ 'sample' /* @sqlcomp { type: paramEnd } */".to_owned(),
+        " AND x.kind = /* @sqlay { type: param id: kind } */ 'sample' /* @sqlay { type: paramEnd } */".to_owned(),
     )
     .with_analysis_sql(by_kind_sql.to_owned())
     .with_param_usages(vec![test_param_usage(
@@ -261,7 +261,7 @@ fn check_rejects_fragment_param_type_conflicts_across_slot_variants() {
 
 #[test]
 fn check_reports_fragment_param_metadata_errors_with_fragment_location_and_slot_context() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
     let slot_index = query_sql
@@ -281,7 +281,7 @@ fn check_reports_fragment_param_metadata_errors_with_fragment_location_and_slot_
     );
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: filter targets: [byEmail] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [byEmail] } */;".to_owned(),
     )
     .with_analysis_sql(query_sql.to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -294,7 +294,7 @@ fn check_reports_fragment_param_metadata_errors_with_fragment_location_and_slot_
     let fragment_sql = " AND COALESCE(?, u.email) = u.email";
     let fragment = core::RawFragment::new(
         core::FragmentMetadata::new("byEmail".to_owned()),
-        " AND COALESCE(/* @sqlcomp { type: param id: email } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */, u.email) = u.email".to_owned(),
+        " AND COALESCE(/* @sqlay { type: param id: email } */ 'ada@example.test' /* @sqlay { type: paramEnd } */, u.email) = u.email".to_owned(),
     )
     .with_analysis_sql(fragment_sql.to_owned())
     .with_param_usages(vec![
@@ -345,7 +345,7 @@ fn check_reports_fragment_param_metadata_errors_with_fragment_location_and_slot_
 
 #[test]
 fn check_rejects_param_type_conflicts_within_same_selected_fragment_scope() {
-    let config = project_config(PathBuf::from("/tmp/sqlcomp-project"));
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let base_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
     let slot_index = base_sql
@@ -353,7 +353,7 @@ fn check_rejects_param_type_conflicts_within_same_selected_fragment_scope() {
         .expect("Slot insertion point exists before statement terminator");
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
-        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlcomp { type: slot id: extraFilter targets: [byId] } */;".to_owned(),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: extraFilter targets: [byId] } */;".to_owned(),
     )
     .with_analysis_sql(base_sql.to_owned())
     .with_slot_usages(vec![core::SlotUsage::new(
@@ -366,7 +366,7 @@ fn check_rejects_param_type_conflicts_within_same_selected_fragment_scope() {
     let fragment_sql = " AND u.email = ? AND u.id = ?";
     let fragment = core::RawFragment::new(
         core::FragmentMetadata::new("byId".to_owned()),
-        " AND u.email = /* @sqlcomp { type: param id: filter valueType: string } */ 'ada@example.test' /* @sqlcomp { type: paramEnd } */ AND u.id = /* @sqlcomp { type: param id: filter valueType: int64 } */ 1 /* @sqlcomp { type: paramEnd } */".to_owned(),
+        " AND u.email = /* @sqlay { type: param id: filter valueType: string } */ 'ada@example.test' /* @sqlay { type: paramEnd } */ AND u.id = /* @sqlay { type: param id: filter valueType: int64 } */ 1 /* @sqlay { type: paramEnd } */".to_owned(),
     )
     .with_analysis_sql(fragment_sql.to_owned())
     .with_param_usages(vec![

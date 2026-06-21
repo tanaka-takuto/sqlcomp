@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listCustomerOrders
@@ -36,7 +36,7 @@ GROUP BY
   o.shipped_at
 ORDER BY o.placed_at DESC;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findLatestOrderForCustomer
@@ -68,7 +68,7 @@ GROUP BY
 ORDER BY o.placed_at DESC
 LIMIT 1;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUnreviewedPurchases
@@ -95,7 +95,7 @@ WHERE r.id IS NULL
   AND o.status IN ('paid', 'shipped', 'delivered')
 ORDER BY o.placed_at DESC, b.title;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listMonthlySales

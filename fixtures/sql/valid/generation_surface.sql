@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: generationEscapedSql
@@ -7,14 +7,14 @@
 SELECT
   varchar_255_nn_col AS varchar255NnCol,
   '"quoted"' AS doubleQuotedCol,
-  'C:\\tmp\\sqlcomp' AS pathTextCol,
+  'C:\\tmp\\sqlay' AS pathTextCol,
   '${notAParam}' AS templateLikeTextCol,
   JSON_OBJECT('tierPath', '$.tier') AS jsonObjectCol
 FROM fixture_all_column_type
 WHERE varchar_320_nn_col = 'varchar-320-a'
   AND char_16_nn_col IN ('state_a', 'state_b');
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: generationInferredSingleRow
@@ -27,7 +27,7 @@ FROM fixture_all_column_type
 ORDER BY bigint_nn_col ASC
 LIMIT 1;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: generationExplicitOneOverridesMany
@@ -40,7 +40,7 @@ SELECT
 FROM fixture_all_column_type
 ORDER BY bigint_nn_col ASC;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: generationExplicitManyOverridesLimitOne

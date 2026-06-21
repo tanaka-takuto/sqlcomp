@@ -1,6 +1,6 @@
 use ::sqlx::{AssertSqlSafe, Column, Connection, Executor, MySqlConnection, SqlSafeStr, TypeInfo};
-use sqlcomp_app::MetadataProvider;
-use sqlcomp_core as core;
+use sqlay_app::MetadataProvider;
+use sqlay_core as core;
 
 use super::diagnostics::query_error;
 use super::param_inference::resolve_param_usage_metadata;

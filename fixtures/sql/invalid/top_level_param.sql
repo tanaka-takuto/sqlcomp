@@ -1,1 +1,1 @@
-/* @sqlcomp { type: param id: topLevelValue } */
+/* @sqlay { type: param id: topLevelValue } */

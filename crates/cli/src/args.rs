@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use crate::diagnostics::single_cli_error;
 use crate::help::HelpTopic;
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn parses_check_without_config() {
         assert_eq!(
-            parse_args(["sqlcomp", "check"].map(OsString::from)).expect("args should parse"),
+            parse_args(["sqlay", "check"].map(OsString::from)).expect("args should parse"),
             Command::Check { config: None }
         );
     }
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn parses_help_flag() {
         assert_eq!(
-            parse_args(["sqlcomp", "--help"].map(OsString::from)).expect("args should parse"),
+            parse_args(["sqlay", "--help"].map(OsString::from)).expect("args should parse"),
             Command::Help(HelpTopic::TopLevel)
         );
     }
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn parses_no_args_as_top_level_help() {
         assert_eq!(
-            parse_args(["sqlcomp"].map(OsString::from)).expect("args should parse"),
+            parse_args(["sqlay"].map(OsString::from)).expect("args should parse"),
             Command::Help(HelpTopic::TopLevel)
         );
     }
@@ -224,9 +224,9 @@ mod tests {
     #[test]
     fn parses_command_help_flags() {
         for (args, expected) in [
-            (["sqlcomp", "init", "--help"], HelpTopic::Init),
-            (["sqlcomp", "check", "--help"], HelpTopic::Check),
-            (["sqlcomp", "compile", "--help"], HelpTopic::Compile),
+            (["sqlay", "init", "--help"], HelpTopic::Init),
+            (["sqlay", "check", "--help"], HelpTopic::Check),
+            (["sqlay", "compile", "--help"], HelpTopic::Compile),
         ] {
             assert_eq!(
                 parse_args(args.map(OsString::from)).expect("args should parse"),
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn parses_init_command() {
         assert_eq!(
-            parse_args(["sqlcomp", "init"].map(OsString::from)).expect("args should parse"),
+            parse_args(["sqlay", "init"].map(OsString::from)).expect("args should parse"),
             Command::Init
         );
     }
@@ -247,17 +247,11 @@ mod tests {
     fn parses_compile_with_config_path() {
         assert_eq!(
             parse_args(
-                [
-                    "sqlcomp",
-                    "compile",
-                    "--config",
-                    "custom/sqlcomp.config.json",
-                ]
-                .map(OsString::from),
+                ["sqlay", "compile", "--config", "custom/sqlay.config.json",].map(OsString::from),
             )
             .expect("args should parse"),
             Command::Compile {
-                config: Some(PathBuf::from("custom/sqlcomp.config.json")),
+                config: Some(PathBuf::from("custom/sqlay.config.json")),
                 clean: false,
             }
         );
@@ -267,11 +261,11 @@ mod tests {
     fn parses_top_level_config_path_before_check_command() {
         assert_eq!(
             parse_args(
-                ["sqlcomp", "--config", "custom/sqlcomp.config.json", "check",].map(OsString::from),
+                ["sqlay", "--config", "custom/sqlay.config.json", "check",].map(OsString::from),
             )
             .expect("args should parse"),
             Command::Check {
-                config: Some(PathBuf::from("custom/sqlcomp.config.json")),
+                config: Some(PathBuf::from("custom/sqlay.config.json")),
             }
         );
     }
@@ -281,8 +275,8 @@ mod tests {
         assert_eq!(
             parse_args(
                 [
-                    "sqlcomp",
-                    "--config=custom/sqlcomp.config.json",
+                    "sqlay",
+                    "--config=custom/sqlay.config.json",
                     "compile",
                     "--clean",
                 ]
@@ -290,7 +284,7 @@ mod tests {
             )
             .expect("args should parse"),
             Command::Compile {
-                config: Some(PathBuf::from("custom/sqlcomp.config.json")),
+                config: Some(PathBuf::from("custom/sqlay.config.json")),
                 clean: true,
             }
         );
@@ -299,7 +293,7 @@ mod tests {
     #[test]
     fn parses_compile_clean() {
         assert_eq!(
-            parse_args(["sqlcomp", "compile", "--clean"].map(OsString::from))
+            parse_args(["sqlay", "compile", "--clean"].map(OsString::from))
                 .expect("args should parse"),
             Command::Compile {
                 config: None,
@@ -312,18 +306,18 @@ mod tests {
     fn parses_equals_form_config_path() {
         assert_eq!(
             parse_args(
-                ["sqlcomp", "check", "--config=custom/sqlcomp.config.json"].map(OsString::from),
+                ["sqlay", "check", "--config=custom/sqlay.config.json"].map(OsString::from),
             )
             .expect("args should parse"),
             Command::Check {
-                config: Some(PathBuf::from("custom/sqlcomp.config.json")),
+                config: Some(PathBuf::from("custom/sqlay.config.json")),
             }
         );
     }
 
     #[test]
     fn rejects_missing_config_path() {
-        let report = parse_args(["sqlcomp", "check", "--config"].map(OsString::from))
+        let report = parse_args(["sqlay", "check", "--config"].map(OsString::from))
             .expect_err("missing config value should fail");
 
         assert_eq!(

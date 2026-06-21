@@ -3,5 +3,5 @@
     reason = "the binary entry point should remain an ordinary fn main"
 )]
 fn main() -> std::process::ExitCode {
-    sqlcomp_cli::run()
+    sqlay_cli::run()
 }

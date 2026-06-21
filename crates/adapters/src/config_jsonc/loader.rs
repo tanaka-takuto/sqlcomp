@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use sqlcomp_app::CONFIG_FILE_NAME;
-use sqlcomp_core as core;
+use sqlay_app::CONFIG_FILE_NAME;
+use sqlay_core as core;
 
 use super::diagnostics::single_error_report;
 

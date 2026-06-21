@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::literals::typescript_string_literal;
 use super::types::{

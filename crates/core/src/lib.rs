@@ -1,7 +1,7 @@
-//! Inner domain types and language-neutral IR for `sqlcomp`.
+//! Inner domain types and language-neutral IR for `sqlay`.
 //!
 //! This crate is the innermost Clean Architecture boundary. It must not depend on
-//! any other `sqlcomp-*` crate.
+//! any other `sqlay-*` crate.
 
 mod config;
 mod generated;

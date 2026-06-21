@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use sqlcomp_app::{DialectAnalyzer, SourceReader};
-use sqlcomp_core as core;
+use sqlay_app::{DialectAnalyzer, SourceReader};
+use sqlay_core as core;
 
 use crate::dialect_mysql::MysqlDialectAnalyzer;
 
@@ -20,14 +20,14 @@ fn filesystem_source_reader_reads_included_files_as_query_blocks() {
     fs::write(
         sql_dir.join("users.sql"),
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
 }
 */
 SELECT id FROM users;
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUser
@@ -72,7 +72,7 @@ fn filesystem_source_reader_reads_fragment_only_files_without_unannotated_sql_wa
     write_sql(
         &source_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -111,7 +111,7 @@ fn filesystem_source_reader_does_not_collect_fragments_from_excluded_files() {
     write_sql(
         &query_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -120,13 +120,13 @@ fn filesystem_source_reader_does_not_collect_fragments_from_excluded_files() {
 SELECT u.id
 FROM users AS u
 WHERE 1 = 1
-/* @sqlcomp { type: slot id: filter targets: [privateFilter] } */;
+/* @sqlay { type: slot id: filter targets: [privateFilter] } */;
 ",
     );
     write_sql(
         &fragment_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: privateFilter
@@ -165,7 +165,7 @@ fn filesystem_source_reader_matches_question_mark_globs_and_deduplicates_sources
     write_sql(
         &matched_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUser1
@@ -177,7 +177,7 @@ SELECT id FROM users WHERE id = 1;
     write_sql(
         &unmatched_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUser10
@@ -220,7 +220,7 @@ fn filesystem_source_reader_rejects_source_files_outside_config_dir() {
     write_sql(
         &outside_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -263,7 +263,7 @@ fn filesystem_source_reader_attaches_file_path_to_scan_diagnostics() {
     fs::create_dir_all(parent).expect("test SQL directory should be created");
     fs::write(
         &source_path,
-        r"/* @sqlcomp
+        r"/* @sqlay
 {
   type: query
   id: brokenQuery
@@ -276,7 +276,7 @@ SELECT id FROM users;
 
     let report = FileSystemSourceReader
         .read(&plan)
-        .expect_err("unterminated sqlcomp block should be rejected");
+        .expect_err("unterminated sqlay block should be rejected");
     let diagnostic = report
         .diagnostics()
         .first()
@@ -300,7 +300,7 @@ fn filesystem_source_reader_attaches_file_path_to_query_locations() {
     fs::write(
         &sql_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -345,7 +345,7 @@ fn source_reader_locations_feed_mysql_parser_diagnostics() {
     fs::write(
         &sql_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: brokenQuery
@@ -401,7 +401,7 @@ fn source_reader_rejects_duplicate_query_ids_in_the_same_file() {
     write_sql(
         &source_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -409,7 +409,7 @@ fn source_reader_rejects_duplicate_query_ids_in_the_same_file() {
 */
 SELECT id FROM users;
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -436,7 +436,7 @@ fn source_reader_rejects_duplicate_query_ids_across_files() {
     write_sql(
         &first_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -448,7 +448,7 @@ SELECT id FROM users;
     write_sql(
         &second_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -479,7 +479,7 @@ fn source_reader_rejects_duplicate_fragment_ids_across_files() {
     write_sql(
         &first_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -491,7 +491,7 @@ AND u.active = 1
     write_sql(
         &second_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -526,7 +526,7 @@ fn source_reader_rejects_query_and_fragment_id_collisions_across_files() {
     write_sql(
         &query_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: activeOnly
@@ -538,7 +538,7 @@ SELECT id FROM users;
     write_sql(
         &fragment_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -572,7 +572,7 @@ fn source_reader_reports_same_file_source_unit_collisions_in_source_order() {
     write_sql(
         &source_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: activeOnly
@@ -580,7 +580,7 @@ fn source_reader_reports_same_file_source_unit_collisions_in_source_order() {
 */
 AND u.active = 1
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: activeOnly
@@ -626,7 +626,7 @@ fn source_reader_collects_independent_source_intake_diagnostics_across_files() {
     write_sql(
         &exec_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: execQuery
@@ -639,7 +639,7 @@ SELECT id FROM users;
     write_sql(
         &first_duplicate_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers
@@ -651,7 +651,7 @@ SELECT id FROM users;
     write_sql(
         &second_duplicate_path,
         r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: listUsers

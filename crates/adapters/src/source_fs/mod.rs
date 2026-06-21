@@ -11,7 +11,7 @@ mod source_units;
 #[cfg(test)]
 mod tests;
 
-pub use metadata::parse_sqlcomp_query_metadata;
+pub use metadata::parse_sqlay_query_metadata;
 pub use reader::FileSystemSourceReader;
-pub use scanner::{SqlcompBlock, SqlcompBlockScan, scan_sqlcomp_blocks};
-pub use source_units::split_sqlcomp_query_blocks;
+pub use scanner::{SqlayBlock, SqlayBlockScan, scan_sqlay_blocks};
+pub use source_units::split_sqlay_query_blocks;

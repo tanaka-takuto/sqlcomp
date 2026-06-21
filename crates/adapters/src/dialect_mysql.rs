@@ -1,13 +1,13 @@
 //! `MySQL` dialect analysis adapter.
 
-use sqlcomp_app::DialectAnalyzer;
-use sqlcomp_core as core;
+use sqlay_app::DialectAnalyzer;
+use sqlay_core as core;
 use sqlparser::ast::{Expr, LimitClause, Query, SetExpr, Statement};
 use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`";
+const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`";
 
 /// `MySQL` dialect analyzer backed by `sqlparser-rs`.
 #[derive(Clone, Copy, Debug, Default)]
@@ -237,9 +237,9 @@ fn param_usage_error(
 #[cfg(test)]
 mod tests {
     use super::MysqlDialectAnalyzer;
-    use crate::source_fs::split_sqlcomp_query_blocks;
-    use sqlcomp_app::DialectAnalyzer;
-    use sqlcomp_core as core;
+    use crate::source_fs::split_sqlay_query_blocks;
+    use sqlay_app::DialectAnalyzer;
+    use sqlay_core as core;
 
     #[test]
     fn accepts_simple_select_and_infers_many() {
@@ -371,14 +371,14 @@ mod tests {
 
         assert_eq!(
             report.diagnostics()[0].message(),
-            "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers around a sample expression, such as `/* @sqlcomp { type: param id: value } */ 1 /* @sqlcomp { type: paramEnd } */`"
+            "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`"
         );
     }
 
     #[test]
     fn accepts_generated_placeholders_for_param_usages() {
         let query = raw_query(
-            "SELECT id FROM users WHERE email = /* @sqlcomp { type: param id: email } */ 'test@example.test' /* @sqlcomp { type: paramEnd } */;",
+            "SELECT id FROM users WHERE email = /* @sqlay { type: param id: email } */ 'test@example.test' /* @sqlay { type: paramEnd } */;",
         )
         .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
         .with_param_usages(vec![core::ParamUsage::new(
@@ -419,29 +419,29 @@ mod tests {
     fn rejects_param_range_that_is_not_one_expression() {
         for source in [
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
-SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1, 2 /* @sqlcomp { type: paramEnd } */;
+SELECT id FROM users WHERE id = /* @sqlay { type: param id: userId } */ 1, 2 /* @sqlay { type: paramEnd } */;
 ",
             r"
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: findUserByEmail
 }
 */
-SELECT id FROM users WHERE id = /* @sqlcomp { type: param id: userId } */ 1 FROM users /* @sqlcomp { type: paramEnd } */;
+SELECT id FROM users WHERE id = /* @sqlay { type: param id: userId } */ 1 FROM users /* @sqlay { type: paramEnd } */;
 ",
         ] {
             let source = source
                 .strip_prefix('\n')
                 .expect("raw SQL test source should start with a newline");
             let queries =
-                split_sqlcomp_query_blocks(source).expect("source intake should replace Param");
+                split_sqlay_query_blocks(source).expect("source intake should replace Param");
             let report = MysqlDialectAnalyzer
                 .analyze(&queries[0])
                 .expect_err("Param sample must contain one expression");

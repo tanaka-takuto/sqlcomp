@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 use super::diagnostics::{
     location_error, param_usage_error, query_error, query_param_placeholder_index, slot_usage_error,

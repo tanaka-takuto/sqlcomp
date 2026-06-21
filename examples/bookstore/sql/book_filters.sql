@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: staffPicksOnly
@@ -13,12 +13,12 @@
       AND filter_c.slug = 'staff-picks'
   )
 
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: byBookFormat
 }
 */
-  AND b.format = /* @sqlcomp { type: param id: format } */
+  AND b.format = /* @sqlay { type: param id: format } */
     'paperback'
-    /* @sqlcomp { type: paramEnd } */
+    /* @sqlay { type: paramEnd } */

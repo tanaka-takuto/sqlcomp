@@ -3,7 +3,7 @@
 set -eu
 
 script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
-repo_root=${SQLCOMP_REPO_ROOT:-$(CDPATH= cd "$script_dir/.." && pwd)}
+repo_root=${SQLAY_REPO_ROOT:-$(CDPATH= cd "$script_dir/.." && pwd)}
 baseline_path=$repo_root/docs/structure-baseline.json
 
 require_command() {

@@ -12,7 +12,7 @@ reserves an input argument and `params` return field in generated TypeScript SQL
 builders.
 
 The first post-MVP `Param` feature needs a design that keeps SQL source valid as
-2-way SQL, keeps `@sqlcomp` metadata in SQL comments as decided by ADR 0003, and
+2-way SQL, keeps `@sqlay` metadata in SQL comments as decided by ADR 0003, and
 preserves the explicit naming rules from ADR 0005. Without a shared design, source
 intake, MySQL analysis, database-backed type inference, Core IR, and TypeScript
 generation could drift independently.
@@ -28,9 +28,9 @@ SQL source uses paired inline block comments around a sample SQL expression:
 ```sql
 SELECT id, email
 FROM users
-WHERE email = /* @sqlcomp { type: param id: email } */
+WHERE email = /* @sqlay { type: param id: email } */
   'test@example.test'
-  /* @sqlcomp { type: paramEnd } */;
+  /* @sqlay { type: paramEnd } */;
 ```
 
 The SQL between `param` and `paramEnd` is a sample expression. It keeps the source
@@ -120,7 +120,7 @@ See also:
 
 - [ADR 0001: Use MySQL 8.x as the MVP Dialect](./0001-use-mysql-8-for-mvp.md)
 - [ADR 0002: Use TypeScript SQL Builders as the First Target Generator](./0002-use-typescript-target-generator-first.md)
-- [ADR 0003: Use Hjson `@sqlcomp` Comments](./0003-use-hjson-sqlcomp-comments.md)
+- [ADR 0003: Use Hjson `@sqlay` Comments](./0003-use-hjson-sqlay-comments.md)
 - [ADR 0004: Limit the MVP to Query-only SELECT Support](./0004-limit-mvp-to-query-only-select.md)
 - [ADR 0005: Do Not Automatically Transform Generated Names](./0005-do-not-transform-generated-names.md)
 

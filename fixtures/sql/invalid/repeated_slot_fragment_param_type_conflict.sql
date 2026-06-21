@@ -1,15 +1,15 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: fragment
   id: equalsValue
 }
 */
-  = /* @sqlcomp { type: param id: value } */
+  = /* @sqlay { type: param id: value } */
     'varchar-320-a'
-    /* @sqlcomp { type: paramEnd } */ THEN TRUE
+    /* @sqlay { type: paramEnd } */ THEN TRUE
   WHEN 1
 
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: repeatedSlotFragmentParamTypeConflict
@@ -20,13 +20,13 @@ SELECT
 FROM fixture_all_column_type AS p
 WHERE CASE
   WHEN p.varchar_320_nn_col
-/* @sqlcomp { type: slot id: comparator targets: [equalsValue] } */
+/* @sqlay { type: slot id: comparator targets: [equalsValue] } */
   IS NULL THEN TRUE
   ELSE TRUE
 END
   AND CASE
     WHEN p.bigint_nn_col
-/* @sqlcomp { type: slot id: comparator targets: [equalsValue] } */
+/* @sqlay { type: slot id: comparator targets: [equalsValue] } */
     IS NULL THEN TRUE
     ELSE TRUE
   END;

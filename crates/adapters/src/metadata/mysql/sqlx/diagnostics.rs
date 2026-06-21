@@ -1,4 +1,4 @@
-use sqlcomp_core as core;
+use sqlay_core as core;
 
 pub(super) fn query_error(
     query: &core::RawQuery,

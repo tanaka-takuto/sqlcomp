@@ -1,4 +1,4 @@
-/* @sqlcomp
+/* @sqlay
 {
   type: query
   id: nestedPathMapping
