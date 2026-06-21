@@ -773,6 +773,7 @@ fn mysql_fixtures_use_sql_valid_invalid_layout() {
         "fixtures/sql/invalid/fragment_unknown_metadata_field.sql",
         "fixtures/sql/invalid/fragment_raw_statement_separator.sql",
         "fixtures/sql/invalid/fragment_raw_placeholder.sql",
+        "fixtures/sql/invalid/fragment_param_sample_placeholder.sql",
         "fixtures/sql/invalid/top_level_param.sql",
         "fixtures/sql/invalid/top_level_param_end.sql",
         "fixtures/sql/invalid/top_level_slot.sql",

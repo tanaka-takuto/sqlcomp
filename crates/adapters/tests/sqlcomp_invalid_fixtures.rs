@@ -17,6 +17,8 @@ const DUPLICATE_QUERY_FRAGMENT_ID: &str =
 const EXEC_CARDINALITY: &str = include_str!("../../../fixtures/sql/invalid/exec_cardinality.sql");
 const FRAGMENT_INVALID_ID: &str =
     include_str!("../../../fixtures/sql/invalid/fragment_invalid_id.sql");
+const FRAGMENT_PARAM_SAMPLE_PLACEHOLDER: &str =
+    include_str!("../../../fixtures/sql/invalid/fragment_param_sample_placeholder.sql");
 const FRAGMENT_RAW_PLACEHOLDER: &str =
     include_str!("../../../fixtures/sql/invalid/fragment_raw_placeholder.sql");
 const FRAGMENT_RAW_STATEMENT_SEPARATOR: &str =
@@ -130,6 +132,10 @@ fn invalid_slot_fragment_source_fixtures_fail_during_source_intake() {
     assert_source_error_contains(
         FRAGMENT_RAW_PLACEHOLDER,
         "raw `?` placeholders are not supported in source SQL; use paired `@sqlcomp` Param markers",
+    );
+    assert_source_error_contains(
+        FRAGMENT_PARAM_SAMPLE_PLACEHOLDER,
+        "`?` placeholders are not allowed inside Param sample expressions",
     );
     assert_source_error_contains(
         TOP_LEVEL_PARAM,
