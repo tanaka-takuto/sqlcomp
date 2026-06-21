@@ -19,20 +19,6 @@
   },
   "files": [
     {
-      "path": "crates/app/src/compile.rs",
-      "lineCount": 1792,
-      "kind": "production",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Split compile orchestration, dynamic validation, and result assembly into private app modules before increasing this file."
-    },
-    {
-      "path": "crates/app/src/tests.rs",
-      "lineCount": 2732,
-      "kind": "test",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Move scenario groups into focused app test modules before increasing this file."
-    },
-    {
       "path": "crates/adapters/src/config_jsonc.rs",
       "lineCount": 918,
       "kind": "production",
