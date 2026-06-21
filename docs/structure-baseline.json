@@ -17,13 +17,6 @@
       "softFileCount": 8
     }
   },
-  "files": [
-    {
-      "path": "tests/cli_binary.rs",
-      "lineCount": 1142,
-      "kind": "test",
-      "splitPlan": "Split CLI binary tests by command or behavior family before increasing this file."
-    }
-  ],
+  "files": [],
   "directories": []
 }
