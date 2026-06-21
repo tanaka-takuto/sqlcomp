@@ -19,13 +19,6 @@
   },
   "files": [
     {
-      "path": "crates/adapters/src/config_jsonc.rs",
-      "lineCount": 918,
-      "kind": "production",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Separate config parsing, validation, and path resolution helpers before increasing this file."
-    },
-    {
       "path": "crates/adapters/src/source_fs.rs",
       "lineCount": 4393,
       "kind": "production",
