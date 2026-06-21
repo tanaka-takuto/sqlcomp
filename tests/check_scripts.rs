@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -47,6 +47,155 @@ fn coverage_check_uses_line_percent_threshold_and_writes_lcov() {
     );
 }
 
+#[test]
+fn structure_check_accepts_committed_baseline() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure");
+
+    let output = fixture.run_script("script/check-structure.sh");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn structure_check_rejects_unbaselined_large_source_file() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-large-file");
+    let repo = fixture.root.join("repo");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    write_file(
+        &repo.join("crates/app/src/new_large.rs"),
+        &rust_comment_lines("// production line ", 601),
+    );
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "structure check should fail for an unbaselined large file"
+    );
+    assert!(
+        stderr.contains("crates/app/src/new_large.rs"),
+        "stderr should identify the large file: {stderr}"
+    );
+    assert!(
+        stderr.contains("exceeds production soft limit"),
+        "stderr should explain the threshold failure: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_rejects_baseline_growth() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-ratchet");
+    let repo = fixture.root.join("repo");
+    write_structure_baseline(
+        &repo,
+        r#"{
+  "version": 1,
+  "files": [
+    {
+      "path": "crates/app/src/lib.rs",
+      "lineCount": 2,
+      "kind": "production",
+      "splitPlan": "Keep this test fixture small."
+    }
+  ],
+  "directories": []
+}"#,
+    );
+    write_file(
+        &repo.join("crates/app/src/lib.rs"),
+        "// one\n// two\n// three\n",
+    );
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "structure check should fail when a baselined file grows"
+    );
+    assert!(
+        stderr.contains("grew beyond baseline"),
+        "stderr should describe the ratchet failure: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_rejects_unbaselined_large_module_directory() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-large-directory");
+    let repo = fixture.root.join("repo");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    for index in 0..9 {
+        write_file(
+            &repo.join(format!("crates/app/src/module_{index}.rs")),
+            "// small module\n",
+        );
+    }
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "structure check should fail when a module directory grows too wide"
+    );
+    assert!(
+        stderr.contains("crates/app/src"),
+        "stderr should identify the wide module directory: {stderr}"
+    );
+    assert!(
+        stderr.contains("private subdirectory"),
+        "stderr should suggest directory splitting: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_rejects_generic_module_names() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-generic-name");
+    let repo = fixture.root.join("repo");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    write_file(&repo.join("crates/app/src/utils.rs"), "// escape hatch\n");
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "structure check should fail for generic module names"
+    );
+    assert!(
+        stderr.contains("uses generic module name utils.rs"),
+        "stderr should identify the forbidden filename: {stderr}"
+    );
+}
+
+#[test]
+fn structure_check_ignores_symlinked_rust_files_outside_repo() {
+    let fixture = ScriptFixture::new("sqlcomp-check-structure-external-symlink");
+    let repo = fixture.root.join("repo");
+    let outside = fixture.root.join("outside.rs");
+    write_structure_baseline(&repo, r#"{"version":1,"files":[],"directories":[]}"#);
+    write_file(&outside, "// outside repo\n");
+    std::fs::create_dir_all(repo.join("crates/app/src"))
+        .expect("fixture module directory should be created");
+    symlink(&outside, repo.join("crates/app/src/outside.rs"))
+        .expect("fixture symlink should be created");
+
+    let output = fixture.run_script_with_repo_root("script/check-structure.sh", &repo);
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 struct ScriptFixture {
     root: PathBuf,
     fake_bin: PathBuf,
@@ -73,6 +222,14 @@ impl ScriptFixture {
     }
 
     fn run_script(&self, script_path: &str) -> std::process::Output {
+        self.run_script_with_repo_root(script_path, &repo_root())
+    }
+
+    fn run_script_with_repo_root(
+        &self,
+        script_path: &str,
+        target_repo_root: &Path,
+    ) -> std::process::Output {
         let repo_root = repo_root();
         let path = format!(
             "{}:{}",
@@ -84,7 +241,7 @@ impl ScriptFixture {
             .env("DATABASE_URL", DATABASE_URL)
             .env("HOME", &self.home)
             .env("PATH", path)
-            .env("SQLCOMP_REPO_ROOT", &repo_root)
+            .env("SQLCOMP_REPO_ROOT", target_repo_root)
             .env("TMPDIR", &self.root)
             .output()
             .expect("check script should run")
@@ -200,6 +357,26 @@ fn write_executable(path: &Path, content: &str) {
         .permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).expect("fake command should be executable");
+}
+
+fn write_file(path: &Path, content: &str) {
+    std::fs::create_dir_all(path.parent().expect("fixture path should have a parent"))
+        .expect("fixture parent directory should be created");
+    std::fs::write(path, content).expect("fixture file should be written");
+}
+
+fn write_structure_baseline(repo_root: &Path, content: &str) {
+    write_file(&repo_root.join("docs/structure-baseline.json"), content);
+}
+
+fn rust_comment_lines(prefix: &str, line_count: usize) -> String {
+    let mut content = String::new();
+    for line in 0..line_count {
+        content.push_str(prefix);
+        content.push_str(&line.to_string());
+        content.push('\n');
+    }
+    content
 }
 
 fn repo_root() -> PathBuf {
