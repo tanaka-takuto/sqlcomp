@@ -9,4 +9,4 @@ pub mod dialect_mysql;
 pub mod metadata_mysql_sqlx;
 pub mod output_fs;
 pub mod source_fs;
-pub mod target_typescript;
+pub mod target;

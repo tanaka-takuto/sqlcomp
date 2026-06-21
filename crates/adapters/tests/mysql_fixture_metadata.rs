@@ -5,7 +5,7 @@ use sqlcomp_adapters::metadata_mysql_sqlx::{
 };
 use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlcomp_adapters::source_fs::{FileSystemSourceReader, split_sqlcomp_query_blocks};
-use sqlcomp_adapters::target_typescript::TypeScriptTargetGenerator;
+use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
 use sqlcomp_app::{
     CompilePipeline, ConfigLoader, DefaultCompilationPlanner, DefaultCompileUseCase,
     DefaultQueryCompiler, DialectAnalyzer, MetadataProvider,

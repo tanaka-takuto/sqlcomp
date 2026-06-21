@@ -8,7 +8,7 @@ use sqlcomp_adapters::dialect_mysql::MysqlDialectAnalyzer;
 use sqlcomp_adapters::metadata_mysql_sqlx::SqlxMysqlMetadataProvider;
 use sqlcomp_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlcomp_adapters::source_fs::FileSystemSourceReader;
-use sqlcomp_adapters::target_typescript::TypeScriptTargetGenerator;
+use sqlcomp_adapters::target::typescript::TypeScriptTargetGenerator;
 use sqlcomp_app::{
     self as app, CompilePipeline, ConfigLoader, DefaultCompilationPlanner, DefaultCompileUseCase,
     DefaultProjectInitializer, DefaultQueryCompiler,

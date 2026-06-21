@@ -44,8 +44,10 @@ sqlcomp-core
 Only `sqlcomp-cli` may depend on both `sqlcomp-app` and `sqlcomp-adapters`.
 `sqlcomp-cli` is the composition root: it wires concrete adapters into application
 ports. `sqlcomp-adapters` groups infrastructure adapters as modules such as
-`config_jsonc`, `source_fs`, `dialect_mysql`, `metadata_mysql_sqlx`,
-`target_typescript`, and `output_fs`. Adapter modules implement ports from
+`config_jsonc`, `source_fs`, `dialect_mysql`, `metadata_mysql_sqlx`, `target`, and
+`output_fs`. Target-language adapters live under `target/<language>` directories,
+such as `target/typescript`, with shared target helpers owned by `target`.
+Adapter modules implement ports from
 `sqlcomp-app` and exchange only `sqlcomp-core` types. `sqlcomp-app` owns use cases
 and port traits. `sqlcomp-core` owns shared domain vocabulary and language-neutral
 IR. A new dependency edge between workspace crates is an architecture decision, not

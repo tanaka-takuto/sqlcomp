@@ -54,13 +54,6 @@
       "splitPlan": "Split source scanning, metadata parsing, inline markers, discovery, diagnostics, and tests into private source_fs modules before increasing this file."
     },
     {
-      "path": "crates/adapters/src/target_typescript.rs",
-      "lineCount": 1568,
-      "kind": "production",
-      "allowAboveHardLimit": true,
-      "splitPlan": "Separate TypeScript type rendering, SQL string rendering, and Slot runtime builder generation before increasing this file."
-    },
-    {
       "path": "crates/adapters/tests/mysql_fixture_metadata.rs",
       "lineCount": 1304,
       "kind": "test",
