@@ -165,6 +165,46 @@ fn check_reports_dialect_metadata_and_generation_errors_as_diagnostics() {
 }
 
 #[test]
+fn check_rejects_mutation_source_units_until_mutation_pipeline_is_implemented() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUser".to_owned()),
+        "INSERT INTO users (email) VALUES ('ada@example.test');".to_owned(),
+    )
+    .with_source_path("sql/users.sql");
+    let source_read = SourceRead::from_queries(Vec::new())
+        .with_mutations(vec![mutation.clone()])
+        .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+        .with_source_file_count(1);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("mutation pipeline is not implemented in this slice");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "mutation source unit `createUser` is parsed by source intake, but mutation analysis and generation are not implemented yet"
+    );
+    assert_eq!(calls.entries(), ["read"]);
+}
+
+#[test]
 fn compile_clean_writes_generated_files_and_removes_stale_files() {
     let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let generated_files = core::GeneratedFiles::new(vec![core::GeneratedFile::new(

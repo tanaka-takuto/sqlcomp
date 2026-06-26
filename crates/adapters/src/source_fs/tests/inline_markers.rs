@@ -340,7 +340,7 @@ fn rejects_unsupported_inline_slot_placements() {
 */
 SELECT id FROM users;
 ",
-            "`slot` markers must appear inside a query body; top-level Slot markers are not supported",
+            "`slot` markers must appear inside a query or mutation body; top-level Slot markers are not supported",
         ),
         (
             r"
@@ -353,7 +353,7 @@ SELECT id FROM users;
 /* @sqlay { type: slot id: filter targets: [byEmail] } */
 AND u.active = 1
 ",
-            "slot markers inside fragments are not supported yet; define slots in query bodies for the initial Slot/Fragment release",
+            "slot markers inside fragments are not supported yet; define slots in query or mutation bodies",
         ),
         (
             r"
@@ -792,7 +792,7 @@ WHERE email = /* @sqlay { type: param id: email } */
 */
 SELECT id FROM users;
 ",
-            "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+            "`param` markers must appear inside a query, mutation, or fragment body; top-level Param markers are not supported",
         ),
         (
             r"
@@ -805,7 +805,7 @@ SELECT id FROM users;
 */
 SELECT id FROM users;
 ",
-            "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
+            "`paramEnd` markers must appear inside a query, mutation, or fragment body; top-level paramEnd markers are not supported",
         ),
         (
             r"

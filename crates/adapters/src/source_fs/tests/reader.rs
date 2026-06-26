@@ -101,6 +101,63 @@ AND u.active = 1
 }
 
 #[test]
+fn filesystem_source_reader_reads_mutation_source_units_with_source_order() {
+    let project_dir = test_project_dir("reads-mutation-source-units");
+    let source_path = project_dir.join("sql").join("users.sql");
+    write_sql(
+        &source_path,
+        r"
+/* @sqlay
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+/* @sqlay
+{
+  type: mutation
+  id: createUser
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+    );
+    let plan = compilation_plan(&project_dir, vec![source_path.clone()], Vec::new());
+
+    let source_read = FileSystemSourceReader
+        .read(&plan)
+        .expect("mutation SQL file should be read");
+
+    assert_eq!(source_read.source_file_count(), 1);
+    assert_eq!(source_read.queries().len(), 1);
+    assert_eq!(source_read.mutations().len(), 1);
+    assert_eq!(source_read.source_units().len(), 2);
+    assert!(matches!(
+        source_read.source_units()[0],
+        core::RawSourceUnit::Query(_)
+    ));
+    assert!(matches!(
+        source_read.source_units()[1],
+        core::RawSourceUnit::Mutation(_)
+    ));
+    assert_eq!(source_read.source_units()[0].id(), "listUsers");
+    assert_eq!(source_read.source_units()[1].id(), "createUser");
+    assert_eq!(
+        source_read.mutations()[0].source_path(),
+        Some(Path::new("sql/users.sql"))
+    );
+    assert_eq!(
+        source_read.mutations()[0]
+            .source_location()
+            .and_then(core::SourceLocation::path),
+        Some(source_path.as_path())
+    );
+
+    fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+}
+
+#[test]
 fn filesystem_source_reader_does_not_collect_fragments_from_excluded_files() {
     let project_dir = test_project_dir("excludes-fragment-files");
     let query_path = project_dir.join("sql").join("users.sql");
@@ -513,7 +570,7 @@ AND u.deleted_at IS NULL
     assert_duplicate_source_unit_report(
         &report,
         &second_path,
-        "duplicate fragment id `activeOnly`; query and fragment IDs must be unique across the full compile run",
+        "duplicate fragment id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
     );
     fs::remove_dir_all(project_dir).expect("test project directory should be removed");
 }
@@ -560,8 +617,85 @@ AND u.active = 1
     assert_duplicate_source_unit_report(
         &report,
         &fragment_path,
-        "duplicate source unit id `activeOnly`; query and fragment IDs must be unique across the full compile run",
+        "duplicate source unit id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
     );
+    fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+}
+
+#[test]
+fn source_reader_rejects_query_mutation_and_fragment_id_collisions_across_files() {
+    let project_dir = test_project_dir("duplicate-query-mutation-fragment-across-files");
+    let query_path = project_dir.join("sql").join("01_query.sql");
+    let mutation_path = project_dir.join("sql").join("02_mutation.sql");
+    let fragment_path = project_dir.join("sql").join("03_fragment.sql");
+    write_sql(
+        &query_path,
+        r"
+/* @sqlay
+{
+  type: query
+  id: sharedUnit
+}
+*/
+SELECT id FROM users;
+",
+    );
+    write_sql(
+        &mutation_path,
+        r"
+/* @sqlay
+{
+  type: mutation
+  id: sharedUnit
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+    );
+    write_sql(
+        &fragment_path,
+        r"
+/* @sqlay
+{
+  type: fragment
+  id: sharedUnit
+}
+*/
+AND u.active = 1
+",
+    );
+    let plan = compilation_plan(
+        &project_dir,
+        vec![project_dir.join("sql/**/*.sql")],
+        Vec::new(),
+    );
+
+    let report = FileSystemSourceReader
+        .read(&plan)
+        .expect_err("query, mutation, and fragment ID collisions should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        [
+            "duplicate source unit id `sharedUnit`; query, mutation, and fragment IDs must be unique across the full compile run",
+            "first declared here",
+            "duplicate source unit id `sharedUnit`; query, mutation, and fragment IDs must be unique across the full compile run",
+            "first declared here",
+        ]
+    );
+    assert_eq!(
+        report.diagnostics()[0]
+            .location()
+            .and_then(core::SourceLocation::path),
+        Some(mutation_path.as_path())
+    );
+    assert_eq!(
+        report.diagnostics()[2]
+            .location()
+            .and_then(core::SourceLocation::path),
+        Some(fragment_path.as_path())
+    );
+
     fs::remove_dir_all(project_dir).expect("test project directory should be removed");
 }
 
@@ -598,7 +732,7 @@ SELECT id FROM users;
     assert_duplicate_source_unit_report(
         &report,
         &source_path,
-        "duplicate source unit id `activeOnly`; query and fragment IDs must be unique across the full compile run",
+        "duplicate source unit id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
     );
     assert_eq!(
         report.diagnostics()[0]
@@ -674,7 +808,7 @@ SELECT id FROM archived_users;
         diagnostic_messages(&report),
         [
             "`cardinality: exec` is reserved for future non-SELECT support and is not currently supported",
-            "duplicate query id `listUsers`; query IDs must be unique across the full compile run",
+            "duplicate query id `listUsers`; query, mutation, and fragment IDs must be unique across the full compile run",
             "first declared here",
         ]
     );

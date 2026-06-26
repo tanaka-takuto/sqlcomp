@@ -9,12 +9,24 @@ use crate::source_fs::scanner::{SqlayBlockScan, scan_sqlay_blocks, source_range_
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SourceUnits {
     queries: Vec<core::RawQuery>,
+    mutations: Vec<core::RawMutation>,
     fragments: Vec<core::RawFragment>,
+    units: Vec<core::RawSourceUnit>,
 }
 
 impl SourceUnits {
-    const fn new(queries: Vec<core::RawQuery>, fragments: Vec<core::RawFragment>) -> Self {
-        Self { queries, fragments }
+    const fn new(
+        queries: Vec<core::RawQuery>,
+        mutations: Vec<core::RawMutation>,
+        fragments: Vec<core::RawFragment>,
+        units: Vec<core::RawSourceUnit>,
+    ) -> Self {
+        Self {
+            queries,
+            mutations,
+            fragments,
+            units,
+        }
     }
 
     #[cfg(test)]
@@ -23,12 +35,29 @@ impl SourceUnits {
     }
 
     #[cfg(test)]
+    pub(super) fn mutations(&self) -> &[core::RawMutation] {
+        &self.mutations
+    }
+
+    #[cfg(test)]
     pub(super) fn fragments(&self) -> &[core::RawFragment] {
         &self.fragments
     }
 
-    pub(super) fn into_parts(self) -> (Vec<core::RawQuery>, Vec<core::RawFragment>) {
-        (self.queries, self.fragments)
+    #[cfg(test)]
+    pub(super) fn source_units(&self) -> &[core::RawSourceUnit] {
+        &self.units
+    }
+
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Vec<core::RawQuery>,
+        Vec<core::RawMutation>,
+        Vec<core::RawFragment>,
+        Vec<core::RawSourceUnit>,
+    ) {
+        (self.queries, self.mutations, self.fragments, self.units)
     }
 }
 
@@ -69,7 +98,9 @@ pub(super) fn split_sqlay_source_units_from_scan(
         .filter_map(|(index, parsed_block)| is_global_source_unit(parsed_block).then_some(index))
         .collect::<Vec<_>>();
     let mut queries = Vec::new();
+    let mut mutations = Vec::new();
     let mut fragments = Vec::new();
+    let mut source_units = Vec::new();
 
     for (source_unit_position, parsed_index) in source_unit_indexes.iter().copied().enumerate() {
         let parsed_block = &parsed_blocks[parsed_index];
@@ -92,25 +123,37 @@ pub(super) fn split_sqlay_source_units_from_scan(
                 let replacement =
                     replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
 
-                queries.push(
-                    core::RawQuery::new(metadata.clone(), sql)
-                        .with_analysis_sql(replacement.analysis_sql)
-                        .with_param_usages(replacement.param_usages)
-                        .with_slot_usages(replacement.slot_usages)
-                        .with_source_location(location),
-                );
+                let query = core::RawQuery::new(metadata.clone(), sql)
+                    .with_analysis_sql(replacement.analysis_sql)
+                    .with_param_usages(replacement.param_usages)
+                    .with_slot_usages(replacement.slot_usages)
+                    .with_source_location(location);
+                source_units.push(core::RawSourceUnit::Query(query.clone()));
+                queries.push(query);
+            }
+            SqlayAnnotation::Mutation(metadata) => {
+                let replacement =
+                    replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
+
+                let mutation = core::RawMutation::new(metadata.clone(), sql)
+                    .with_analysis_sql(replacement.analysis_sql)
+                    .with_param_usages(replacement.param_usages)
+                    .with_slot_usages(replacement.slot_usages)
+                    .with_source_location(location);
+                source_units.push(core::RawSourceUnit::Mutation(mutation.clone()));
+                mutations.push(mutation);
             }
             SqlayAnnotation::Fragment(metadata) => {
                 reject_fragment_statement_separator(source, body_start, body_end)?;
                 let replacement =
                     replace_inline_markers(source, body_start, body_end, &parsed_blocks)?;
                 debug_assert!(replacement.slot_usages.is_empty());
-                fragments.push(
-                    core::RawFragment::new(metadata.clone(), sql)
-                        .with_analysis_sql(replacement.analysis_sql)
-                        .with_param_usages(replacement.param_usages)
-                        .with_source_location(location),
-                );
+                let fragment = core::RawFragment::new(metadata.clone(), sql)
+                    .with_analysis_sql(replacement.analysis_sql)
+                    .with_param_usages(replacement.param_usages)
+                    .with_source_location(location);
+                source_units.push(core::RawSourceUnit::Fragment(fragment.clone()));
+                fragments.push(fragment);
             }
             SqlayAnnotation::Param(_) | SqlayAnnotation::ParamEnd | SqlayAnnotation::Slot(_) => {
                 unreachable!("source unit indexes only point at global annotations");
@@ -118,12 +161,17 @@ pub(super) fn split_sqlay_source_units_from_scan(
         }
     }
 
-    Ok(SourceUnits::new(queries, fragments))
+    Ok(SourceUnits::new(
+        queries,
+        mutations,
+        fragments,
+        source_units,
+    ))
 }
 
 const fn is_global_source_unit(parsed_block: &ParsedSqlayBlock<'_>) -> bool {
     matches!(
         parsed_block.annotation,
-        SqlayAnnotation::Query(_) | SqlayAnnotation::Fragment(_)
+        SqlayAnnotation::Query(_) | SqlayAnnotation::Mutation(_) | SqlayAnnotation::Fragment(_)
     )
 }

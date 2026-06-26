@@ -40,6 +40,7 @@ where
 {
     let source_read = pipeline.source_reader.read(plan)?;
     let source_file_count = source_read.source_file_count();
+    reject_mutations_until_pipeline_exists(&source_read)?;
     let (raw_queries, raw_fragments, mut diagnostics) = source_read.into_parts();
     let fragment_count = raw_fragments.len();
     let fragments_by_id = raw_fragments
@@ -127,6 +128,24 @@ where
         query_summaries,
         fragment_count,
     })
+}
+
+fn reject_mutations_until_pipeline_exists(
+    source_read: &crate::SourceRead,
+) -> core::DiagnosticResult<()> {
+    let Some(mutation) = source_read.mutations().first() else {
+        return Ok(());
+    };
+
+    let mut diagnostic = core::Diagnostic::error(format!(
+        "mutation source unit `{}` is parsed by source intake, but mutation analysis and generation are not implemented yet",
+        mutation.metadata().id()
+    ));
+    if let Some(location) = mutation.source_location() {
+        diagnostic = diagnostic.with_location(location.clone());
+    }
+
+    Err(core::DiagnosticReport::new(diagnostic))
 }
 
 fn push_unused_fragment_warnings(

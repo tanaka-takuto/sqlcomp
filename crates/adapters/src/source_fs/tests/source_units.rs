@@ -140,6 +140,145 @@ SELECT u.id FROM users AS u;
 }
 
 #[test]
+fn splits_mutation_source_units_and_preserves_mixed_source_order() {
+    let source = r"
+/* @sqlay
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT u.id FROM users AS u;
+/* @sqlay
+{
+  type: mutation
+  id: createUser
+}
+*/
+INSERT INTO users (email)
+VALUES (
+  /* @sqlay { type: param id: email valueType: string } */
+  'ada@example.test'
+  /* @sqlay { type: paramEnd } */
+)
+/* @sqlay { type: slot id: writeMode targets: [upsertName] } */;
+/* @sqlay
+{
+  type: fragment
+  id: upsertName
+}
+*/
+ON DUPLICATE KEY UPDATE name = VALUES(name)
+"
+    .strip_prefix('\n')
+    .expect("raw SQL test source should start with a newline");
+
+    let source_units = split_sqlay_source_units(source).expect("source units should split");
+
+    assert_eq!(source_units.queries().len(), 1);
+    assert_eq!(source_units.mutations().len(), 1);
+    assert_eq!(source_units.fragments().len(), 1);
+    assert_eq!(source_units.source_units().len(), 3);
+    assert!(matches!(
+        source_units.source_units()[0],
+        core::RawSourceUnit::Query(_)
+    ));
+    assert!(matches!(
+        source_units.source_units()[1],
+        core::RawSourceUnit::Mutation(_)
+    ));
+    assert!(matches!(
+        source_units.source_units()[2],
+        core::RawSourceUnit::Fragment(_)
+    ));
+    assert_eq!(source_units.source_units()[0].id(), "listUsers");
+    assert_eq!(source_units.source_units()[1].id(), "createUser");
+    assert_eq!(source_units.source_units()[2].id(), "upsertName");
+
+    let mutation = &source_units.mutations()[0];
+    assert_eq!(mutation.metadata().id(), "createUser");
+    assert_eq!(
+        mutation.analysis_sql(),
+        "\nINSERT INTO users (email)\nVALUES (\n  ?\n)\n;\n"
+    );
+    assert_eq!(mutation.param_usages().len(), 1);
+    assert_eq!(mutation.param_usages()[0].id(), "email");
+    assert_eq!(
+        mutation.param_usages()[0].value_type_override(),
+        Some(core::CoreType::String)
+    );
+    assert_eq!(
+        mutation.param_usages()[0].sample_sql(),
+        "\n  'ada@example.test'\n  "
+    );
+    assert_eq!(mutation.slot_usages().len(), 1);
+    assert_eq!(mutation.slot_usages()[0].id(), "writeMode");
+    assert_eq!(mutation.slot_usages()[0].targets(), ["upsertName"]);
+}
+
+#[test]
+fn rejects_invalid_mutation_metadata() {
+    for (source, expected_message) in [
+        (
+            r"
+/* @sqlay
+{
+  type: mutation
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+            "missing required `mutation` metadata field `id`",
+        ),
+        (
+            r"
+/* @sqlay
+{
+  type: mutation
+  id: true
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+            "`mutation` metadata field `id` must be a string",
+        ),
+        (
+            r"
+/* @sqlay
+{
+  type: mutation
+  id: 1bad
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+            "invalid mutation id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
+        ),
+        (
+            r"
+/* @sqlay
+{
+  type: mutation
+  id: createUser
+  cardinality: one
+}
+*/
+INSERT INTO users (email) VALUES ('ada@example.test');
+",
+            "unknown `mutation` metadata field `cardinality`; supported fields are `type` and `id`",
+        ),
+    ] {
+        let source = source
+            .strip_prefix('\n')
+            .expect("raw SQL test source should start with a newline");
+        let report =
+            split_sqlay_source_units(source).expect_err("invalid mutation metadata rejected");
+
+        assert_eq!(diagnostic_messages(&report), [expected_message]);
+    }
+}
+
+#[test]
 fn rejects_invalid_fragment_metadata() {
     for (source, expected_message) in [
         (
@@ -219,13 +358,13 @@ SELECT id FROM users;
             r"
 /* @sqlay
 {
-  type: mutation
-  id: updateUser
+  type: procedure
+  id: rebuildSearchIndex
 }
 */
-UPDATE users SET name = 'Ada';
+CALL rebuild_search_index();
 ",
-            "unsupported `@sqlay` annotation type `mutation`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`",
+            "unsupported `@sqlay` annotation type `procedure`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`",
         ),
     ] {
         let source = source
@@ -257,7 +396,7 @@ SELECT id FROM users;
     assert_eq!(
         diagnostic_messages(&report),
         [
-            "unsupported `@sqlay` annotation type `false`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`"
+            "unsupported `@sqlay` annotation type `false`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`"
         ]
     );
 }

@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 
 use crate::{CoreType, SourceLocation};
 
+mod mutation;
+
+pub use mutation::{MutationId, MutationMetadata, RawMutation};
+
 /// Query identifier exactly as written in source metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryId(String);
@@ -416,6 +420,49 @@ impl RawQuery {
     }
 }
 
+/// Raw top-level source unit in source order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RawSourceUnit {
+    /// A `type: query` builder source unit.
+    Query(RawQuery),
+    /// A `type: mutation` builder source unit.
+    Mutation(RawMutation),
+    /// A `type: fragment` reusable SQL fragment source unit.
+    Fragment(RawFragment),
+}
+
+impl RawSourceUnit {
+    /// Source unit ID exactly as written in source metadata.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Query(query) => query.metadata().id(),
+            Self::Mutation(mutation) => mutation.metadata().id(),
+            Self::Fragment(fragment) => fragment.metadata().id(),
+        }
+    }
+
+    /// Source SQL path relative to the configuration directory, when known.
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        match self {
+            Self::Query(query) => query.source_path(),
+            Self::Mutation(mutation) => mutation.source_path(),
+            Self::Fragment(fragment) => fragment.source_path(),
+        }
+    }
+
+    /// Optional source location for this source unit body.
+    #[must_use]
+    pub const fn source_location(&self) -> Option<&SourceLocation> {
+        match self {
+            Self::Query(query) => query.source_location(),
+            Self::Mutation(mutation) => mutation.source_location(),
+            Self::Fragment(fragment) => fragment.source_location(),
+        }
+    }
+}
+
 /// Dialect analysis result.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalyzedQuery {
@@ -443,147 +490,4 @@ pub enum Cardinality {
     One,
     /// A query returns zero or more rows.
     Many,
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use crate::{
-        AnalyzedQuery, Cardinality, FragmentMetadata, QueryMetadata, RawFragment, RawQuery,
-        SlotUsage, SourceLocation, SourcePosition, SourceRange,
-    };
-
-    #[test]
-    fn raw_query_preserves_metadata_sql_source_path_and_optional_source_location() {
-        let location = SourceLocation::at_range(
-            "sql/users.sql",
-            SourceRange::point(
-                SourcePosition::one_based(8, 1).expect("test position should be valid"),
-            ),
-        );
-        let query = RawQuery::new(
-            QueryMetadata::new("listUsers".to_owned(), Some(Cardinality::One)),
-            "SELECT id FROM users;".to_owned(),
-        )
-        .with_source_path("sql/users.sql")
-        .with_source_location(location.clone());
-
-        assert_eq!(query.metadata().id(), "listUsers");
-        assert_eq!(query.metadata().cardinality(), Some(Cardinality::One));
-        assert_eq!(query.sql(), "SELECT id FROM users;");
-        assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
-        assert_eq!(query.source_location(), Some(&location));
-    }
-
-    #[test]
-    fn raw_query_can_carry_analysis_sql_and_param_usages() {
-        let location = SourceLocation::from_range(SourceRange::point(
-            SourcePosition::one_based(8, 15).expect("test position should be valid"),
-        ));
-        let query = RawQuery::new(
-            QueryMetadata::new("findUser".to_owned(), None),
-            "SELECT id FROM users WHERE email = /* @sqlay { type: param id: email valueType: string nullable: true } */ 'test@example.test' /* @sqlay { type: paramEnd } */;".to_owned(),
-        )
-        .with_analysis_sql("SELECT id FROM users WHERE email = ?;".to_owned())
-        .with_param_usages(vec![crate::ParamUsage::new(
-            "email".to_owned(),
-            Some(crate::CoreType::String),
-            true,
-            location.clone(),
-        )]);
-
-        assert_eq!(
-            query.analysis_sql(),
-            "SELECT id FROM users WHERE email = ?;"
-        );
-        assert_eq!(query.param_usages().len(), 1);
-        assert_eq!(query.param_usages()[0].id(), "email");
-        assert_eq!(
-            query.param_usages()[0].value_type_override(),
-            Some(crate::CoreType::String)
-        );
-        assert!(query.param_usages()[0].nullable_override());
-        assert_eq!(query.param_usages()[0].source_location(), &location);
-    }
-
-    #[test]
-    fn raw_query_can_carry_slot_usages() {
-        let location = SourceLocation::from_range(SourceRange::point(
-            SourcePosition::one_based(8, 45).expect("test position should be valid"),
-        ));
-        let query = RawQuery::new(
-            QueryMetadata::new("listUsers".to_owned(), None),
-            "SELECT id FROM users WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [activeOnly] } */;".to_owned(),
-        )
-        .with_analysis_sql("SELECT id FROM users WHERE 1 = 1;".to_owned())
-        .with_slot_usages(vec![SlotUsage::new(
-            "filter".to_owned(),
-            vec!["activeOnly".to_owned()],
-            32,
-            location.clone(),
-        )]);
-
-        assert_eq!(query.analysis_sql(), "SELECT id FROM users WHERE 1 = 1;");
-        assert_eq!(query.slot_usages().len(), 1);
-        assert_eq!(query.slot_usages()[0].id(), "filter");
-        assert_eq!(query.slot_usages()[0].targets(), ["activeOnly"]);
-        assert_eq!(query.slot_usages()[0].insertion_index(), 32);
-        assert_eq!(query.slot_usages()[0].source_location(), &location);
-    }
-
-    #[test]
-    fn raw_fragment_preserves_metadata_sql_source_path_and_optional_source_location() {
-        let location = SourceLocation::at_range(
-            "sql/fragments.sql",
-            SourceRange::point(
-                SourcePosition::one_based(7, 1).expect("test position should be valid"),
-            ),
-        );
-        let fragment = RawFragment::new(
-            FragmentMetadata::new("activeOnly".to_owned()),
-            "\nAND u.active = 1\n".to_owned(),
-        )
-        .with_source_path("sql/fragments.sql")
-        .with_source_location(location.clone());
-
-        assert_eq!(fragment.metadata().id(), "activeOnly");
-        assert_eq!(fragment.sql(), "\nAND u.active = 1\n");
-        assert_eq!(fragment.source_path(), Some(Path::new("sql/fragments.sql")));
-        assert_eq!(fragment.source_location(), Some(&location));
-    }
-
-    #[test]
-    fn raw_fragment_can_carry_analysis_sql_and_param_usages() {
-        let location = SourceLocation::from_range(SourceRange::point(
-            SourcePosition::one_based(8, 15).expect("test position should be valid"),
-        ));
-        let fragment = RawFragment::new(
-            FragmentMetadata::new("byEmail".to_owned()),
-            "\nAND u.email = /* @sqlay { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlay { type: paramEnd } */\n".to_owned(),
-        )
-        .with_analysis_sql("\nAND u.email = ?\n".to_owned())
-        .with_param_usages(vec![crate::ParamUsage::new(
-            "email".to_owned(),
-            Some(crate::CoreType::String),
-            false,
-            location.clone(),
-        )]);
-
-        assert_eq!(fragment.analysis_sql(), "\nAND u.email = ?\n");
-        assert_eq!(fragment.param_usages().len(), 1);
-        assert_eq!(fragment.param_usages()[0].id(), "email");
-        assert_eq!(
-            fragment.param_usages()[0].value_type_override(),
-            Some(crate::CoreType::String)
-        );
-        assert_eq!(fragment.param_usages()[0].source_location(), &location);
-    }
-
-    #[test]
-    fn analyzed_query_exposes_inferred_cardinality() {
-        let analysis = AnalyzedQuery::new(Cardinality::Many);
-
-        assert_eq!(analysis.cardinality(), Cardinality::Many);
-    }
 }

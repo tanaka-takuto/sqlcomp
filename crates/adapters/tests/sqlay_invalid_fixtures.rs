@@ -139,15 +139,15 @@ fn invalid_slot_fragment_source_fixtures_fail_during_source_intake() {
     );
     assert_source_error_contains(
         TOP_LEVEL_PARAM,
-        "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+        "`param` markers must appear inside a query, mutation, or fragment body; top-level Param markers are not supported",
     );
     assert_source_error_contains(
         TOP_LEVEL_PARAM_END,
-        "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
+        "`paramEnd` markers must appear inside a query, mutation, or fragment body; top-level paramEnd markers are not supported",
     );
     assert_source_error_contains(
         TOP_LEVEL_SLOT,
-        "`slot` markers must appear inside a query body; top-level Slot markers are not supported",
+        "`slot` markers must appear inside a query or mutation body; top-level Slot markers are not supported",
     );
     assert_source_error_contains(
         SLOT_IN_FRAGMENT_BODY,

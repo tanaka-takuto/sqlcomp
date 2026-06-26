@@ -20,7 +20,9 @@ impl SourceReader for FileSystemSourceReader {
     fn read(&self, plan: &core::CompilationPlan) -> core::DiagnosticResult<SourceRead> {
         let mut seen_ids = HashMap::new();
         let mut queries = Vec::new();
+        let mut mutations = Vec::new();
         let mut fragments = Vec::new();
+        let mut source_units = Vec::new();
         let mut diagnostics = core::DiagnosticReport::default();
         let mut fatal_diagnostics = core::DiagnosticReport::default();
         let source_files = discover_source_files(plan)?;
@@ -69,17 +71,24 @@ impl SourceReader for FileSystemSourceReader {
                 diagnostics.push(unannotated_sql_warning(&path));
             }
 
-            let source_units = match split_sqlay_source_units_from_scan(&source, &scan) {
+            let parsed_source_units = match split_sqlay_source_units_from_scan(&source, &scan) {
                 Ok(source_units) => source_units,
                 Err(report) => {
                     extend_diagnostics(&mut fatal_diagnostics, attach_path(report, &path));
                     continue;
                 }
             };
-            let (file_queries, file_fragments) = source_units.into_parts();
+            let (file_queries, file_mutations, file_fragments, file_source_units) =
+                parsed_source_units.into_parts();
             let file_queries = file_queries
                 .into_iter()
                 .map(|query| attach_query_path(query, &path).with_source_path(source_path.clone()))
+                .collect::<Vec<_>>();
+            let file_mutations = file_mutations
+                .into_iter()
+                .map(|mutation| {
+                    attach_mutation_path(mutation, &path).with_source_path(source_path.clone())
+                })
                 .collect::<Vec<_>>();
             let file_fragments = file_fragments
                 .into_iter()
@@ -87,14 +96,21 @@ impl SourceReader for FileSystemSourceReader {
                     attach_fragment_path(fragment, &path).with_source_path(source_path.clone())
                 })
                 .collect::<Vec<_>>();
+            let file_source_units = file_source_units
+                .into_iter()
+                .map(|source_unit| attach_source_unit_path(source_unit, &path, &source_path))
+                .collect::<Vec<_>>();
             collect_duplicate_source_unit_ids(
                 &file_queries,
+                &file_mutations,
                 &file_fragments,
                 &mut seen_ids,
                 &mut fatal_diagnostics,
             );
             queries.extend(file_queries);
+            mutations.extend(file_mutations);
             fragments.extend(file_fragments);
+            source_units.extend(file_source_units);
         }
 
         if !fatal_diagnostics.is_empty() {
@@ -102,7 +118,9 @@ impl SourceReader for FileSystemSourceReader {
         }
 
         Ok(SourceRead::new(queries, diagnostics)
+            .with_mutations(mutations)
             .with_fragments(fragments)
+            .with_source_units(source_units)
             .with_source_file_count(source_file_count))
     }
 }
@@ -135,6 +153,34 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
         .with_slot_usages(slot_usages)
 }
 
+fn attach_mutation_path(mutation: core::RawMutation, path: &Path) -> core::RawMutation {
+    let range = mutation
+        .source_location()
+        .and_then(core::SourceLocation::range);
+    let param_usages = mutation
+        .param_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_param_usage_path(usage, path))
+        .collect::<Vec<_>>();
+    let slot_usages = mutation
+        .slot_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_slot_usage_path(usage, path))
+        .collect::<Vec<_>>();
+
+    let mutation = if let Some(range) = range {
+        mutation.with_source_location(core::SourceLocation::at_range(path, range))
+    } else {
+        mutation.with_source_location(core::SourceLocation::for_path(path))
+    };
+
+    mutation
+        .with_param_usages(param_usages)
+        .with_slot_usages(slot_usages)
+}
+
 fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFragment {
     let range = fragment
         .source_location()
@@ -153,6 +199,24 @@ fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFr
     };
 
     fragment.with_param_usages(param_usages)
+}
+
+fn attach_source_unit_path(
+    source_unit: core::RawSourceUnit,
+    path: &Path,
+    source_path: &Path,
+) -> core::RawSourceUnit {
+    match source_unit {
+        core::RawSourceUnit::Query(query) => core::RawSourceUnit::Query(
+            attach_query_path(query, path).with_source_path(source_path.to_path_buf()),
+        ),
+        core::RawSourceUnit::Mutation(mutation) => core::RawSourceUnit::Mutation(
+            attach_mutation_path(mutation, path).with_source_path(source_path.to_path_buf()),
+        ),
+        core::RawSourceUnit::Fragment(fragment) => core::RawSourceUnit::Fragment(
+            attach_fragment_path(fragment, path).with_source_path(source_path.to_path_buf()),
+        ),
+    }
 }
 
 fn attach_param_usage_path(usage: core::ParamUsage, path: &Path) -> core::ParamUsage {
@@ -186,6 +250,7 @@ struct SourceUnitOccurrence<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SourceUnitKind {
     Query,
+    Mutation,
     Fragment,
 }
 
@@ -193,17 +258,26 @@ type SeenSourceUnitIds = HashMap<String, SourceUnitDeclaration>;
 
 fn collect_duplicate_source_unit_ids(
     queries: &[core::RawQuery],
+    mutations: &[core::RawMutation],
     fragments: &[core::RawFragment],
     seen_ids: &mut SeenSourceUnitIds,
     diagnostics: &mut core::DiagnosticReport,
 ) {
-    let mut source_units = Vec::with_capacity(queries.len() + fragments.len());
+    let mut source_units = Vec::with_capacity(queries.len() + mutations.len() + fragments.len());
 
     for query in queries {
         source_units.push(SourceUnitOccurrence {
             id: query.metadata().id(),
             kind: SourceUnitKind::Query,
             location: query.source_location().cloned(),
+        });
+    }
+
+    for mutation in mutations {
+        source_units.push(SourceUnitOccurrence {
+            id: mutation.metadata().id(),
+            kind: SourceUnitKind::Mutation,
+            location: mutation.source_location().cloned(),
         });
     }
 
@@ -278,17 +352,22 @@ fn duplicate_source_unit_message(
     match (first_kind, duplicate_kind) {
         (SourceUnitKind::Query, SourceUnitKind::Query) => {
             format!(
-                "duplicate query id `{id}`; query IDs must be unique across the full compile run"
+                "duplicate query id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
+            )
+        }
+        (SourceUnitKind::Mutation, SourceUnitKind::Mutation) => {
+            format!(
+                "duplicate mutation id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
         (SourceUnitKind::Fragment, SourceUnitKind::Fragment) => {
             format!(
-                "duplicate fragment id `{id}`; query and fragment IDs must be unique across the full compile run"
+                "duplicate fragment id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
         _ => {
             format!(
-                "duplicate source unit id `{id}`; query and fragment IDs must be unique across the full compile run"
+                "duplicate source unit id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
     }

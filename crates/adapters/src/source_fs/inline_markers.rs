@@ -36,7 +36,7 @@ pub(super) fn replace_inline_markers(
     while index < query_blocks.len() {
         let parsed_block = query_blocks[index];
         match &parsed_block.annotation {
-            SqlayAnnotation::Query(_) => {
+            SqlayAnnotation::Query(_) | SqlayAnnotation::Mutation(_) => {
                 index += 1;
             }
             SqlayAnnotation::Fragment(_) => {
@@ -190,8 +190,9 @@ fn first_statement_separator_index(source: &str, start: usize, end: usize) -> Op
 /// Validates the structural constraints of inline `@sqlay` markers.
 ///
 /// Ensures that `param` and `paramEnd` markers are paired without nesting, that inline
-/// markers appear only inside query or fragment bodies, that `slot` markers are used only
-/// in query bodies, and that `slot` markers do not nest within `param` ranges.
+/// markers appear only inside query, mutation, or fragment bodies, that `slot`
+/// markers are used only in query or mutation bodies, and that `slot` markers do
+/// not nest within `param` ranges.
 pub(super) fn validate_inline_markers(
     parsed_blocks: &[ParsedSqlayBlock<'_>],
 ) -> core::DiagnosticResult<()> {
@@ -209,6 +210,15 @@ pub(super) fn validate_inline_markers(
                 }
                 context = InlineMarkerContext::QueryBody;
             }
+            SqlayAnnotation::Mutation(_) => {
+                if let Some(block) = open_param_block.take() {
+                    return Err(metadata_error(
+                        "`param` marker is missing a matching `paramEnd` marker",
+                        block.payload_range(),
+                    ));
+                }
+                context = InlineMarkerContext::MutationBody;
+            }
             SqlayAnnotation::Fragment(_) => {
                 if let Some(block) = open_param_block.take() {
                     return Err(metadata_error(
@@ -221,7 +231,7 @@ pub(super) fn validate_inline_markers(
             SqlayAnnotation::Param(_) => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
-                        "`param` markers must appear inside a query or fragment body; top-level Param markers are not supported",
+                        "`param` markers must appear inside a query, mutation, or fragment body; top-level Param markers are not supported",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -236,7 +246,7 @@ pub(super) fn validate_inline_markers(
             SqlayAnnotation::ParamEnd => {
                 if context == InlineMarkerContext::OutsideSourceUnit {
                     return Err(metadata_error(
-                        "`paramEnd` markers must appear inside a query or fragment body; top-level paramEnd markers are not supported",
+                        "`paramEnd` markers must appear inside a query, mutation, or fragment body; top-level paramEnd markers are not supported",
                         parsed_block.block.payload_range(),
                     ));
                 }
@@ -251,17 +261,17 @@ pub(super) fn validate_inline_markers(
                 match context {
                     InlineMarkerContext::OutsideSourceUnit => {
                         return Err(metadata_error(
-                            "`slot` markers must appear inside a query body; top-level Slot markers are not supported",
+                            "`slot` markers must appear inside a query or mutation body; top-level Slot markers are not supported",
                             parsed_block.block.payload_range(),
                         ));
                     }
                     InlineMarkerContext::FragmentBody => {
                         return Err(metadata_error(
-                            "slot markers inside fragments are not supported yet; define slots in query bodies for the initial Slot/Fragment release",
+                            "slot markers inside fragments are not supported yet; define slots in query or mutation bodies",
                             parsed_block.block.payload_range(),
                         ));
                     }
-                    InlineMarkerContext::QueryBody => {}
+                    InlineMarkerContext::QueryBody | InlineMarkerContext::MutationBody => {}
                 }
                 if open_param_block.is_some() {
                     return Err(metadata_error(
@@ -287,6 +297,7 @@ pub(super) fn validate_inline_markers(
 enum InlineMarkerContext {
     OutsideSourceUnit,
     QueryBody,
+    MutationBody,
     FragmentBody,
 }
 

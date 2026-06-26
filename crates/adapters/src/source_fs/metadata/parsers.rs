@@ -6,9 +6,9 @@ use crate::source_fs::diagnostics::metadata_error;
 use crate::source_fs::metadata::fields::{
     is_valid_query_id, optional_string_metadata_field, parse_cardinality, parse_param_value_type,
     reject_unknown_metadata_fields, required_annotation_type_from_metadata,
-    required_fragment_string_metadata_field, required_param_string_metadata_field,
-    required_slot_string_metadata_field, required_slot_targets_metadata_field,
-    validate_param_nullable,
+    required_fragment_string_metadata_field, required_mutation_string_metadata_field,
+    required_param_string_metadata_field, required_slot_string_metadata_field,
+    required_slot_targets_metadata_field, validate_param_nullable,
 };
 use crate::source_fs::metadata::hjson::{deserialize_sqlay_metadata, parse_sqlay_metadata_object};
 use crate::source_fs::scanner::SqlayBlock;
@@ -45,6 +45,7 @@ pub fn parse_sqlay_query_metadata(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::source_fs) enum SqlayAnnotation {
     Query(core::QueryMetadata),
+    Mutation(core::MutationMetadata),
     Fragment(core::FragmentMetadata),
     Param(ParsedParamMetadata),
     ParamEnd,
@@ -77,6 +78,7 @@ pub(in crate::source_fs) fn parse_sqlay_annotation(
 
     match annotation_type.as_str() {
         "query" => parse_sqlay_query_metadata(block).map(SqlayAnnotation::Query),
+        "mutation" => parse_mutation_metadata(block).map(SqlayAnnotation::Mutation),
         "fragment" => parse_fragment_metadata(block).map(SqlayAnnotation::Fragment),
         "param" => parse_param_metadata(block).map(SqlayAnnotation::Param),
         "paramEnd" => {
@@ -90,7 +92,7 @@ pub(in crate::source_fs) fn parse_sqlay_annotation(
         )),
         _ => Err(metadata_error(
             format!(
-                "unsupported `@sqlay` annotation type `{annotation_type}`; supported values are `query`, `fragment`, `param`, `paramEnd`, and `slot`"
+                "unsupported `@sqlay` annotation type `{annotation_type}`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`"
             ),
             block.payload_range(),
         )),
@@ -136,6 +138,27 @@ fn parse_query_metadata(
         id,
         parse_cardinality(raw.cardinality, block)?,
     ))
+}
+
+fn parse_mutation_metadata(block: &SqlayBlock) -> core::DiagnosticResult<core::MutationMetadata> {
+    let metadata = parse_sqlay_metadata_object(block)?;
+    reject_unknown_metadata_fields(
+        &metadata,
+        &["type", "id"],
+        "mutation",
+        "`type` and `id`",
+        block,
+    )?;
+    let id = required_mutation_string_metadata_field(&metadata, "id", block)?;
+
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid mutation id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
+            block.payload_range(),
+        ));
+    }
+
+    Ok(core::MutationMetadata::new(id))
 }
 
 fn parse_fragment_metadata(block: &SqlayBlock) -> core::DiagnosticResult<core::FragmentMetadata> {

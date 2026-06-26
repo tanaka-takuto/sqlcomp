@@ -35,6 +35,7 @@ fn check_warns_for_included_unannotated_sql_file() {
     assert!(stderr.contains("warning:"), "stderr: {stderr}");
     assert!(stderr.contains("@sqlay"), "stderr: {stderr}");
     assert!(stderr.contains("type: query"), "stderr: {stderr}");
+    assert!(stderr.contains("type: mutation"), "stderr: {stderr}");
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
 }

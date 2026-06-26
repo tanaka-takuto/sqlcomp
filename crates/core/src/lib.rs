@@ -17,14 +17,15 @@ pub use config::{
 };
 pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
 pub use ir::{
-    CompiledDynamicQuery, CompiledQuery, CompiledSlotBranch, CompiledSlotDefinition,
-    CompiledSlotOccurrence, CompiledSqlSegment, CoreType, InputField, ParamBinding, ResultColumn,
+    CompiledBuilder, CompiledDynamicQuery, CompiledMutation, CompiledQuery, CompiledSlotBranch,
+    CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlSegment, CoreType, InputField,
+    MutationKind, ParamBinding, ResultColumn,
 };
 pub use metadata::{DbParamUsage, DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
 pub use query::{
-    AnalyzedQuery, Cardinality, FragmentMetadata, ParamUsage, QueryId, QueryMetadata, RawFragment,
-    RawQuery, SlotUsage,
+    AnalyzedQuery, Cardinality, FragmentMetadata, MutationId, MutationMetadata, ParamUsage,
+    QueryId, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit, SlotUsage,
 };
 pub use reporting::{
     Diagnostic, DiagnosticReport, DiagnosticResult, DiagnosticSeverity, SourceLocation,

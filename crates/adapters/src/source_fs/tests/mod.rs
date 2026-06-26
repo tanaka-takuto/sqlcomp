@@ -13,7 +13,7 @@ fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path
     assert_duplicate_source_unit_report(
         report,
         duplicate_path,
-        "duplicate query id `listUsers`; query IDs must be unique across the full compile run",
+        "duplicate query id `listUsers`; query, mutation, and fragment IDs must be unique across the full compile run",
     );
 }
 

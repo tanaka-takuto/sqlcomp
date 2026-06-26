@@ -84,6 +84,24 @@ pub(super) fn required_fragment_string_metadata_field(
     }
 }
 
+pub(super) fn required_mutation_string_metadata_field(
+    metadata: &Map<String, Value>,
+    field: &str,
+    block: &SqlayBlock,
+) -> core::DiagnosticResult<String> {
+    match metadata.get(field) {
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(metadata_error(
+            format!("`mutation` metadata field `{field}` must be a string"),
+            block.payload_range(),
+        )),
+        None => Err(metadata_error(
+            format!("missing required `mutation` metadata field `{field}`"),
+            block.payload_range(),
+        )),
+    }
+}
+
 pub(super) fn required_slot_string_metadata_field(
     metadata: &Map<String, Value>,
     field: &str,

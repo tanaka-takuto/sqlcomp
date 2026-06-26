@@ -51,7 +51,9 @@ pub trait SourceReader {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SourceRead {
     queries: Vec<core::RawQuery>,
+    mutations: Vec<core::RawMutation>,
     fragments: Vec<core::RawFragment>,
+    source_units: Vec<core::RawSourceUnit>,
     diagnostics: core::DiagnosticReport,
     source_file_count: usize,
 }
@@ -62,7 +64,9 @@ impl SourceRead {
     pub const fn new(queries: Vec<core::RawQuery>, diagnostics: core::DiagnosticReport) -> Self {
         Self {
             queries,
+            mutations: Vec::new(),
             fragments: Vec::new(),
+            source_units: Vec::new(),
             diagnostics,
             source_file_count: 0,
         }
@@ -91,16 +95,42 @@ impl SourceRead {
         self
     }
 
+    /// Attach global mutation source units found in included SQL sources.
+    #[must_use]
+    pub fn with_mutations(mut self, mutations: Vec<core::RawMutation>) -> Self {
+        self.mutations = mutations;
+        self
+    }
+
+    /// Attach top-level source units in source order.
+    #[must_use]
+    pub fn with_source_units(mut self, source_units: Vec<core::RawSourceUnit>) -> Self {
+        self.source_units = source_units;
+        self
+    }
+
     /// Query blocks found in included SQL sources.
     #[must_use]
     pub fn queries(&self) -> &[core::RawQuery] {
         &self.queries
     }
 
+    /// Mutation blocks found in included SQL sources.
+    #[must_use]
+    pub fn mutations(&self) -> &[core::RawMutation] {
+        &self.mutations
+    }
+
     /// Fragment blocks found in included SQL sources.
     #[must_use]
     pub fn fragments(&self) -> &[core::RawFragment] {
         &self.fragments
+    }
+
+    /// Top-level source units found in included SQL sources, preserving source order.
+    #[must_use]
+    pub fn source_units(&self) -> &[core::RawSourceUnit] {
+        &self.source_units
     }
 
     /// Non-fatal diagnostics found during source intake.
