@@ -3,7 +3,7 @@ use sqlay_adapters::output_fs::FileSystemGeneratedFileWriter;
 use sqlay_adapters::source_fs::{FileSystemSourceReader, split_sqlay_query_blocks};
 use sqlay_app::{
     CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase, DefaultQueryCompiler,
-    DialectAnalyzer, MetadataProvider, SourceReader, TargetGenerator,
+    DialectAnalyzer, MetadataProvider, MutationMetadataProvider, SourceReader, TargetGenerator,
 };
 use sqlay_core as core;
 
@@ -362,13 +362,28 @@ impl MetadataProvider for UnexpectedMetadataProvider {
     }
 }
 
+impl MutationMetadataProvider for UnexpectedMetadataProvider {
+    fn describe_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        _analysis: &core::AnalyzedMutation,
+    ) -> core::DiagnosticResult<core::DbMutationMetadata> {
+        Err(core::DiagnosticReport::new(core::Diagnostic::error(
+            format!(
+                "unexpected metadata lookup for mutation `{}`",
+                mutation.metadata().id()
+            ),
+        )))
+    }
+}
+
 struct UnexpectedTargetGenerator;
 
 impl TargetGenerator for UnexpectedTargetGenerator {
     fn generate(
         &self,
         _plan: &core::CompilationPlan,
-        _queries: &[core::CompiledQuery],
+        _builders: &[core::CompiledBuilder],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
         Err(core::DiagnosticReport::new(core::Diagnostic::error(
             "unexpected target generation",

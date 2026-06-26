@@ -165,13 +165,18 @@ fn check_reports_dialect_metadata_and_generation_errors_as_diagnostics() {
 }
 
 #[test]
-fn check_rejects_mutation_source_units_until_mutation_pipeline_is_implemented() {
+fn check_accepts_slotless_mutation_source_units() {
     let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let mutation = core::RawMutation::new(
         core::MutationMetadata::new("createUser".to_owned()),
-        "INSERT INTO users (email) VALUES ('ada@example.test');".to_owned(),
+        "INSERT INTO users (email) VALUES (?);".to_owned(),
     )
+    .with_analysis_sql("INSERT INTO users (email) VALUES (?);".to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "email",
+        "INSERT INTO users (email) VALUES (".len(),
+    )])
     .with_source_path("sql/users.sql");
     let source_read = SourceRead::from_queries(Vec::new())
         .with_mutations(vec![mutation.clone()])
@@ -194,14 +199,132 @@ fn check_rejects_mutation_source_units_until_mutation_pipeline_is_implemented() 
         generated_file_writer: &generated_file_writer,
     };
 
-    let report = DefaultCompileUseCase::check(&config, &pipeline)
-        .expect_err("mutation pipeline is not implemented in this slice");
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("slotless mutation pipeline should run successfully");
 
+    assert!(outcome.diagnostics().is_empty());
+    assert_eq!(outcome.source_file_count(), 1);
+    assert_eq!(outcome.query_count(), 0);
+    assert_eq!(outcome.mutation_count(), 1);
+    assert_eq!(outcome.builder_count(), 1);
+    assert_eq!(outcome.unique_slot_count(), 0);
+    assert_eq!(outcome.variant_count(), 1);
     assert_eq!(
-        diagnostic_messages(&report),
-        "mutation source unit `createUser` is parsed by source intake, but mutation analysis and generation are not implemented yet"
+        outcome.mutation_summaries(),
+        [crate::MutationSummary::new(
+            "createUser".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            core::MutationKind::Insert,
+            1,
+            1,
+            0,
+            1,
+        )]
     );
-    assert_eq!(calls.entries(), ["read"]);
+    assert_eq!(
+        calls.entries(),
+        [
+            "read",
+            "analyze_mutation",
+            "describe_mutation",
+            "compile_mutation",
+            "generate"
+        ]
+    );
+    let generated_builders = target_generator.generated_builders();
+    assert_eq!(generated_builders.len(), 1);
+    let core::CompiledBuilder::Mutation(compiled) = &generated_builders[0] else {
+        panic!("target generator should receive a mutation builder");
+    };
+    assert_eq!(compiled.id().as_str(), "createUser");
+    assert_eq!(compiled.kind(), core::MutationKind::Insert);
+    assert_eq!(compiled.source_path(), Some(Path::new("sql/users.sql")));
+    assert_eq!(compiled.sql(), "INSERT INTO users (email) VALUES (?);");
+    assert_eq!(
+        compiled.input(),
+        [core::InputField::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false,
+        )]
+    );
+    assert_eq!(
+        compiled.params(),
+        [core::ParamBinding::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false,
+        )]
+    );
+}
+
+#[test]
+fn check_preserves_mixed_query_and_mutation_source_order_for_generation() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let query = raw_query();
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUser".to_owned()),
+        "INSERT INTO users (email) VALUES (?);".to_owned(),
+    )
+    .with_analysis_sql("INSERT INTO users (email) VALUES (?);".to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "email",
+        "INSERT INTO users (email) VALUES (".len(),
+    )])
+    .with_source_path("sql/users.sql");
+    let source_read = SourceRead::from_queries(vec![query.clone()])
+        .with_mutations(vec![mutation.clone()])
+        .with_source_units(vec![
+            core::RawSourceUnit::Mutation(mutation),
+            core::RawSourceUnit::Query(query),
+        ])
+        .with_source_file_count(1);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("mixed builders should compile through the app pipeline");
+
+    assert_eq!(outcome.builder_count(), 2);
+    assert_eq!(outcome.query_count(), 1);
+    assert_eq!(outcome.mutation_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        target_generator
+            .generated_builders()
+            .iter()
+            .map(core::CompiledBuilder::id)
+            .collect::<Vec<_>>(),
+        ["createUser", "listUsers"]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read",
+            "analyze_mutation",
+            "describe_mutation",
+            "compile_mutation",
+            "analyze",
+            "describe",
+            "compile",
+            "generate"
+        ]
+    );
 }
 
 #[test]

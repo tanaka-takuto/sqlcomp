@@ -1,6 +1,6 @@
 use sqlay_core as core;
 
-use crate::QueryCompiler;
+use crate::{MutationCompiler, QueryCompiler};
 
 /// Default application-owned query compiler.
 #[derive(Clone, Copy, Debug, Default)]
@@ -17,7 +17,11 @@ impl QueryCompiler for DefaultQueryCompiler {
             .metadata()
             .cardinality()
             .unwrap_or_else(|| analysis.cardinality());
-        let (input, params) = compile_param_bindings(query, metadata)?;
+        let (input, params) = compile_param_bindings(
+            query.param_usages(),
+            metadata.param_usages(),
+            query.source_location(),
+        )?;
         let row = metadata
             .columns()
             .iter()
@@ -41,28 +45,58 @@ impl QueryCompiler for DefaultQueryCompiler {
     }
 }
 
+impl MutationCompiler for DefaultQueryCompiler {
+    fn compile_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        analysis: &core::AnalyzedMutation,
+        metadata: &core::DbMutationMetadata,
+    ) -> core::DiagnosticResult<core::CompiledMutation> {
+        let (input, params) = compile_param_bindings(
+            mutation.param_usages(),
+            metadata.param_usages(),
+            mutation.source_location(),
+        )?;
+
+        let mut compiled = core::CompiledMutation::new(
+            core::MutationId::new(mutation.metadata().id().to_owned()),
+            mutation.analysis_sql().to_owned(),
+            analysis.kind(),
+            input,
+        )
+        .with_params(params);
+
+        if let Some(source_path) = mutation.source_path() {
+            compiled = compiled.with_source_path(source_path.to_path_buf());
+        }
+
+        Ok(compiled)
+    }
+}
+
 fn compile_param_bindings(
-    query: &core::RawQuery,
-    metadata: &core::DbQueryMetadata,
+    source_param_usages: &[core::ParamUsage],
+    resolved_param_usages: &[core::DbParamUsage],
+    source_location: Option<&core::SourceLocation>,
 ) -> core::DiagnosticResult<(Vec<core::InputField>, Vec<core::ParamBinding>)> {
-    if query.param_usages().len() != metadata.param_usages().len() {
-        return Err(query_error(
-            query,
+    if source_param_usages.len() != resolved_param_usages.len() {
+        return Err(source_error(
+            source_location,
             format!(
                 "resolved Param usage count {} does not match source Param usage count {}",
-                metadata.param_usages().len(),
-                query.param_usages().len()
+                resolved_param_usages.len(),
+                source_param_usages.len()
             ),
         ));
     }
 
     let mut input = Vec::<core::InputField>::new();
-    let mut params = Vec::with_capacity(query.param_usages().len());
+    let mut params = Vec::with_capacity(source_param_usages.len());
 
-    for (source_usage, resolved_usage) in query.param_usages().iter().zip(metadata.param_usages()) {
+    for (source_usage, resolved_usage) in source_param_usages.iter().zip(resolved_param_usages) {
         if source_usage.id() != resolved_usage.id() {
             return Err(param_usage_error(
-                query,
+                source_location,
                 source_usage,
                 format!(
                     "resolved Param metadata id `{}` does not match source Param id `{}`",
@@ -76,7 +110,7 @@ fn compile_param_bindings(
         if let Some(existing) = input.iter().find(|field| field.name() == source_usage.id()) {
             if existing.ty() != resolved_usage.ty() {
                 return Err(param_usage_error(
-                    query,
+                    source_location,
                     source_usage,
                     format!(
                         "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
@@ -88,7 +122,7 @@ fn compile_param_bindings(
             }
             if existing.is_nullable() != nullable {
                 return Err(param_usage_error(
-                    query,
+                    source_location,
                     source_usage,
                     format!(
                         "conflicting Param `{}` nullability: first occurrence is nullable {} but later occurrence is nullable {}",
@@ -116,9 +150,12 @@ fn compile_param_bindings(
     Ok((input, params))
 }
 
-fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {
+fn source_error(
+    source_location: Option<&core::SourceLocation>,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
     let mut diagnostic = core::Diagnostic::error(message);
-    if let Some(location) = query.source_location() {
+    if let Some(location) = source_location {
         diagnostic = diagnostic.with_location(location.clone());
     }
 
@@ -126,7 +163,7 @@ fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::Diag
 }
 
 fn param_usage_error(
-    query: &core::RawQuery,
+    source_location: Option<&core::SourceLocation>,
     usage: &core::ParamUsage,
     message: impl Into<String>,
 ) -> core::DiagnosticReport {
@@ -134,8 +171,7 @@ fn param_usage_error(
         if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
             usage.source_location().clone()
         } else {
-            query
-                .source_location()
+            source_location
                 .cloned()
                 .unwrap_or_else(core::SourceLocation::unknown)
         };

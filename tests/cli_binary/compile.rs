@@ -30,7 +30,10 @@ fn compile_prints_generated_or_updated_file_count() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Compile succeeded."), "stdout: {stdout}");
     assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
-    assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Compiled 0 builders: 0 queries, 0 mutations."),
+        "stdout: {stdout}"
+    );
     assert!(stdout.contains("Resolved 0 fragments."), "stdout: {stdout}");
     assert!(
         stdout.contains("Resolved 0 unique slots."),
@@ -80,7 +83,10 @@ fn compile_does_not_create_fragment_only_output_files() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
-    assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Compiled 0 builders: 0 queries, 0 mutations."),
+        "stdout: {stdout}"
+    );
     assert!(stdout.contains("Resolved 1 fragment."), "stdout: {stdout}");
     assert!(
         stdout.contains("Generated or updated 0 files."),

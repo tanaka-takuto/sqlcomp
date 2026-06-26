@@ -14,22 +14,23 @@ impl TargetGenerator for TypeScriptTargetGenerator {
     fn generate(
         &self,
         plan: &core::CompilationPlan,
-        queries: &[core::CompiledQuery],
+        builders: &[core::CompiledBuilder],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
-        let mut queries_by_source_path: BTreeMap<PathBuf, Vec<&core::CompiledQuery>> =
+        let mut builders_by_source_path: BTreeMap<PathBuf, Vec<&core::CompiledBuilder>> =
             BTreeMap::new();
 
-        for query in queries {
-            let source_path = query_source_path(query)?;
-            queries_by_source_path
+        for builder in builders {
+            let source_path = builder_source_path(builder)?;
+            builders_by_source_path
                 .entry(source_path.to_path_buf())
                 .or_default()
-                .push(query);
+                .push(builder);
         }
 
-        let mut files = Vec::with_capacity(queries_by_source_path.len());
-        for (source_path, source_queries) in queries_by_source_path {
+        let mut files = Vec::with_capacity(builders_by_source_path.len());
+        for (source_path, source_builders) in builders_by_source_path {
             let output_path = generated_typescript_path(plan.output_dir(), &source_path);
+            let source_queries = collect_supported_queries(&source_builders)?;
             let contents = render_generated_file_contents_from_iter(source_queries);
             files.push(core::GeneratedFile::new(output_path, contents));
         }
@@ -38,12 +39,12 @@ impl TargetGenerator for TypeScriptTargetGenerator {
     }
 }
 
-fn query_source_path(query: &core::CompiledQuery) -> core::DiagnosticResult<&Path> {
-    let Some(source_path) = query.source_path() else {
+fn builder_source_path(builder: &core::CompiledBuilder) -> core::DiagnosticResult<&Path> {
+    let Some(source_path) = builder.source_path() else {
         return Err(core::DiagnosticReport::new(core::Diagnostic::error(
             format!(
-                "compiled query `{}` does not include a source file path for output mapping",
-                query.id().as_str()
+                "compiled builder `{}` does not include a source file path for output mapping",
+                builder.id()
             ),
         )));
     };
@@ -51,14 +52,36 @@ fn query_source_path(query: &core::CompiledQuery) -> core::DiagnosticResult<&Pat
     if !is_safe_relative_path(source_path) {
         return Err(core::DiagnosticReport::new(core::Diagnostic::error(
             format!(
-                "compiled query `{}` has invalid source file path `{}`; expected a config-relative SQL path",
-                query.id().as_str(),
+                "compiled builder `{}` has invalid source file path `{}`; expected a config-relative SQL path",
+                builder.id(),
                 source_path.display()
             ),
         )));
     }
 
     Ok(source_path)
+}
+
+fn collect_supported_queries<'a>(
+    builders: &[&'a core::CompiledBuilder],
+) -> core::DiagnosticResult<Vec<&'a core::CompiledQuery>> {
+    let mut queries = Vec::with_capacity(builders.len());
+
+    for builder in builders {
+        match *builder {
+            core::CompiledBuilder::Query(query) => queries.push(query),
+            core::CompiledBuilder::Mutation(mutation) => {
+                return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+                    format!(
+                        "compiled mutation `{}` reached TypeScript generation, but TypeScript mutation builder generation is not implemented yet",
+                        mutation.id().as_str()
+                    ),
+                )));
+            }
+        }
+    }
+
+    Ok(queries)
 }
 
 fn generated_typescript_path(output_dir: &Path, source_relative_path: &Path) -> PathBuf {

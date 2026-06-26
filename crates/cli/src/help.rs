@@ -102,7 +102,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, output.dir, and per-query Param, Slot, and variant counts.
+  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, variant counts, output.dir, and per-query/per-mutation Param, Slot, and variant counts.
 
 Param marker example:
   /* @sqlay
@@ -159,7 +159,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled queries, Fragment, Slot, variant counts, generated file paths, stale-file cleanup, and per-query Param, Slot, and variant counts.
+  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, variant counts, generated file paths, stale-file cleanup, and per-query/per-mutation Param, Slot, and variant counts.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:

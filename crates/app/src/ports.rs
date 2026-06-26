@@ -149,10 +149,18 @@ impl SourceRead {
         self,
     ) -> (
         Vec<core::RawQuery>,
+        Vec<core::RawMutation>,
         Vec<core::RawFragment>,
+        Vec<core::RawSourceUnit>,
         core::DiagnosticReport,
     ) {
-        (self.queries, self.fragments, self.diagnostics)
+        (
+            self.queries,
+            self.mutations,
+            self.fragments,
+            self.source_units,
+            self.diagnostics,
+        )
     }
 }
 
@@ -227,9 +235,25 @@ pub trait QueryCompiler {
     ) -> core::DiagnosticResult<core::CompiledQuery>;
 }
 
+/// Application service for compiling analyzed mutations into core IR.
+pub trait MutationCompiler {
+    /// Compile one analyzed mutation into language-neutral IR.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when analyzed mutation facts and database metadata
+    /// cannot be converted into the core IR.
+    fn compile_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        analysis: &core::AnalyzedMutation,
+        metadata: &core::DbMutationMetadata,
+    ) -> core::DiagnosticResult<core::CompiledMutation>;
+}
+
 /// Port for target-language generation.
 pub trait TargetGenerator {
-    /// Generate target files from compiled queries.
+    /// Generate target files from compiled builders.
     ///
     /// # Errors
     ///
@@ -238,7 +262,7 @@ pub trait TargetGenerator {
     fn generate(
         &self,
         plan: &core::CompilationPlan,
-        queries: &[core::CompiledQuery],
+        builders: &[core::CompiledBuilder],
     ) -> core::DiagnosticResult<core::GeneratedFiles>;
 }
 

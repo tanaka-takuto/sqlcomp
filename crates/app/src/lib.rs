@@ -15,14 +15,14 @@ mod tests;
 
 pub use compile::{
     CheckOutcome, CompileOutcome, CompilePipeline, CompileUseCasePorts, DefaultCompileUseCase,
-    QuerySummary,
+    MutationSummary, QuerySummary,
 };
 pub use constants::{CONFIG_FILE_NAME, STARTER_CONFIG_TEMPLATE};
 pub use init::DefaultProjectInitializer;
 pub use planning::DefaultCompilationPlanner;
 pub use ports::{
     CompilationPlanner, ConfigLoader, ConfigTemplateWriter, DialectAnalyzer, GeneratedFileCleaner,
-    GeneratedFileWriter, MetadataProvider, MutationAnalyzer, MutationMetadataProvider,
-    QueryCompiler, SourceRead, SourceReader, TargetGenerator,
+    GeneratedFileWriter, MetadataProvider, MutationAnalyzer, MutationCompiler,
+    MutationMetadataProvider, QueryCompiler, SourceRead, SourceReader, TargetGenerator,
 };
 pub use query_compiler::DefaultQueryCompiler;

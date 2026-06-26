@@ -5,7 +5,8 @@ pub use sqlay_core as core;
 pub use crate::{
     CompilationPlanner, CompilePipeline, DefaultCompilationPlanner, DefaultCompileUseCase,
     DefaultQueryCompiler, DialectAnalyzer, GeneratedFileCleaner, GeneratedFileWriter,
-    MetadataProvider, QueryCompiler, SourceRead, SourceReader, TargetGenerator,
+    MetadataProvider, MutationAnalyzer, MutationCompiler, MutationMetadataProvider, QueryCompiler,
+    SourceRead, SourceReader, TargetGenerator,
 };
 
 mod support;

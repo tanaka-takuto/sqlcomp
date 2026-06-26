@@ -88,6 +88,60 @@ fn query_compiler_builds_input_fields_and_param_bindings_from_resolved_param_met
 }
 
 #[test]
+fn mutation_compiler_builds_core_ir_with_input_fields_and_param_bindings() {
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUser".to_owned()),
+        "INSERT INTO users (email, name) VALUES (?, ?);".to_owned(),
+    )
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "email".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "name".to_owned(),
+            None,
+            true,
+            core::SourceLocation::unknown(),
+        ),
+    ])
+    .with_source_path("sql/users.sql");
+    let analysis = core::AnalyzedMutation::new(core::MutationKind::Insert);
+    let metadata = core::DbMutationMetadata::new().with_param_usages(vec![
+        core::DbParamUsage::new("email".to_owned(), core::CoreType::String),
+        core::DbParamUsage::new("name".to_owned(), core::CoreType::String),
+    ]);
+
+    let compiled = DefaultQueryCompiler
+        .compile_mutation(&mutation, &analysis, &metadata)
+        .expect("mutation should compile into core IR");
+
+    assert_eq!(compiled.id().as_str(), "createUser");
+    assert_eq!(compiled.source_path(), Some(Path::new("sql/users.sql")));
+    assert_eq!(
+        compiled.sql(),
+        "INSERT INTO users (email, name) VALUES (?, ?);"
+    );
+    assert_eq!(compiled.kind(), core::MutationKind::Insert);
+    assert_eq!(
+        compiled.input(),
+        [
+            core::InputField::new("email".to_owned(), core::CoreType::String, false),
+            core::InputField::new("name".to_owned(), core::CoreType::String, true),
+        ]
+    );
+    assert_eq!(
+        compiled.params(),
+        [
+            core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
+            core::ParamBinding::new("name".to_owned(), core::CoreType::String, true),
+        ]
+    );
+}
+
+#[test]
 fn query_compiler_rejects_repeated_param_ids_with_conflicting_semantics() {
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUser".to_owned(), None),

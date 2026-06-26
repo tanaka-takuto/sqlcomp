@@ -167,7 +167,11 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("per-query Param, Slot, and variant counts"),
+        stdout.contains("compiled builders with query and mutation counts"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("per-query/per-mutation Param, Slot, and variant counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -245,7 +249,11 @@ fn compile_help_describes_output_writing_and_clean() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("per-query Param, Slot, and variant counts"),
+        stdout.contains("compiled builders with query and mutation counts"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("per-query/per-mutation Param, Slot, and variant counts"),
         "stdout: {stdout}"
     );
     assert!(

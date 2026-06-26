@@ -5,6 +5,7 @@ use super::slot_variants::{
     ExpandedParamScope, SlotExpansionContext, SlotSelectionContext,
 };
 use super::*;
+use std::path::Path;
 
 #[test]
 fn query_summary_counts_param_placeholders_and_input_fields_separately() {
@@ -33,6 +34,34 @@ fn query_summary_counts_param_placeholders_and_input_fields_separately() {
     assert_eq!(summary.input_field_count(), 2);
     assert_eq!(summary.slot_count(), 2);
     assert_eq!(summary.variant_count(), 6);
+}
+
+#[test]
+fn mutation_summary_counts_param_placeholders_and_input_fields_separately() {
+    let mutation = core::CompiledMutation::new(
+        core::MutationId::new("createUser".to_owned()),
+        "INSERT INTO users (email, name) VALUES (?, ?);".to_owned(),
+        core::MutationKind::Insert,
+        vec![
+            core::InputField::new("email".to_owned(), core::CoreType::String, false),
+            core::InputField::new("name".to_owned(), core::CoreType::String, true),
+        ],
+    )
+    .with_source_path("sql/users.sql")
+    .with_params(vec![
+        core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
+        core::ParamBinding::new("name".to_owned(), core::CoreType::String, true),
+    ]);
+
+    let summary = MutationSummary::from_compiled_mutation(&mutation, 0, 1);
+
+    assert_eq!(summary.id(), "createUser");
+    assert_eq!(summary.source_path(), Some(Path::new("sql/users.sql")));
+    assert_eq!(summary.kind(), core::MutationKind::Insert);
+    assert_eq!(summary.param_count(), 2);
+    assert_eq!(summary.input_field_count(), 2);
+    assert_eq!(summary.slot_count(), 0);
+    assert_eq!(summary.variant_count(), 1);
 }
 
 #[test]

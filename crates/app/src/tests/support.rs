@@ -410,6 +410,63 @@ impl DialectAnalyzer for FakeDialectAnalyzer {
     }
 }
 
+impl MutationAnalyzer for FakeDialectAnalyzer {
+    fn analyze_mutation(
+        &self,
+        mutation: &core::RawMutation,
+    ) -> core::DiagnosticResult<core::AnalyzedMutation> {
+        self.calls.push("analyze_mutation");
+        self.analyzed_sql
+            .borrow_mut()
+            .push(mutation.analysis_sql().to_owned());
+
+        if self
+            .sql_failure
+            .is_some_and(|sql_fragment| mutation.analysis_sql().contains(sql_fragment))
+        {
+            return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+                "failed to parse MySQL SQL: token-adjacent slot replacement",
+            )));
+        }
+
+        if let Some(failure) = self.failure {
+            return Err(failure.report());
+        }
+
+        Ok(core::AnalyzedMutation::new(infer_mutation_kind(
+            mutation.analysis_sql(),
+        )))
+    }
+}
+
+fn infer_mutation_kind(sql: &str) -> core::MutationKind {
+    let trimmed = sql.trim_start();
+
+    if trimmed
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("INSERT"))
+    {
+        core::MutationKind::Insert
+    } else if trimmed
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("UPDATE"))
+    {
+        core::MutationKind::Update
+    } else if trimmed
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("DELETE"))
+    {
+        core::MutationKind::Delete
+    } else if trimmed
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("REPLACE"))
+    {
+        core::MutationKind::Replace
+    } else {
+        panic!("unexpected mutation SQL in test fake: {trimmed}");
+    }
+}
+
 fn analysis_sql_has_limit_one(sql: &str) -> bool {
     let tokens = sql.split_ascii_whitespace().collect::<Vec<_>>();
 
@@ -561,6 +618,62 @@ impl MetadataProvider for FakeMetadataProvider {
     }
 }
 
+impl MutationMetadataProvider for FakeMetadataProvider {
+    fn describe_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        _analysis: &core::AnalyzedMutation,
+    ) -> core::DiagnosticResult<core::DbMutationMetadata> {
+        self.calls.push("describe_mutation");
+        self.described_sql
+            .borrow_mut()
+            .push(mutation.analysis_sql().to_owned());
+        let param_ids = mutation
+            .param_usages()
+            .iter()
+            .map(|usage| usage.id().to_owned())
+            .collect::<Vec<_>>();
+        self.described_param_ids.borrow_mut().push(param_ids);
+
+        if let Some(failure) = self.failure {
+            return Err(failure.report());
+        }
+        if let Some((id, message)) = self.param_failure {
+            let Some(usage) = mutation
+                .param_usages()
+                .iter()
+                .find(|usage| usage.id() == id)
+            else {
+                return Err(core::DiagnosticReport::new(core::Diagnostic::error(
+                    format!("test fake mutation Param failure targets unknown Param id `{id}`"),
+                )));
+            };
+
+            return Err(core::DiagnosticReport::new(
+                core::Diagnostic::error(message).with_location(usage.source_location().clone()),
+            ));
+        }
+
+        let param_usages = mutation
+            .param_usages()
+            .iter()
+            .map(|usage| {
+                core::DbParamUsage::new(
+                    usage.id().to_owned(),
+                    self.param_type_for_mutation_usage(mutation, usage)
+                        .unwrap_or_else(|| {
+                            usage
+                                .value_type_override()
+                                .unwrap_or(core::CoreType::String)
+                        }),
+                )
+            })
+            .collect();
+
+        Ok(core::DbMutationMetadata::new().with_param_usages(param_usages))
+    }
+}
+
 impl FakeMetadataProvider {
     fn param_type_for_usage(
         &self,
@@ -569,6 +682,19 @@ impl FakeMetadataProvider {
     ) -> Option<core::CoreType> {
         let placeholder_index = usage.placeholder_index()?;
         let before_placeholder = &query.analysis_sql()[..placeholder_index];
+
+        self.param_types_by_placeholder_prefix
+            .iter()
+            .find_map(|(prefix, ty)| before_placeholder.ends_with(prefix).then_some(*ty))
+    }
+
+    fn param_type_for_mutation_usage(
+        &self,
+        mutation: &core::RawMutation,
+        usage: &core::ParamUsage,
+    ) -> Option<core::CoreType> {
+        let placeholder_index = usage.placeholder_index()?;
+        let before_placeholder = &mutation.analysis_sql()[..placeholder_index];
 
         self.param_types_by_placeholder_prefix
             .iter()
@@ -600,12 +726,25 @@ impl QueryCompiler for LoggingQueryCompiler {
     }
 }
 
+impl MutationCompiler for LoggingQueryCompiler {
+    fn compile_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        analysis: &core::AnalyzedMutation,
+        metadata: &core::DbMutationMetadata,
+    ) -> core::DiagnosticResult<core::CompiledMutation> {
+        self.calls.push("compile_mutation");
+
+        DefaultQueryCompiler.compile_mutation(mutation, analysis, metadata)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct FakeTargetGenerator {
     calls: CallLog,
     files: core::GeneratedFiles,
     failure: Option<PipelineFailure>,
-    queries: Rc<RefCell<Vec<core::CompiledQuery>>>,
+    builders: Rc<RefCell<Vec<core::CompiledBuilder>>>,
 }
 
 impl FakeTargetGenerator {
@@ -614,7 +753,7 @@ impl FakeTargetGenerator {
             calls,
             files,
             failure: None,
-            queries: Rc::new(RefCell::new(Vec::new())),
+            builders: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -627,7 +766,18 @@ impl FakeTargetGenerator {
     }
 
     pub(super) fn generated_queries(&self) -> Vec<core::CompiledQuery> {
-        self.queries.borrow().clone()
+        self.builders
+            .borrow()
+            .iter()
+            .filter_map(|builder| match builder {
+                core::CompiledBuilder::Query(query) => Some(query.clone()),
+                core::CompiledBuilder::Mutation(_) => None,
+            })
+            .collect()
+    }
+
+    pub(super) fn generated_builders(&self) -> Vec<core::CompiledBuilder> {
+        self.builders.borrow().clone()
     }
 }
 
@@ -635,14 +785,15 @@ impl TargetGenerator for FakeTargetGenerator {
     fn generate(
         &self,
         _plan: &core::CompilationPlan,
-        queries: &[core::CompiledQuery],
+        builders: &[core::CompiledBuilder],
     ) -> core::DiagnosticResult<core::GeneratedFiles> {
         self.calls.push("generate");
-        self.queries.borrow_mut().extend_from_slice(queries);
 
         if let Some(failure) = self.failure {
             return Err(failure.report());
         }
+
+        self.builders.borrow_mut().extend_from_slice(builders);
 
         Ok(self.files.clone())
     }

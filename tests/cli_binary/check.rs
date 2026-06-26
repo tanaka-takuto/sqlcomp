@@ -96,7 +96,10 @@ fn check_prints_success_summary_without_implying_writes() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Check passed."), "stdout: {stdout}");
     assert!(stdout.contains("Matched 1 SQL file."), "stdout: {stdout}");
-    assert!(stdout.contains("Compiled 0 queries."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Compiled 0 builders: 0 queries, 0 mutations."),
+        "stdout: {stdout}"
+    );
     assert!(stdout.contains("Resolved 0 fragments."), "stdout: {stdout}");
     assert!(
         stdout.contains("Resolved 0 unique slots."),
@@ -115,6 +118,7 @@ fn check_prints_success_summary_without_implying_writes() {
     );
     assert!(stdout.contains("No files written."), "stdout: {stdout}");
     assert!(stdout.contains("Queries: none."), "stdout: {stdout}");
+    assert!(stdout.contains("Mutations: none."), "stdout: {stdout}");
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
 }
