@@ -12,6 +12,7 @@ use super::{
     MysqlDialectAnalyzer, RAW_PLACEHOLDER_GUIDANCE, ends_with_statement_terminator,
     statement_keyword,
 };
+use crate::diagnostics::{mutation_error, mutation_param_usage_error};
 
 impl MysqlDialectAnalyzer {
     /// Analyze one raw mutation under the supported `MySQL` mutation subset.
@@ -341,36 +342,6 @@ fn validate_mutation_param_sample_expression(
     }
 
     Ok(())
-}
-
-fn mutation_error(
-    mutation: &core::RawMutation,
-    message: impl Into<String>,
-) -> core::DiagnosticReport {
-    let mut diagnostic = core::Diagnostic::error(message);
-    if let Some(location) = mutation.source_location() {
-        diagnostic = diagnostic.with_location(location.clone());
-    }
-
-    core::DiagnosticReport::new(diagnostic)
-}
-
-fn mutation_param_usage_error(
-    mutation: &core::RawMutation,
-    usage: &core::ParamUsage,
-    message: impl Into<String>,
-) -> core::DiagnosticReport {
-    let location =
-        if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
-            usage.source_location().clone()
-        } else {
-            mutation
-                .source_location()
-                .cloned()
-                .unwrap_or_else(core::SourceLocation::unknown)
-        };
-
-    core::DiagnosticReport::new(core::Diagnostic::error(message).with_location(location))
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@
 //! on `sqlay-cli` or on sibling outer modules through separate crates.
 
 pub mod config_jsonc;
+mod diagnostics;
 pub mod dialect_mysql;
 pub mod metadata;
 pub mod output_fs;
