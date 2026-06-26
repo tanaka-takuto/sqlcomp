@@ -1,4 +1,6 @@
 mod contexts;
+mod mutation_contexts;
+mod mutations;
 mod tables;
 mod unsupported_contexts;
 
@@ -15,6 +17,9 @@ use sqlparser::parser::Parser;
 use super::diagnostics::{param_usage_error, query_error};
 use super::schema_columns::MysqlSchemaColumn;
 use contexts::{ColumnRef, collect_query_param_contexts};
+pub(super) use mutations::{
+    current_database_mutation_table_names, resolve_mutation_param_usage_metadata,
+};
 use tables::{SelectTableSources, TableResolution, select_from_query, select_table_sources};
 
 const SUPPORTED_PARAM_VALUE_TYPES_MESSAGE: &str = "`bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`";

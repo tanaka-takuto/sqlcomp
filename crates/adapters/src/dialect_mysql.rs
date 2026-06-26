@@ -1,5 +1,7 @@
 //! `MySQL` dialect analysis adapter.
 
+mod mutation;
+
 use sqlay_app::DialectAnalyzer;
 use sqlay_core as core;
 use sqlparser::ast::{Expr, LimitClause, Query, SetExpr, Statement};
@@ -7,7 +9,9 @@ use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`";
+use crate::diagnostics::{param_usage_error, query_error};
+
+pub(super) const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`";
 
 /// `MySQL` dialect analyzer backed by `sqlparser-rs`.
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,7 +60,7 @@ fn tokenize_query(query: &core::RawQuery) -> core::DiagnosticResult<Vec<Token>> 
         .map_err(|error| query_error(query, format!("failed to parse MySQL SQL: {error}")))
 }
 
-fn ends_with_statement_terminator(tokens: &[Token]) -> bool {
+pub(super) fn ends_with_statement_terminator(tokens: &[Token]) -> bool {
     matches!(
         tokens
             .iter()
@@ -197,7 +201,7 @@ fn unsupported_statement_error(
     )
 }
 
-fn statement_keyword(statement: &Statement) -> String {
+pub(super) fn statement_keyword(statement: &Statement) -> String {
     statement
         .to_string()
         .split_whitespace()
@@ -205,33 +209,6 @@ fn statement_keyword(statement: &Statement) -> String {
         .unwrap_or("SQL")
         .trim_end_matches(';')
         .to_ascii_uppercase()
-}
-
-fn query_error(query: &core::RawQuery, message: impl Into<String>) -> core::DiagnosticReport {
-    let mut diagnostic = core::Diagnostic::error(message);
-    if let Some(location) = query.source_location() {
-        diagnostic = diagnostic.with_location(location.clone());
-    }
-
-    core::DiagnosticReport::new(diagnostic)
-}
-
-fn param_usage_error(
-    query: &core::RawQuery,
-    usage: &core::ParamUsage,
-    message: impl Into<String>,
-) -> core::DiagnosticReport {
-    let location =
-        if usage.source_location().range().is_some() || usage.source_location().path().is_some() {
-            usage.source_location().clone()
-        } else {
-            query
-                .source_location()
-                .cloned()
-                .unwrap_or_else(core::SourceLocation::unknown)
-        };
-
-    core::DiagnosticReport::new(core::Diagnostic::error(message).with_location(location))
 }
 
 #[cfg(test)]

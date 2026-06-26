@@ -1,11 +1,13 @@
 use ::sqlx::{AssertSqlSafe, Column, Connection, Executor, MySqlConnection, SqlSafeStr, TypeInfo};
-use sqlay_app::MetadataProvider;
+use sqlay_app::{MetadataProvider, MutationMetadataProvider};
 use sqlay_core as core;
 
-use super::diagnostics::query_error;
-use super::param_inference::resolve_param_usage_metadata;
+use super::diagnostics::{mutation_error, query_error};
+use super::param_inference::{resolve_mutation_param_usage_metadata, resolve_param_usage_metadata};
 use super::result_mapping::map_mysql_result_column_metadata;
-use super::schema_columns::fetch_current_database_schema_columns;
+use super::schema_columns::{
+    fetch_current_database_mutation_schema_columns, fetch_current_database_schema_columns,
+};
 
 /// sqlx-backed `MySQL` metadata provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,6 +45,23 @@ impl MetadataProvider for SqlxMysqlMetadataProvider {
     }
 }
 
+impl MutationMetadataProvider for SqlxMysqlMetadataProvider {
+    fn describe_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        _analysis: &core::AnalyzedMutation,
+    ) -> core::DiagnosticResult<core::DbMutationMetadata> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            describe_mutation_metadata_on_worker_thread(
+                self.database_url().to_owned(),
+                mutation.clone(),
+            )
+        } else {
+            describe_mutation_metadata_blocking(self.database_url(), mutation)
+        }
+    }
+}
+
 fn describe_query_metadata_on_worker_thread(
     database_url: String,
     query: core::RawQuery,
@@ -54,6 +73,21 @@ fn describe_query_metadata_on_worker_thread(
             Err(query_error(
                 &error_query,
                 "MySQL metadata worker thread panicked",
+            ))
+        })
+}
+
+fn describe_mutation_metadata_on_worker_thread(
+    database_url: String,
+    mutation: core::RawMutation,
+) -> core::DiagnosticResult<core::DbMutationMetadata> {
+    let error_mutation = mutation.clone();
+    std::thread::spawn(move || describe_mutation_metadata_blocking(&database_url, &mutation))
+        .join()
+        .unwrap_or_else(|_| {
+            Err(mutation_error(
+                &error_mutation,
+                "MySQL mutation metadata worker thread panicked",
             ))
         })
 }
@@ -73,6 +107,23 @@ fn describe_query_metadata_blocking(
         })?;
 
     runtime.block_on(describe_query_metadata(database_url, query))
+}
+
+fn describe_mutation_metadata_blocking(
+    database_url: &str,
+    mutation: &core::RawMutation,
+) -> core::DiagnosticResult<core::DbMutationMetadata> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            mutation_error(
+                mutation,
+                format!("failed to create MySQL metadata runtime: {error}"),
+            )
+        })?;
+
+    runtime.block_on(describe_mutation_metadata(database_url, mutation))
 }
 
 async fn describe_query_metadata(
@@ -115,6 +166,24 @@ async fn describe_query_metadata(
     .with_param_usages(param_usages))
 }
 
+async fn describe_mutation_metadata(
+    database_url: &str,
+    mutation: &core::RawMutation,
+) -> core::DiagnosticResult<core::DbMutationMetadata> {
+    let mut connection = MySqlConnection::connect(database_url)
+        .await
+        .map_err(|error| {
+            mutation_error(
+                mutation,
+                format!("failed to connect to MySQL database: {error}"),
+            )
+        })?;
+
+    let param_usages = describe_mutation_param_usages(&mut connection, mutation).await?;
+
+    Ok(core::DbMutationMetadata::new().with_param_usages(param_usages))
+}
+
 async fn describe_param_usages(
     connection: &mut MySqlConnection,
     query: &core::RawQuery,
@@ -125,4 +194,17 @@ async fn describe_param_usages(
 
     let schema_columns = fetch_current_database_schema_columns(connection, query).await?;
     resolve_param_usage_metadata(query, &schema_columns)
+}
+
+async fn describe_mutation_param_usages(
+    connection: &mut MySqlConnection,
+    mutation: &core::RawMutation,
+) -> core::DiagnosticResult<Vec<core::DbParamUsage>> {
+    if mutation.param_usages().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let schema_columns =
+        fetch_current_database_mutation_schema_columns(connection, mutation).await?;
+    resolve_mutation_param_usage_metadata(mutation, &schema_columns)
 }

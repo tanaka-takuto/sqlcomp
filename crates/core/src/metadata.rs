@@ -37,6 +37,35 @@ impl DbQueryMetadata {
     }
 }
 
+/// Database metadata description normalized for mutation compilation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DbMutationMetadata {
+    param_usages: Vec<DbParamUsage>,
+}
+
+impl DbMutationMetadata {
+    /// Build empty database mutation metadata.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            param_usages: Vec::new(),
+        }
+    }
+
+    /// Attach resolved Param usage metadata in source occurrence order.
+    #[must_use]
+    pub fn with_param_usages(mut self, param_usages: Vec<DbParamUsage>) -> Self {
+        self.param_usages = param_usages;
+        self
+    }
+
+    /// Resolved Param usage metadata in source occurrence order.
+    #[must_use]
+    pub fn param_usages(&self) -> &[DbParamUsage] {
+        &self.param_usages
+    }
+}
+
 /// Result column metadata from a database provider before final IR emission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbResultColumn {
@@ -112,7 +141,7 @@ impl DbParamUsage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CoreType, DbParamUsage, DbQueryMetadata, DbResultColumn};
+    use crate::{CoreType, DbMutationMetadata, DbParamUsage, DbQueryMetadata, DbResultColumn};
 
     #[test]
     fn db_query_metadata_preserves_result_column_metadata() {
@@ -154,5 +183,21 @@ mod tests {
         assert_eq!(column.name(), "mystery");
         assert_eq!(column.ty(), CoreType::Unknown);
         assert!(column.is_nullable());
+    }
+
+    #[test]
+    fn db_mutation_metadata_preserves_resolved_param_usage_metadata_without_columns() {
+        let metadata = DbMutationMetadata::new().with_param_usages(vec![
+            DbParamUsage::new("email".to_owned(), CoreType::String),
+            DbParamUsage::new("userId".to_owned(), CoreType::Int64),
+        ]);
+
+        assert_eq!(
+            metadata.param_usages(),
+            [
+                DbParamUsage::new("email".to_owned(), CoreType::String),
+                DbParamUsage::new("userId".to_owned(), CoreType::Int64),
+            ]
+        );
     }
 }

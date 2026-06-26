@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use sqlay_core::{
-    AnalyzedQuery, Cardinality, CoreType, FragmentMetadata, MutationMetadata, ParamUsage,
-    QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit, SlotUsage, SourceLocation,
-    SourcePosition, SourceRange,
+    AnalyzedMutation, AnalyzedQuery, Cardinality, CoreType, FragmentMetadata, MutationKind,
+    MutationMetadata, ParamUsage, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit,
+    SlotUsage, SourceLocation, SourcePosition, SourceRange,
 };
 
 #[test]
@@ -228,4 +228,11 @@ fn analyzed_query_exposes_inferred_cardinality() {
     let analysis = AnalyzedQuery::new(Cardinality::Many);
 
     assert_eq!(analysis.cardinality(), Cardinality::Many);
+}
+
+#[test]
+fn analyzed_mutation_exposes_statement_kind() {
+    let analysis = AnalyzedMutation::new(MutationKind::Update);
+
+    assert_eq!(analysis.kind(), MutationKind::Update);
 }

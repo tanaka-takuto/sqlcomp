@@ -144,7 +144,7 @@ fn collect_table_factor_source(
     }
 }
 
-fn object_name_parts(name: &ObjectName) -> Vec<String> {
+pub(super) fn object_name_parts(name: &ObjectName) -> Vec<String> {
     name.0
         .iter()
         .filter_map(|part| part.as_ident().map(|ident| ident.value.clone()))

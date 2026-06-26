@@ -22,7 +22,7 @@ pub use init::DefaultProjectInitializer;
 pub use planning::DefaultCompilationPlanner;
 pub use ports::{
     CompilationPlanner, ConfigLoader, ConfigTemplateWriter, DialectAnalyzer, GeneratedFileCleaner,
-    GeneratedFileWriter, MetadataProvider, QueryCompiler, SourceRead, SourceReader,
-    TargetGenerator,
+    GeneratedFileWriter, MetadataProvider, MutationAnalyzer, MutationMetadataProvider,
+    QueryCompiler, SourceRead, SourceReader, TargetGenerator,
 };
 pub use query_compiler::DefaultQueryCompiler;

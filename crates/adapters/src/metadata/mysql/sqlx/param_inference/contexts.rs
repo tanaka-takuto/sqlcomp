@@ -13,6 +13,29 @@ use super::unsupported_contexts::{
 pub(super) struct ColumnRef {
     pub(super) qualifier: String,
     pub(super) column: String,
+    pub(super) resolved_table_name: Option<String>,
+}
+
+impl ColumnRef {
+    pub(super) fn qualified(qualifier: impl Into<String>, column: impl Into<String>) -> Self {
+        Self {
+            qualifier: qualifier.into(),
+            column: column.into(),
+            resolved_table_name: None,
+        }
+    }
+
+    pub(super) fn resolved_current_database(
+        qualifier: impl Into<String>,
+        table_name: impl Into<String>,
+        column: impl Into<String>,
+    ) -> Self {
+        Self {
+            qualifier: qualifier.into(),
+            column: column.into(),
+            resolved_table_name: Some(table_name.into()),
+        }
+    }
 }
 
 pub(super) fn collect_query_param_contexts(
@@ -214,7 +237,20 @@ fn collect_limit_clause_param_contexts(
 }
 
 #[allow(clippy::too_many_lines)]
-fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>>) {
+pub(super) fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>>) {
+    collect_expr_param_contexts_with_query_handler(
+        expr,
+        contexts,
+        &mut collect_unsupported_query_param_contexts,
+    );
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) fn collect_expr_param_contexts_with_query_handler(
+    expr: &Expr,
+    contexts: &mut Vec<Option<ColumnRef>>,
+    collect_query: &mut impl FnMut(&SqlQuery, &mut Vec<Option<ColumnRef>>),
+) {
     if is_placeholder(expr) {
         contexts.push(None);
         return;
@@ -230,8 +266,16 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
                     {
                         contexts.push(Some(column));
                     } else {
-                        collect_expr_param_contexts(left, contexts);
-                        collect_expr_param_contexts(right, contexts);
+                        collect_expr_param_contexts_with_query_handler(
+                            left,
+                            contexts,
+                            collect_query,
+                        );
+                        collect_expr_param_contexts_with_query_handler(
+                            right,
+                            contexts,
+                            collect_query,
+                        );
                     }
                 }
             }
@@ -241,8 +285,8 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
         | Expr::AllOp { left, right, .. }
         | Expr::IsDistinctFrom(left, right)
         | Expr::IsNotDistinctFrom(left, right) => {
-            collect_expr_param_contexts(left, contexts);
-            collect_expr_param_contexts(right, contexts);
+            collect_expr_param_contexts_with_query_handler(left, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(right, contexts, collect_query);
         }
         Expr::InList {
             expr,
@@ -254,31 +298,35 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
                     if is_placeholder(item) {
                         contexts.push(Some(column.clone()));
                     } else {
-                        collect_expr_param_contexts(item, contexts);
+                        collect_expr_param_contexts_with_query_handler(
+                            item,
+                            contexts,
+                            collect_query,
+                        );
                     }
                 }
             } else {
-                collect_expr_param_contexts(expr, contexts);
+                collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
                 for item in list {
-                    collect_expr_param_contexts(item, contexts);
+                    collect_expr_param_contexts_with_query_handler(item, contexts, collect_query);
                 }
             }
         }
         Expr::InList { expr, list, .. } => {
-            collect_expr_param_contexts(expr, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
             for item in list {
-                collect_expr_param_contexts(item, contexts);
+                collect_expr_param_contexts_with_query_handler(item, contexts, collect_query);
             }
         }
         Expr::InSubquery { expr, subquery, .. } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_unsupported_query_param_contexts(subquery, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_query(subquery, contexts);
         }
         Expr::InUnnest {
             expr, array_expr, ..
         } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_expr_param_contexts(array_expr, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(array_expr, contexts, collect_query);
         }
         Expr::Nested(expr)
         | Expr::UnaryOp { expr, .. }
@@ -298,40 +346,42 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
         | Expr::IsNotUnknown(expr)
         | Expr::OuterJoin(expr)
         | Expr::Prior(expr)
-        | Expr::Named { expr, .. } => collect_expr_param_contexts(expr, contexts),
+        | Expr::Named { expr, .. } => {
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+        }
         Expr::Exists { subquery, .. } | Expr::Subquery(subquery) => {
-            collect_unsupported_query_param_contexts(subquery, contexts);
+            collect_query(subquery, contexts);
         }
         Expr::Between {
             expr, low, high, ..
         } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_expr_param_contexts(low, contexts);
-            collect_expr_param_contexts(high, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(low, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(high, contexts, collect_query);
         }
         Expr::Like { expr, pattern, .. }
         | Expr::ILike { expr, pattern, .. }
         | Expr::SimilarTo { expr, pattern, .. }
         | Expr::RLike { expr, pattern, .. } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_expr_param_contexts(pattern, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(pattern, contexts, collect_query);
         }
         Expr::Convert { expr, styles, .. } => {
-            collect_expr_param_contexts(expr, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
             for style in styles {
-                collect_expr_param_contexts(style, contexts);
+                collect_expr_param_contexts_with_query_handler(style, contexts, collect_query);
             }
         }
         Expr::AtTimeZone {
             timestamp,
             time_zone,
         } => {
-            collect_expr_param_contexts(timestamp, contexts);
-            collect_expr_param_contexts(time_zone, contexts);
+            collect_expr_param_contexts_with_query_handler(timestamp, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(time_zone, contexts, collect_query);
         }
         Expr::Position { expr, r#in } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_expr_param_contexts(r#in, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(r#in, contexts, collect_query);
         }
         Expr::Substring {
             expr,
@@ -339,12 +389,20 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
             substring_for,
             ..
         } => {
-            collect_expr_param_contexts(expr, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
             if let Some(substring_from) = substring_from {
-                collect_expr_param_contexts(substring_from, contexts);
+                collect_expr_param_contexts_with_query_handler(
+                    substring_from,
+                    contexts,
+                    collect_query,
+                );
             }
             if let Some(substring_for) = substring_for {
-                collect_expr_param_contexts(substring_for, contexts);
+                collect_expr_param_contexts_with_query_handler(
+                    substring_for,
+                    contexts,
+                    collect_query,
+                );
             }
         }
         Expr::Trim {
@@ -354,12 +412,16 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
             ..
         } => {
             if let Some(trim_what) = trim_what {
-                collect_expr_param_contexts(trim_what, contexts);
+                collect_expr_param_contexts_with_query_handler(trim_what, contexts, collect_query);
             }
-            collect_expr_param_contexts(expr, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
             if let Some(trim_characters) = trim_characters {
                 for character in trim_characters {
-                    collect_expr_param_contexts(character, contexts);
+                    collect_expr_param_contexts_with_query_handler(
+                        character,
+                        contexts,
+                        collect_query,
+                    );
                 }
             }
         }
@@ -369,18 +431,26 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
             overlay_from,
             overlay_for,
         } => {
-            collect_expr_param_contexts(expr, contexts);
-            collect_expr_param_contexts(overlay_what, contexts);
-            collect_expr_param_contexts(overlay_from, contexts);
+            collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(overlay_what, contexts, collect_query);
+            collect_expr_param_contexts_with_query_handler(overlay_from, contexts, collect_query);
             if let Some(overlay_for) = overlay_for {
-                collect_expr_param_contexts(overlay_for, contexts);
+                collect_expr_param_contexts_with_query_handler(
+                    overlay_for,
+                    contexts,
+                    collect_query,
+                );
             }
         }
         Expr::Function(function) => {
-            collect_function_arguments_param_contexts(&function.parameters, contexts);
-            collect_function_arguments_param_contexts(&function.args, contexts);
+            collect_function_arguments_param_contexts(
+                &function.parameters,
+                contexts,
+                collect_query,
+            );
+            collect_function_arguments_param_contexts(&function.args, contexts, collect_query);
             if let Some(filter) = &function.filter {
-                collect_expr_param_contexts(filter, contexts);
+                collect_expr_param_contexts_with_query_handler(filter, contexts, collect_query);
             }
         }
         Expr::Case {
@@ -390,31 +460,43 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
             ..
         } => {
             if let Some(operand) = operand {
-                collect_expr_param_contexts(operand, contexts);
+                collect_expr_param_contexts_with_query_handler(operand, contexts, collect_query);
             }
             for condition in conditions {
-                collect_expr_param_contexts(&condition.condition, contexts);
-                collect_expr_param_contexts(&condition.result, contexts);
+                collect_expr_param_contexts_with_query_handler(
+                    &condition.condition,
+                    contexts,
+                    collect_query,
+                );
+                collect_expr_param_contexts_with_query_handler(
+                    &condition.result,
+                    contexts,
+                    collect_query,
+                );
             }
             if let Some(else_result) = else_result {
-                collect_expr_param_contexts(else_result, contexts);
+                collect_expr_param_contexts_with_query_handler(
+                    else_result,
+                    contexts,
+                    collect_query,
+                );
             }
         }
         Expr::GroupingSets(items) | Expr::Cube(items) | Expr::Rollup(items) => {
             for item in items {
                 for expr in item {
-                    collect_expr_param_contexts(expr, contexts);
+                    collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
                 }
             }
         }
         Expr::Tuple(items) => {
             for item in items {
-                collect_expr_param_contexts(item, contexts);
+                collect_expr_param_contexts_with_query_handler(item, contexts, collect_query);
             }
         }
         Expr::Struct { values, .. } => {
             for value in values {
-                collect_expr_param_contexts(value, contexts);
+                collect_expr_param_contexts_with_query_handler(value, contexts, collect_query);
             }
         }
         _ => {}
@@ -424,21 +506,26 @@ fn collect_expr_param_contexts(expr: &Expr, contexts: &mut Vec<Option<ColumnRef>
 fn collect_function_arguments_param_contexts(
     arguments: &FunctionArguments,
     contexts: &mut Vec<Option<ColumnRef>>,
+    collect_query: &mut impl FnMut(&SqlQuery, &mut Vec<Option<ColumnRef>>),
 ) {
     match arguments {
         FunctionArguments::None => {}
         FunctionArguments::Subquery(query) => {
-            collect_unsupported_query_param_contexts(query, contexts);
+            collect_query(query, contexts);
         }
         FunctionArguments::List(list) => {
             for arg in &list.args {
                 match arg {
                     FunctionArg::Named { arg, .. } | FunctionArg::Unnamed(arg) => {
-                        collect_function_arg_expr_param_contexts(arg, contexts);
+                        collect_function_arg_expr_param_contexts(arg, contexts, collect_query);
                     }
                     FunctionArg::ExprNamed { name, arg, .. } => {
-                        collect_expr_param_contexts(name, contexts);
-                        collect_function_arg_expr_param_contexts(arg, contexts);
+                        collect_expr_param_contexts_with_query_handler(
+                            name,
+                            contexts,
+                            collect_query,
+                        );
+                        collect_function_arg_expr_param_contexts(arg, contexts, collect_query);
                     }
                 }
             }
@@ -449,9 +536,10 @@ fn collect_function_arguments_param_contexts(
 fn collect_function_arg_expr_param_contexts(
     arg: &FunctionArgExpr,
     contexts: &mut Vec<Option<ColumnRef>>,
+    collect_query: &mut impl FnMut(&SqlQuery, &mut Vec<Option<ColumnRef>>),
 ) {
     if let FunctionArgExpr::Expr(expr) = arg {
-        collect_expr_param_contexts(expr, contexts);
+        collect_expr_param_contexts_with_query_handler(expr, contexts, collect_query);
     }
 }
 
@@ -475,10 +563,10 @@ fn qualified_column_ref(expr: &Expr) -> Option<ColumnRef> {
         return None;
     };
 
-    Some(ColumnRef {
-        qualifier: qualifier.value.clone(),
-        column: column.value.clone(),
-    })
+    Some(ColumnRef::qualified(
+        qualifier.value.clone(),
+        column.value.clone(),
+    ))
 }
 
 pub(super) fn is_placeholder(expr: &Expr) -> bool {

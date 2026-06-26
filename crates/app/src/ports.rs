@@ -167,6 +167,20 @@ pub trait DialectAnalyzer {
     fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery>;
 }
 
+/// Port for dialect-specific mutation SQL analysis.
+pub trait MutationAnalyzer {
+    /// Analyze one raw mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when SQL is invalid for the configured dialect or
+    /// outside the supported mutation statement shape.
+    fn analyze_mutation(
+        &self,
+        mutation: &core::RawMutation,
+    ) -> core::DiagnosticResult<core::AnalyzedMutation>;
+}
+
 /// Port for database-backed metadata lookup.
 pub trait MetadataProvider {
     /// Describe database metadata for one analyzed query.
@@ -180,6 +194,21 @@ pub trait MetadataProvider {
         query: &core::RawQuery,
         analysis: &core::AnalyzedQuery,
     ) -> core::DiagnosticResult<core::DbQueryMetadata>;
+}
+
+/// Port for schema-backed mutation metadata lookup.
+pub trait MutationMetadataProvider {
+    /// Describe database metadata for one analyzed mutation without executing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when schema metadata lookup cannot connect to the
+    /// database or resolve mutation Param metadata.
+    fn describe_mutation(
+        &self,
+        mutation: &core::RawMutation,
+        analysis: &core::AnalyzedMutation,
+    ) -> core::DiagnosticResult<core::DbMutationMetadata>;
 }
 
 /// Application service for compiling analyzed queries into core IR.

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::ir::MutationKind;
 use crate::{CoreType, SourceLocation};
 
 mod mutation;
@@ -480,6 +481,26 @@ impl AnalyzedQuery {
     #[must_use]
     pub const fn cardinality(&self) -> Cardinality {
         self.cardinality
+    }
+}
+
+/// Dialect analysis result for one mutation source unit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnalyzedMutation {
+    kind: MutationKind,
+}
+
+impl AnalyzedMutation {
+    /// Build dialect analysis facts for a mutation.
+    #[must_use]
+    pub const fn new(kind: MutationKind) -> Self {
+        Self { kind }
+    }
+
+    /// Supported mutation statement family inferred by dialect analysis.
+    #[must_use]
+    pub const fn kind(&self) -> MutationKind {
+        self.kind
     }
 }
 

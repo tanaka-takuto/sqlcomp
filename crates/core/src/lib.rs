@@ -21,11 +21,12 @@ pub use ir::{
     CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlSegment, CoreType, InputField,
     MutationKind, ParamBinding, ResultColumn,
 };
-pub use metadata::{DbParamUsage, DbQueryMetadata, DbResultColumn};
+pub use metadata::{DbMutationMetadata, DbParamUsage, DbQueryMetadata, DbResultColumn};
 pub use plan::CompilationPlan;
 pub use query::{
-    AnalyzedQuery, Cardinality, FragmentMetadata, MutationId, MutationMetadata, ParamUsage,
-    QueryId, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit, SlotUsage,
+    AnalyzedMutation, AnalyzedQuery, Cardinality, FragmentMetadata, MutationId, MutationMetadata,
+    ParamUsage, QueryId, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit,
+    SlotUsage,
 };
 pub use reporting::{
     Diagnostic, DiagnosticReport, DiagnosticResult, DiagnosticSeverity, SourceLocation,
