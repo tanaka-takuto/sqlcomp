@@ -226,6 +226,33 @@ fn generator_combines_queries_from_same_sql_file_into_one_module() {
     assert!(!users_contents.contains("export function listRoles("));
 }
 
+#[test]
+fn generator_rejects_mutation_builders_until_typescript_generation_exists() {
+    let plan = compilation_plan();
+    let mutation = core::CompiledMutation::new(
+        core::MutationId::new("createUser".to_owned()),
+        "INSERT INTO users (email) VALUES (?);".to_owned(),
+        core::MutationKind::Insert,
+        vec![core::InputField::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false,
+        )],
+    )
+    .with_params(vec![param("email", core::CoreType::String, false)])
+    .with_source_path("sql/users.sql");
+    let builders = vec![core::CompiledBuilder::Mutation(mutation)];
+
+    let report = TypeScriptTargetGenerator
+        .generate(&plan, &builders)
+        .expect_err("mutation builders should be rejected until TypeScript generation exists");
+
+    assert_eq!(report.diagnostics().len(), 1);
+    let message = report.diagnostics()[0].message();
+    assert!(message.contains("compiled mutation `createUser` reached TypeScript generation"));
+    assert!(message.contains("TypeScript mutation builder generation is not implemented yet"));
+}
+
 fn query_builder(query: core::CompiledQuery) -> core::CompiledBuilder {
     core::CompiledBuilder::Query(query)
 }

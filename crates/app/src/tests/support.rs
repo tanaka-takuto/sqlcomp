@@ -463,7 +463,7 @@ fn infer_mutation_kind(sql: &str) -> core::MutationKind {
     {
         core::MutationKind::Replace
     } else {
-        core::MutationKind::Insert
+        panic!("unexpected mutation SQL in test fake: {trimmed}");
     }
 }
 
