@@ -10,7 +10,10 @@ use sqlparser::parser::Parser;
 
 use super::super::diagnostics::{mutation_error, mutation_param_usage_error};
 use super::super::schema_columns::MysqlSchemaColumn;
-use super::contexts::{ColumnRef, collect_expr_param_contexts, is_placeholder, join_constraint};
+use super::contexts::{ColumnRef, is_placeholder, join_constraint};
+use super::mutation_contexts::{
+    collect_mutation_expr_param_contexts, resolve_current_database_column_type,
+};
 use super::tables::{TableResolution, object_name_parts};
 use super::unsupported_contexts::{
     collect_unsupported_expr_param_contexts, collect_unsupported_query_param_contexts,
@@ -117,6 +120,16 @@ fn resolve_inferred_mutation_param_type(
         ));
     };
 
+    if let Some(table_name) = column.resolved_table_name.as_deref() {
+        return resolve_current_database_column_type(
+            mutation,
+            usage,
+            table_name,
+            &column.column,
+            schema,
+        );
+    }
+
     let Some(table) = table_sources.resolve(&column.qualifier) else {
         return Err(mutation_param_usage_error(
             mutation,
@@ -143,30 +156,7 @@ fn resolve_inferred_mutation_param_type(
         ));
     };
 
-    if let Some(ty) = schema.get(table_name, &column.column) {
-        return Ok(ty);
-    }
-
-    if !schema.has_table(table_name) {
-        return Err(mutation_param_usage_error(
-            mutation,
-            usage,
-            format!(
-                "Param `{}` references unknown current-database table `{table_name}`",
-                usage.id()
-            ),
-        ));
-    }
-
-    Err(mutation_param_usage_error(
-        mutation,
-        usage,
-        format!(
-            "Param `{}` references unknown current-database column `{table_name}.{}`",
-            usage.id(),
-            column.column
-        ),
-    ))
+    resolve_current_database_column_type(mutation, usage, table_name, &column.column, schema)
 }
 
 pub(in crate::metadata::mysql::sqlx) fn current_database_mutation_table_names(
@@ -174,10 +164,17 @@ pub(in crate::metadata::mysql::sqlx) fn current_database_mutation_table_names(
 ) -> core::DiagnosticResult<Vec<String>> {
     let statements = parse_mutation(mutation)?;
     let statement = single_mutation_statement(mutation, &statements)?;
-    Ok(mutation_table_sources(statement)
-        .current_database_table_names
+    let mut table_names = mutation_table_sources(statement).current_database_table_names;
+    for context in collect_mutation_param_contexts(statement)
         .into_iter()
-        .collect())
+        .flatten()
+    {
+        if let Some(table_name) = context.resolved_table_name {
+            table_names.insert(table_name);
+        }
+    }
+
+    Ok(table_names.into_iter().collect())
 }
 
 fn collect_mutation_param_contexts(statement: &Statement) -> Vec<Option<ColumnRef>> {
@@ -238,7 +235,7 @@ fn collect_insert_set_expr_param_contexts(
                     if is_placeholder(expr) {
                         contexts.push(insert_column_context(columns.get(index), target_qualifier));
                     } else {
-                        collect_unsupported_expr_param_contexts(expr, contexts);
+                        collect_mutation_expr_param_contexts(expr, contexts);
                     }
                 }
             }
@@ -266,7 +263,7 @@ fn collect_update_param_contexts(update: &Update, contexts: &mut Vec<Option<Colu
         collect_assignment_param_context(assignment, target_qualifier, contexts);
     }
     if let Some(selection) = &update.selection {
-        collect_expr_param_contexts(selection, contexts);
+        collect_mutation_expr_param_contexts(selection, contexts);
     }
     for order_by in &update.order_by {
         collect_unsupported_expr_param_contexts(&order_by.expr, contexts);
@@ -278,7 +275,7 @@ fn collect_update_param_contexts(update: &Update, contexts: &mut Vec<Option<Colu
 
 fn collect_delete_param_contexts(delete: &Delete, contexts: &mut Vec<Option<ColumnRef>>) {
     if let Some(selection) = &delete.selection {
-        collect_expr_param_contexts(selection, contexts);
+        collect_mutation_expr_param_contexts(selection, contexts);
     }
     for order_by in &delete.order_by {
         collect_unsupported_expr_param_contexts(&order_by.expr, contexts);
@@ -299,7 +296,7 @@ fn collect_assignment_param_context(
             default_qualifier,
         ));
     } else {
-        collect_unsupported_expr_param_contexts(&assignment.value, contexts);
+        collect_mutation_expr_param_contexts(&assignment.value, contexts);
     }
 }
 
@@ -421,6 +418,7 @@ fn insert_column_context(
     Some(ColumnRef {
         qualifier: qualifier.to_owned(),
         column: column_name,
+        resolved_table_name: None,
     })
 }
 
@@ -440,14 +438,11 @@ fn column_ref_from_object_name(
 ) -> Option<ColumnRef> {
     let parts = object_name_parts(name);
     match parts.as_slice() {
-        [column] => Some(ColumnRef {
-            qualifier: default_qualifier?.to_owned(),
-            column: column.clone(),
-        }),
-        [qualifier, column] => Some(ColumnRef {
-            qualifier: qualifier.clone(),
-            column: column.clone(),
-        }),
+        [column] => Some(ColumnRef::qualified(
+            default_qualifier?.to_owned(),
+            column.clone(),
+        )),
+        [qualifier, column] => Some(ColumnRef::qualified(qualifier.clone(), column.clone())),
         _ => None,
     }
 }
