@@ -51,3 +51,39 @@ impl QuerySymbols {
         &self.output_type
     }
 }
+
+/// TypeScript symbols generated from one compiled mutation ID.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MutationSymbols {
+    function: String,
+    input_type: String,
+}
+
+impl MutationSymbols {
+    /// Build TypeScript symbol names for a compiled mutation.
+    #[must_use]
+    pub fn for_mutation(mutation: &core::CompiledMutation) -> Self {
+        Self::from_mutation_id(mutation.id().as_str())
+    }
+
+    /// Build TypeScript symbol names from a validated mutation ID.
+    #[must_use]
+    pub fn from_mutation_id(mutation_id: &str) -> Self {
+        Self {
+            function: mutation_id.to_owned(),
+            input_type: format!("{mutation_id}_Input"),
+        }
+    }
+
+    /// Generated mutation builder function name.
+    #[must_use]
+    pub fn function_name(&self) -> &str {
+        &self.function
+    }
+
+    /// Generated input type alias name.
+    #[must_use]
+    pub fn input_type_name(&self) -> &str {
+        &self.input_type
+    }
+}

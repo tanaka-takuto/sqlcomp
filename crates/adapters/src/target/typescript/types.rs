@@ -11,13 +11,8 @@ pub(super) fn render_input_type_alias(
     query: &core::CompiledQuery,
     symbols: &QuerySymbols,
 ) {
-    if query.input().is_empty() && !has_slot_inputs(query) {
-        writeln!(
-            output,
-            "export type {} = Record<string, never>;",
-            symbols.input_type_name()
-        )
-        .expect("writing to String cannot fail");
+    if !has_slot_inputs(query) {
+        render_static_input_type_alias(output, symbols.input_type_name(), query.input());
         return;
     }
 
@@ -40,18 +35,53 @@ pub(super) fn render_input_type_alias(
     output.push_str("};\n");
 }
 
+pub(super) fn render_static_input_type_alias(
+    output: &mut String,
+    input_type_name: &str,
+    input: &[core::InputField],
+) {
+    if input.is_empty() {
+        writeln!(
+            output,
+            "export type {input_type_name} = Record<string, never>;"
+        )
+        .expect("writing to String cannot fail");
+        return;
+    }
+
+    writeln!(output, "export type {input_type_name} = {{").expect("writing to String cannot fail");
+    for field in input {
+        writeln!(
+            output,
+            "  {}: {};",
+            typescript_property_name(field.name()),
+            typescript_input_field_type(field)
+        )
+        .expect("writing to String cannot fail");
+    }
+    output.push_str("};\n");
+}
+
 pub(super) fn render_function_input_parameter(
     output: &mut String,
     query: &core::CompiledQuery,
     symbols: &QuerySymbols,
 ) {
-    if query.input().is_empty() {
-        writeln!(output, "  _input: {} = {{}},", symbols.input_type_name())
-            .expect("writing to String cannot fail");
+    render_static_function_input_parameter(output, symbols.input_type_name(), query.input());
+}
+
+pub(super) fn render_static_function_input_parameter(
+    output: &mut String,
+    input_type_name: &str,
+    input: &[core::InputField],
+) {
+    let (input_name, default) = if input.is_empty() {
+        ("_input", " = {}")
     } else {
-        writeln!(output, "  input: {},", symbols.input_type_name())
-            .expect("writing to String cannot fail");
-    }
+        ("input", "")
+    };
+    writeln!(output, "  {input_name}: {input_type_name}{default},")
+        .expect("writing to String cannot fail");
 }
 
 pub(super) fn function_input_name(query: &core::CompiledQuery) -> &'static str {
@@ -119,7 +149,7 @@ pub(super) fn typescript_property_name(name: &str) -> String {
     }
 }
 
-fn typescript_params_tuple_type(params: &[core::ParamBinding]) -> String {
+pub(super) fn typescript_params_tuple_type(params: &[core::ParamBinding]) -> String {
     if params.is_empty() {
         "readonly []".to_owned()
     } else {

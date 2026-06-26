@@ -227,9 +227,51 @@ fn generator_combines_queries_from_same_sql_file_into_one_module() {
 }
 
 #[test]
-fn generator_rejects_mutation_builders_until_typescript_generation_exists() {
+fn generator_generates_slotless_mutation_builders_without_row_or_output_aliases() {
     let plan = compilation_plan();
     let mutation = core::CompiledMutation::new(
+        core::MutationId::new("createUser".to_owned()),
+        "INSERT INTO users (email, name) VALUES (?, ?);".to_owned(),
+        core::MutationKind::Insert,
+        vec![
+            core::InputField::new("email".to_owned(), core::CoreType::String, false),
+            core::InputField::new("name".to_owned(), core::CoreType::String, false),
+        ],
+    )
+    .with_params(vec![
+        param("email", core::CoreType::String, false),
+        param("name", core::CoreType::String, false),
+    ])
+    .with_source_path("sql/users.sql");
+    let builders = vec![core::CompiledBuilder::Mutation(mutation)];
+
+    let files = TypeScriptTargetGenerator
+        .generate(&plan, &builders)
+        .expect("mutation builders should generate TypeScript SQL builders");
+
+    let users_contents = file_contents(
+        &files,
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
+    );
+    assert!(
+        users_contents
+            .contains("export type createUser_Input = {\n  email: string;\n  name: string;\n};")
+    );
+    assert!(users_contents.contains(
+        "export function createUser(\n  input: createUser_Input,\n): { sql: string; params: readonly [string, string] }"
+    ));
+    assert!(users_contents.contains(r#"sql: "INSERT INTO users (email, name) VALUES (?, ?);","#));
+    assert!(users_contents.contains("params: [input.email, input.name] as const,"));
+    assert!(!users_contents.contains("createUser_Row"));
+    assert!(!users_contents.contains("createUser_Output"));
+}
+
+#[test]
+fn generator_preserves_mixed_query_and_mutation_source_order_in_one_module() {
+    let plan = compilation_plan();
+    let list_users =
+        compiled_query("listUsers", "SELECT id FROM users;").with_source_path("sql/users.sql");
+    let create_user = core::CompiledMutation::new(
         core::MutationId::new("createUser".to_owned()),
         "INSERT INTO users (email) VALUES (?);".to_owned(),
         core::MutationKind::Insert,
@@ -241,16 +283,33 @@ fn generator_rejects_mutation_builders_until_typescript_generation_exists() {
     )
     .with_params(vec![param("email", core::CoreType::String, false)])
     .with_source_path("sql/users.sql");
-    let builders = vec![core::CompiledBuilder::Mutation(mutation)];
+    let find_user = compiled_query("findUser", "SELECT id FROM users LIMIT 1;")
+        .with_source_path("sql/users.sql");
+    let builders = vec![
+        core::CompiledBuilder::Query(list_users),
+        core::CompiledBuilder::Mutation(create_user),
+        core::CompiledBuilder::Query(find_user),
+    ];
 
-    let report = TypeScriptTargetGenerator
+    let files = TypeScriptTargetGenerator
         .generate(&plan, &builders)
-        .expect_err("mutation builders should be rejected until TypeScript generation exists");
+        .expect("mixed query and mutation builders should generate in source order");
 
-    assert_eq!(report.diagnostics().len(), 1);
-    let message = report.diagnostics()[0].message();
-    assert!(message.contains("compiled mutation `createUser` reached TypeScript generation"));
-    assert!(message.contains("TypeScript mutation builder generation is not implemented yet"));
+    let users_contents = file_contents(
+        &files,
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
+    );
+    let list_index = users_contents
+        .find("export function listUsers(")
+        .expect("listUsers should be generated");
+    let create_index = users_contents
+        .find("export function createUser(")
+        .expect("createUser should be generated");
+    let find_index = users_contents
+        .find("export function findUser(")
+        .expect("findUser should be generated");
+    assert!(list_index < create_index);
+    assert!(create_index < find_index);
 }
 
 fn query_builder(query: core::CompiledQuery) -> core::CompiledBuilder {

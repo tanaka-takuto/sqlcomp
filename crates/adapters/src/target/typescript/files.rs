@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use sqlay_app::TargetGenerator;
 use sqlay_core as core;
 
-use super::builders::render_generated_file_contents_from_iter;
+use super::builders::render_generated_builder_file_contents;
 
 /// TypeScript target generator.
 #[derive(Clone, Copy, Debug, Default)]
@@ -30,8 +30,7 @@ impl TargetGenerator for TypeScriptTargetGenerator {
         let mut files = Vec::with_capacity(builders_by_source_path.len());
         for (source_path, source_builders) in builders_by_source_path {
             let output_path = generated_typescript_path(plan.output_dir(), &source_path);
-            let source_queries = collect_supported_queries(&source_builders)?;
-            let contents = render_generated_file_contents_from_iter(source_queries);
+            let contents = render_generated_builder_file_contents(&source_builders);
             files.push(core::GeneratedFile::new(output_path, contents));
         }
 
@@ -60,28 +59,6 @@ fn builder_source_path(builder: &core::CompiledBuilder) -> core::DiagnosticResul
     }
 
     Ok(source_path)
-}
-
-fn collect_supported_queries<'a>(
-    builders: &[&'a core::CompiledBuilder],
-) -> core::DiagnosticResult<Vec<&'a core::CompiledQuery>> {
-    let mut queries = Vec::with_capacity(builders.len());
-
-    for builder in builders {
-        match *builder {
-            core::CompiledBuilder::Query(query) => queries.push(query),
-            core::CompiledBuilder::Mutation(mutation) => {
-                return Err(core::DiagnosticReport::new(core::Diagnostic::error(
-                    format!(
-                        "compiled mutation `{}` reached TypeScript generation, but TypeScript mutation builder generation is not implemented yet",
-                        mutation.id().as_str()
-                    ),
-                )));
-            }
-        }
-    }
-
-    Ok(queries)
 }
 
 fn generated_typescript_path(output_dir: &Path, source_relative_path: &Path) -> PathBuf {
