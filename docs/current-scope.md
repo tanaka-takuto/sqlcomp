@@ -11,7 +11,11 @@ where near-term work should point. The original MVP remains documented in
 - SQL source files annotated with `@sqlay` Hjson block comments.
 - `type: query` annotations with an explicit `id` and optional
   `cardinality: one | many`.
+- `type: mutation` annotations with an explicit `id`.
 - MySQL 8.x analysis for query blocks that contain exactly one `SELECT` statement.
+- MySQL 8.x analysis for mutation blocks that contain exactly one supported
+  `INSERT`, `UPDATE`, `DELETE`, or `REPLACE` statement as defined by
+  [ADR 0010](./adr/0010-define-initial-mysql-mutation-builder-support.md).
 - TypeScript SQL builder generation that preserves SQL source paths under
   `output.dir`.
 - `sqlay.config.json` project configuration, discovered from the working
@@ -101,6 +105,9 @@ Initial mutation support targets MySQL `INSERT`, `UPDATE`, `DELETE`, and `REPLAC
 builders. Generated mutation builders return SQL text and params only. They do not
 generate result row types, output types, execution functions, transaction helpers,
 or driver-specific result wrappers.
+
+See [Mutation Execution with mysql2](./mutation-execution.md) for user-facing
+execution examples that keep generated builders driver-independent.
 
 Mutation `Param` inference is schema-backed and limited to supported direct column
 contexts such as `INSERT` column lists, `SET column = param`, and qualified

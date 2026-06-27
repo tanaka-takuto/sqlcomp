@@ -62,7 +62,7 @@ CREATE TABLE bookstore_book_categories (
 );
 
 CREATE TABLE bookstore_orders (
-  id BIGINT NOT NULL PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   customer_id BIGINT NOT NULL,
   order_number VARCHAR(32) NOT NULL,
   status ENUM('draft', 'paid', 'shipped', 'delivered', 'cancelled') NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE bookstore_orders (
 );
 
 CREATE TABLE bookstore_order_items (
-  id BIGINT NOT NULL PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   order_id BIGINT NOT NULL,
   book_id BIGINT NOT NULL,
   quantity INT NOT NULL,

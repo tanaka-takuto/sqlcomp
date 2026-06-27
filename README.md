@@ -4,7 +4,8 @@ SQL Inlay.
 
 `sqlay` is a Rust CLI for writing plain SQL files while generating typed target
 language builders. The current supported workflow focuses on MySQL 8.x `SELECT`
-queries, inline `Param` value binding, and TypeScript SQL builder generation.
+queries, MySQL mutation builders, inline `Param` value binding, Slot/Fragment
+composition, and TypeScript SQL builder generation.
 
 ## Why sqlay?
 
@@ -82,11 +83,13 @@ overwrites same-path generated files. Use `sqlay compile --clean` to also remove
 stale managed generated files.
 
 Generated TypeScript includes a generated-code header, input types, database-backed
-row and output types, and builder functions that return SQL text plus readonly
-parameter arrays. Slotless and direct-Param-only builders use readonly tuples for
-fixed parameter shapes; Slot query builders use readonly arrays because selected
-branches can change the parameter shape at runtime. Generated code does not execute
-queries or depend on a database driver.
+row and output types for SELECT queries, and builder functions that return SQL text
+plus readonly parameter arrays. Mutation builders generate input types and builder
+functions, but they do not generate row types, output types, execution functions, or
+driver-specific result wrappers. Slotless and direct-Param-only builders use
+readonly tuples for fixed parameter shapes; dynamic builders use readonly arrays
+when selected branches can change the parameter shape at runtime. Generated code
+does not execute SQL or depend on a database driver.
 
 Dynamic values are written with paired inline `Param` markers around sample SQL
 expressions:
@@ -128,6 +131,51 @@ export type findBook_Input = {
 Optional direct Param input properties are not currently supported because they
 imply SQL structure changes. Use a nullable sentinel pattern, separate queries for
 distinct SQL shapes, or Slot/Fragment composition for supported dynamic SQL.
+
+## Mutation Builders
+
+Use `type: mutation` for MySQL `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` builders.
+Mutation builders return SQL text and params only, keeping transaction handling,
+execution result interpretation, and database driver choice in application code:
+
+```sql
+/* @sqlay
+{
+  type: mutation
+  id: createOrder
+}
+*/
+INSERT INTO bookstore_orders (
+  customer_id,
+  order_number,
+  status,
+  currency,
+  placed_at
+) VALUES (
+  /* @sqlay { type: param id: customerId } */
+  1000
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: orderNumber } */
+  'BK-2000'
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: status } */
+  'draft'
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: currency } */
+  'USD'
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: placedAt } */
+  '2026-04-20 12:00:00.000000'
+  /* @sqlay { type: paramEnd } */
+);
+```
+
+`check` and `compile` validate mutation SQL and infer Param types from schema
+metadata, but they never execute mutation statements. Use an explicit SELECT builder
+when application code needs the row created or updated by a mutation. See
+[`docs/mutation-execution.md`](./docs/mutation-execution.md) for `mysql2/promise`
+execution examples covering `insertId`, affected row counts, transactions,
+multi-row inserts, upserts, and `REPLACE`.
 
 ## Slot/Fragment Composition
 
