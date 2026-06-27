@@ -27,7 +27,9 @@ impl MysqlDialectAnalyzer {
     ) -> core::DiagnosticResult<core::AnalyzedMutation> {
         let dialect = MySqlDialect {};
         let statements = Parser::parse_sql(&dialect, mutation.analysis_sql()).map_err(|error| {
-            mutation_error(mutation, format!("failed to parse MySQL SQL: {error}"))
+            unsupported_unparsed_mutation_statement_error(mutation).unwrap_or_else(|| {
+                mutation_error(mutation, format!("failed to parse MySQL SQL: {error}"))
+            })
         })?;
 
         let [statement] = statements.as_slice() else {
@@ -84,14 +86,41 @@ fn analyze_mutation_statement(
             validate_delete(mutation, delete)?;
             Ok(core::MutationKind::Delete)
         }
-        _ => Err(mutation_error(
+        _ => Err(unsupported_mutation_statement_error(
             mutation,
-            format!(
-                "unsupported mutation SQL statement `{}`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
-                statement_keyword(statement)
-            ),
+            &statement_keyword(statement),
         )),
     }
+}
+
+fn unsupported_unparsed_mutation_statement_error(
+    mutation: &core::RawMutation,
+) -> Option<core::DiagnosticReport> {
+    let tokens = tokenize_mutation(mutation).ok()?;
+    let mut words = tokens.iter().filter_map(|token| match token {
+        Token::Word(word) if word.quote_style.is_none() => Some(word.value.as_str()),
+        _ => None,
+    });
+
+    let first = words.next()?;
+    let second = words.next()?;
+    if first.eq_ignore_ascii_case("LOAD") && second.eq_ignore_ascii_case("DATA") {
+        return Some(unsupported_mutation_statement_error(mutation, "LOAD DATA"));
+    }
+
+    None
+}
+
+fn unsupported_mutation_statement_error(
+    mutation: &core::RawMutation,
+    keyword: &str,
+) -> core::DiagnosticReport {
+    mutation_error(
+        mutation,
+        format!(
+            "unsupported mutation SQL statement `{keyword}`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`"
+        ),
+    )
 }
 
 fn validate_insert_or_replace(
@@ -465,6 +494,10 @@ mod tests {
             (
                 "CALL refresh_users();",
                 "unsupported mutation SQL statement `CALL`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+            ),
+            (
+                "LOAD DATA INFILE '/tmp/users.csv' INTO TABLE users FIELDS TERMINATED BY ',';",
+                "unsupported mutation SQL statement `LOAD DATA`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
             ),
             (
                 "WITH stale_users AS (SELECT id FROM users) UPDATE users SET name = 'Ada' WHERE id = 1;",

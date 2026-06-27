@@ -28,6 +28,28 @@ const FRAGMENT_UNKNOWN_METADATA_FIELD: &str =
 const INVALID_ID: &str = include_str!("../../../fixtures/sql/invalid/invalid_id.sql");
 const MULTIPLE_STATEMENTS: &str =
     include_str!("../../../fixtures/sql/invalid/multiple_statements.sql");
+const MUTATION_CALL: &str = include_str!("../../../fixtures/sql/invalid/mutation_call.sql");
+const MUTATION_CTE: &str = include_str!("../../../fixtures/sql/invalid/mutation_cte.sql");
+const MUTATION_DDL: &str = include_str!("../../../fixtures/sql/invalid/mutation_ddl.sql");
+const MUTATION_DELETE_WITHOUT_WHERE: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_delete_without_where.sql");
+const MUTATION_INSERT_SELECT: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_insert_select.sql");
+const MUTATION_LOAD_DATA: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_load_data.sql");
+const MUTATION_MULTI_TABLE_DELETE: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_multi_table_delete.sql");
+const MUTATION_MULTI_TABLE_UPDATE: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_multi_table_update.sql");
+const MUTATION_MULTIPLE_STATEMENTS: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_multiple_statements.sql");
+const MUTATION_RAW_PLACEHOLDER: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_raw_placeholder.sql");
+const MUTATION_REPLACE_SELECT: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_replace_select.sql");
+const MUTATION_TRUNCATE: &str = include_str!("../../../fixtures/sql/invalid/mutation_truncate.sql");
+const MUTATION_UPDATE_WITHOUT_WHERE: &str =
+    include_str!("../../../fixtures/sql/invalid/mutation_update_without_where.sql");
 const NON_SELECT: &str = include_str!("../../../fixtures/sql/invalid/non_select.sql");
 const PARAM_END_WITHOUT_START: &str =
     include_str!("../../../fixtures/sql/invalid/param_end_without_start.sql");
@@ -90,9 +112,83 @@ fn invalid_sql_shape_fixtures_fail_during_dialect_analysis() {
 }
 
 #[test]
+fn invalid_mutation_sql_shape_fixtures_fail_before_metadata_lookup() {
+    let cases = [
+        (
+            "mutation_multi_table_update.sql",
+            MUTATION_MULTI_TABLE_UPDATE,
+            "unsupported multi-table UPDATE; initial mutation support only accepts single-table UPDATE",
+        ),
+        (
+            "mutation_multi_table_delete.sql",
+            MUTATION_MULTI_TABLE_DELETE,
+            "unsupported multi-table DELETE; initial mutation support only accepts single-table DELETE",
+        ),
+        (
+            "mutation_insert_select.sql",
+            MUTATION_INSERT_SELECT,
+            "unsupported INSERT ... SELECT; initial mutation support accepts INSERT ... VALUES and INSERT ... SET",
+        ),
+        (
+            "mutation_replace_select.sql",
+            MUTATION_REPLACE_SELECT,
+            "unsupported REPLACE ... SELECT; initial mutation support accepts REPLACE ... VALUES and REPLACE ... SET",
+        ),
+        (
+            "mutation_cte.sql",
+            MUTATION_CTE,
+            "unsupported mutation SQL statement `WITH`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+        ),
+        (
+            "mutation_call.sql",
+            MUTATION_CALL,
+            "unsupported mutation SQL statement `CALL`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+        ),
+        (
+            "mutation_load_data.sql",
+            MUTATION_LOAD_DATA,
+            "unsupported mutation SQL statement `LOAD DATA`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+        ),
+        (
+            "mutation_truncate.sql",
+            MUTATION_TRUNCATE,
+            "unsupported mutation SQL statement `TRUNCATE`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+        ),
+        (
+            "mutation_ddl.sql",
+            MUTATION_DDL,
+            "unsupported mutation SQL statement `CREATE`; supported statement kinds are `INSERT`, `UPDATE`, `DELETE`, and `REPLACE`",
+        ),
+        (
+            "mutation_multiple_statements.sql",
+            MUTATION_MULTIPLE_STATEMENTS,
+            "expected exactly one SQL statement per mutation block; found 2",
+        ),
+        (
+            "mutation_update_without_where.sql",
+            MUTATION_UPDATE_WITHOUT_WHERE,
+            "UPDATE mutation requires a WHERE clause",
+        ),
+        (
+            "mutation_delete_without_where.sql",
+            MUTATION_DELETE_WITHOUT_WHERE,
+            "DELETE mutation requires a WHERE clause",
+        ),
+    ];
+
+    for (file_name, source, expected) in cases {
+        assert_check_error_contains(file_name, source, expected);
+    }
+}
+
+#[test]
 fn invalid_param_source_fixtures_fail_during_source_intake() {
     assert_source_error_contains(
         PARAM_RAW_PLACEHOLDER,
+        "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers",
+    );
+    assert_source_error_contains(
+        MUTATION_RAW_PLACEHOLDER,
         "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers",
     );
     assert_source_error_contains(

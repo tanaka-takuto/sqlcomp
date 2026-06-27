@@ -23,6 +23,7 @@ pub(super) const QUERY_FIXTURES: &[&str] = &[
     include_str!("../../../../../fixtures/sql/valid/nested/path_mapping.sql"),
     include_str!("../../../../../fixtures/sql/valid/param_bindings.sql"),
     include_str!("../../../../../fixtures/sql/valid/slot_runtime.sql"),
+    include_str!("../../../../../fixtures/sql/valid/mutation_builders.sql"),
 ];
 
 pub(super) const VALID_CONFIG: &str =
@@ -31,6 +32,8 @@ pub(super) const INVALID_CONFIG: &str =
     include_str!("../../../../../fixtures/sql/sqlay.invalid.config.json");
 pub(super) const FRAGMENT_PARAM_INFERENCE_FAILURE: &str =
     include_str!("../../../../../fixtures/sql/invalid/fragment_param_inference_failure.sql");
+pub(super) const MUTATION_UNSUPPORTED_INFERENCE_CONTEXT: &str =
+    include_str!("../../../../../fixtures/sql/invalid/mutation_unsupported_inference_context.sql");
 pub(super) const PARAM_CONFLICTING_REPEATED_NULLABILITY: &str =
     include_str!("../../../../../fixtures/sql/invalid/param_conflicting_repeated_nullability.sql");
 pub(super) const PARAM_CONFLICTING_REPEATED_TYPE: &str =

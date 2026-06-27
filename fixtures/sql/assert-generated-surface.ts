@@ -13,6 +13,26 @@ import {
   nestedPathMapping,
 } from "./generated/valid/nested/path_mapping";
 import {
+  type mutationDeleteAliasLimited_Input,
+  mutationDeleteAliasLimited,
+  type mutationInsertSet_Input,
+  mutationInsertSet,
+  type mutationInsertValues_Input,
+  mutationInsertValues,
+  type mutationReplaceSet_Input,
+  mutationReplaceSet,
+  type mutationReplaceValues_Input,
+  mutationReplaceValues,
+  type mutationSlotAssignment_Input,
+  mutationSlotAssignment,
+  type mutationUpdateAliasLimited_Input,
+  mutationUpdateAliasLimited,
+  type mutationUpsertValues_Input,
+  mutationUpsertValues,
+  type mutationValueTypeOverride_Input,
+  mutationValueTypeOverride,
+} from "./generated/valid/mutation_builders";
+import {
   type paramDirectColumnInference_Input,
   type paramDirectColumnInference_Output,
   paramDirectColumnInference,
@@ -97,6 +117,156 @@ const explicitManyOverridesLimitOneOutput: generationExplicitManyOverridesLimitO
 
 const nestedPathMappingQuery = nestedPathMapping();
 const nestedPathMappingOutput: nestedPathMapping_Output = [];
+
+const mutationInsertValuesInput: mutationInsertValues_Input = {
+  bigintId: "10",
+  intValue: 7,
+  textValue: "varchar-320-new",
+  activeValue: 1,
+  createdAt: "2026-06-21 10:11:12.123456",
+};
+const mutationInsertValuesQuery = mutationInsertValues(mutationInsertValuesInput);
+const mutationInsertValuesParams: readonly [
+  string,
+  number,
+  string,
+  number,
+  string,
+] = mutationInsertValuesQuery.params;
+
+const mutationInsertSetInput: mutationInsertSet_Input = {
+  childId: "200",
+  parentId: "1",
+  childLabel: "child-new",
+  childAmount: "25.50",
+};
+const mutationInsertSetQuery = mutationInsertSet(mutationInsertSetInput);
+const mutationInsertSetParams: readonly [string, string, string, string] =
+  mutationInsertSetQuery.params;
+
+const mutationUpsertValuesInput: mutationUpsertValues_Input = {
+  childId: "201",
+  parentId: "1",
+  childLabel: "child-upsert",
+  childAmount: "30.75",
+  updatedLabel: "child-updated",
+  updatedAmount: "31.25",
+};
+const mutationUpsertValuesQuery = mutationUpsertValues(mutationUpsertValuesInput);
+const mutationUpsertValuesParams: readonly [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+] = mutationUpsertValuesQuery.params;
+
+const mutationReplaceValuesInput: mutationReplaceValues_Input = {
+  childId: "202",
+  parentId: "2",
+  childLabel: "child-replace",
+  childAmount: "40.00",
+};
+const mutationReplaceValuesQuery = mutationReplaceValues(mutationReplaceValuesInput);
+const mutationReplaceValuesParams: readonly [string, string, string, string] =
+  mutationReplaceValuesQuery.params;
+
+const mutationReplaceSetInput: mutationReplaceSet_Input = {
+  childId: "203",
+  parentId: "2",
+  childLabel: "child-replace-set",
+  childAmount: "41.00",
+};
+const mutationReplaceSetQuery = mutationReplaceSet(mutationReplaceSetInput);
+const mutationReplaceSetParams: readonly [string, string, string, string] =
+  mutationReplaceSetQuery.params;
+
+const mutationUpdateAliasLimitedInput: mutationUpdateAliasLimited_Input = {
+  textValue: "varchar-320-updated",
+  bigintId: "1",
+};
+const mutationUpdateAliasLimitedQuery = mutationUpdateAliasLimited(
+  mutationUpdateAliasLimitedInput,
+);
+const mutationUpdateAliasLimitedParams: readonly [string, string] =
+  mutationUpdateAliasLimitedQuery.params;
+
+const mutationDeleteAliasLimitedInput: mutationDeleteAliasLimited_Input = {
+  parentId: "2",
+};
+const mutationDeleteAliasLimitedQuery = mutationDeleteAliasLimited(
+  mutationDeleteAliasLimitedInput,
+);
+const mutationDeleteAliasLimitedParams: readonly [string] =
+  mutationDeleteAliasLimitedQuery.params;
+
+const mutationValueTypeOverrideInput: mutationValueTypeOverride_Input = {
+  adjustment: 1.25,
+  childId: "100",
+};
+const mutationValueTypeOverrideQuery = mutationValueTypeOverride(
+  mutationValueTypeOverrideInput,
+);
+const mutationValueTypeOverrideParams: readonly [number, string] =
+  mutationValueTypeOverrideQuery.params;
+
+type MutationSlotNullableTextAssignment = Extract<
+  NonNullable<mutationSlotAssignment_Input["assignment"]>,
+  { $fragment: "mutationAssignNullableText" }
+>;
+type MutationSlotDecimalAssignment = Extract<
+  NonNullable<mutationSlotAssignment_Input["assignment"]>,
+  { $fragment: "mutationAssignDecimal" }
+>;
+
+const mutationSlotAssignmentNullableTextAssignment: MutationSlotNullableTextAssignment = {
+  $fragment: "mutationAssignNullableText",
+  textValue: null,
+};
+const mutationSlotAssignmentNullableTextInput: mutationSlotAssignment_Input = {
+  textValue: "slot-base",
+  bigintId: "1",
+  assignment: mutationSlotAssignmentNullableTextAssignment,
+};
+const mutationSlotAssignmentNullableTextQuery = mutationSlotAssignment(
+  mutationSlotAssignmentNullableTextInput,
+);
+const mutationSlotAssignmentNullableTextExpectedParams: readonly [
+  string,
+  string | null,
+  string,
+] = [
+  mutationSlotAssignmentNullableTextInput.textValue,
+  mutationSlotAssignmentNullableTextAssignment.textValue,
+  mutationSlotAssignmentNullableTextInput.bigintId,
+];
+const mutationSlotAssignmentNullableTextParams: readonly unknown[] =
+  mutationSlotAssignmentNullableTextQuery.params;
+
+const mutationSlotAssignmentDecimalAssignment: MutationSlotDecimalAssignment = {
+  $fragment: "mutationAssignDecimal",
+  amount: "55.5000",
+};
+const mutationSlotAssignmentDecimalInput: mutationSlotAssignment_Input = {
+  textValue: "slot-base",
+  bigintId: "1",
+  assignment: mutationSlotAssignmentDecimalAssignment,
+};
+const mutationSlotAssignmentDecimalQuery = mutationSlotAssignment(
+  mutationSlotAssignmentDecimalInput,
+);
+const mutationSlotAssignmentDecimalExpectedParams: readonly [
+  string,
+  string,
+  string,
+] = [
+  mutationSlotAssignmentDecimalInput.textValue,
+  mutationSlotAssignmentDecimalAssignment.amount,
+  mutationSlotAssignmentDecimalInput.bigintId,
+];
+const mutationSlotAssignmentDecimalParams: readonly unknown[] =
+  mutationSlotAssignmentDecimalQuery.params;
 
 const directParamInput: paramDirectColumnInference_Input = {
   parentBigintNnCol: "1",
@@ -237,6 +407,18 @@ void explicitManyOverridesLimitOneQuery;
 void explicitManyOverridesLimitOneOutput;
 void nestedPathMappingQuery;
 void nestedPathMappingOutput;
+void mutationInsertValuesParams;
+void mutationInsertSetParams;
+void mutationUpsertValuesParams;
+void mutationReplaceValuesParams;
+void mutationReplaceSetParams;
+void mutationUpdateAliasLimitedParams;
+void mutationDeleteAliasLimitedParams;
+void mutationValueTypeOverrideParams;
+void mutationSlotAssignmentNullableTextExpectedParams;
+void mutationSlotAssignmentNullableTextParams;
+void mutationSlotAssignmentDecimalExpectedParams;
+void mutationSlotAssignmentDecimalParams;
 void directParamParams;
 void directParamOutput;
 void valueTypeParamParams;

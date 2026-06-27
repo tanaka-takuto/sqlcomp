@@ -1,7 +1,8 @@
 # SQL Fixtures
 
 These fixtures support SQL source and MySQL 8.x metadata integration work for the
-MVP and post-MVP Param coverage. They are test fixtures, not user-facing examples.
+MVP and post-MVP Param, Slot/Fragment, and mutation coverage. They are test
+fixtures, not user-facing examples.
 
 - `schema.sql` resets the metadata-oriented MySQL tables used by these fixtures,
   such as `fixture_all_column_type` and `fixture_child`.
@@ -24,11 +25,14 @@ MVP and post-MVP Param coverage. They are test fixtures, not user-facing example
   including cross-file fragments, fragment-only source files, mixed query/fragment
   source files, repeated Slot IDs, stable variants, and generated runtime branch
   builders.
+- `valid/mutation_builders.sql` exercises valid mutation builders, including
+  `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, direct Param inference, explicit
+  `valueType`, and mutation Slot/Fragment composition.
 - `valid/nested/path_mapping.sql` verifies that generated output preserves nested
   config-relative source paths.
 - `generated/` contains committed generated TypeScript expected artifacts.
-- `invalid/` contains negative SQL source, Param, and Slot/Fragment diagnostics
-  fixtures.
+- `invalid/` contains negative SQL source, Param, Slot/Fragment, and mutation
+  diagnostics fixtures.
 
 From the repository root, run the DB-backed fixture check against a running MySQL
 service:

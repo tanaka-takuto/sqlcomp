@@ -1,7 +1,8 @@
 use sqlx::{Connection, MySqlConnection};
 
 use super::fixture_support::{
-    DATABASE_URL_ENV, FRAGMENT_PARAM_INFERENCE_FAILURE, INIT_FIXTURES, MYSQL_FIXTURE_LOCK,
+    DATABASE_URL_ENV, FRAGMENT_PARAM_INFERENCE_FAILURE, INIT_FIXTURES,
+    MUTATION_UNSUPPORTED_INFERENCE_CONTEXT, MYSQL_FIXTURE_LOCK,
     PARAM_CONFLICTING_REPEATED_NULLABILITY, PARAM_CONFLICTING_REPEATED_TYPE,
     PARAM_UNSUPPORTED_INFERENCE_CONTEXT, REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT,
     SLOT_VARIANT_ROW_SHAPE_MISMATCH, assert_mysql_invalid_fixture_error_contains,
@@ -94,6 +95,33 @@ fn mysql_slot_fragment_invalid_fixtures_report_expected_diagnostics()
         "fragment_param_inference_failure.sql",
         FRAGMENT_PARAM_INFERENCE_FAILURE,
         "while validating Slot expansion variant for query `fragmentParamInferenceFailure` with selections: filter=lowerTextFilter",
+    )?;
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn mysql_mutation_invalid_fixtures_report_expected_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    assert_mysql_invalid_fixture_error_contains(
+        &database_url,
+        "mutation_unsupported_inference_context.sql",
+        MUTATION_UNSUPPORTED_INFERENCE_CONTEXT,
+        "Param `adjustment` requires `valueType` because no supported mutation column context was found",
     )?;
 
     Ok(())
