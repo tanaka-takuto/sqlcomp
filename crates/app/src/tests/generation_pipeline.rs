@@ -259,6 +259,257 @@ fn check_accepts_slotless_mutation_source_units() {
 }
 
 #[test]
+fn check_accepts_mutation_slot_variants_and_builds_dynamic_ir() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let (mutation, fragment) = mutation_slot_assignment_fixture();
+    let source_read = SourceRead::from_queries(Vec::new())
+        .with_mutations(vec![mutation.clone()])
+        .with_fragments(vec![fragment])
+        .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("mutation Slot variants should validate successfully");
+
+    assert_eq!(outcome.fragment_count(), 1);
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        outcome.mutation_summaries(),
+        [crate::MutationSummary::new(
+            "renameUser".to_owned(),
+            Some(PathBuf::from("sql/users.sql")),
+            core::MutationKind::Update,
+            2,
+            2,
+            1,
+            2,
+        )]
+    );
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "UPDATE users AS u SET name = ? WHERE u.id = ?;",
+            "UPDATE users AS u SET name = ?, updated_at = ? WHERE u.id = ?;",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_sql(),
+        [
+            "UPDATE users AS u SET name = ? WHERE u.id = ?;",
+            "UPDATE users AS u SET name = ?, updated_at = ? WHERE u.id = ?;",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [
+            vec!["name".to_owned(), "id".to_owned()],
+            vec!["name".to_owned(), "updatedAt".to_owned(), "id".to_owned()],
+        ]
+    );
+    assert_eq!(
+        calls.entries(),
+        [
+            "read",
+            "analyze_mutation",
+            "analyze_mutation",
+            "describe_mutation",
+            "describe_mutation",
+            "compile_mutation",
+            "generate"
+        ]
+    );
+
+    let generated_builders = target_generator.generated_builders();
+    assert_eq!(generated_builders.len(), 1);
+    let core::CompiledBuilder::Mutation(compiled) = &generated_builders[0] else {
+        panic!("target generator should receive a mutation builder");
+    };
+    assert_rename_user_dynamic_ir(compiled);
+}
+
+fn mutation_slot_assignment_fixture() -> (core::RawMutation, core::RawFragment) {
+    let base_sql = "UPDATE users AS u SET name = ? WHERE u.id = ?;";
+    let slot_index = base_sql
+        .find(" WHERE")
+        .expect("Slot insertion point exists before WHERE predicate");
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("renameUser".to_owned()),
+        "UPDATE users AS u SET name = ?/* @sqlay { type: slot id: assignment targets: [touchUpdatedAt] } */ WHERE u.id = ?;"
+            .to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_param_usages(vec![
+        test_param_usage(
+            "name",
+            base_sql.find('?').expect("name Param placeholder exists"),
+        ),
+        test_param_usage(
+            "id",
+            base_sql.rfind('?').expect("id Param placeholder exists"),
+        ),
+    ])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "assignment".to_owned(),
+        vec!["touchUpdatedAt".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = ", updated_at = ?";
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("touchUpdatedAt".to_owned()),
+        fragment_sql.to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "updatedAt",
+        fragment_sql
+            .find('?')
+            .expect("updatedAt Param placeholder exists"),
+    )])
+    .with_source_path("sql/mutation_fragments.sql");
+
+    (mutation, fragment)
+}
+
+fn assert_rename_user_dynamic_ir(compiled: &core::CompiledMutation) {
+    let dynamic = compiled
+        .dynamic_body()
+        .expect("Slot mutation should carry dynamic Core IR");
+    assert_eq!(dynamic.base_segments().len(), 2);
+    assert_eq!(
+        dynamic.base_segments()[0].sql(),
+        "UPDATE users AS u SET name = ?"
+    );
+    assert_eq!(
+        dynamic.base_segments()[0].params(),
+        [core::ParamBinding::new(
+            "name".to_owned(),
+            core::CoreType::String,
+            false,
+        )]
+    );
+    assert_eq!(dynamic.slot_occurrences().len(), 1);
+    assert_eq!(dynamic.slot_occurrences()[0].slot_id(), "assignment");
+    assert_eq!(dynamic.base_segments()[1].sql(), " WHERE u.id = ?;");
+    assert_eq!(
+        dynamic.base_segments()[1].params(),
+        [core::ParamBinding::new(
+            "id".to_owned(),
+            core::CoreType::String,
+            false,
+        )]
+    );
+    assert_eq!(dynamic.slots().len(), 1);
+    assert_eq!(dynamic.slots()[0].id(), "assignment");
+    let branch = &dynamic.slots()[0].branches()[0];
+    assert_eq!(branch.target_id(), "touchUpdatedAt");
+    assert_eq!(branch.segments()[0].sql(), ", updated_at = ?");
+    assert_eq!(
+        branch.segments()[0].params(),
+        [core::ParamBinding::new(
+            "updatedAt".to_owned(),
+            core::CoreType::String,
+            false,
+        )]
+    );
+}
+
+#[test]
+fn check_rejects_mutation_slot_variant_that_changes_statement_kind() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let base_sql = "UPDATE users AS u SET name = ? WHERE u.id = ?;";
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("renameUser".to_owned()),
+        "/* @sqlay { type: slot id: prefix targets: [deleteInstead] } */UPDATE users AS u SET name = ? WHERE u.id = ?;"
+            .to_owned(),
+    )
+    .with_analysis_sql(base_sql.to_owned())
+    .with_param_usages(vec![
+        test_param_usage(
+            "name",
+            base_sql
+                .find('?')
+                .expect("name Param placeholder exists"),
+        ),
+        test_param_usage(
+            "id",
+            base_sql
+                .rfind('?')
+                .expect("id Param placeholder exists"),
+        ),
+    ])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "prefix".to_owned(),
+        vec!["deleteInstead".to_owned()],
+        0,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("deleteInstead".to_owned()),
+        "DELETE FROM users WHERE id = ?; ".to_owned(),
+    )
+    .with_analysis_sql("DELETE FROM users WHERE id = ?; ".to_owned())
+    .with_param_usages(vec![test_param_usage(
+        "id",
+        "DELETE FROM users WHERE id = ".len(),
+    )]);
+    let source_read = SourceRead::from_queries(Vec::new())
+        .with_mutations(vec![mutation.clone()])
+        .with_fragments(vec![fragment])
+        .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls.clone());
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let report = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect_err("mutation Slot variants must keep the base statement kind");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for mutation `renameUser` resolved statement kind `DELETE`, but the base variant resolved statement kind `UPDATE`; all variants must have matching mutation statement kind\nwhile validating Slot expansion variant for mutation `renameUser` with selections: prefix=deleteInstead\nSlot `prefix` selected `deleteInstead` in this variant"
+    );
+    assert_eq!(
+        calls.entries(),
+        ["read", "analyze_mutation", "analyze_mutation"]
+    );
+}
+
+#[test]
 fn check_preserves_mixed_query_and_mutation_source_order_for_generation() {
     let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();

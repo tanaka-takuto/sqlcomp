@@ -2,7 +2,7 @@ use super::diagnostics::with_slot_variant_context;
 use super::param_validation::validate_expanded_variant_param_bindings;
 use super::slot_variants::{
     AnalyzedQueryVariant, ExpandedFragmentParamOccurrence, ExpandedParamOccurrence,
-    ExpandedParamScope, SlotExpansionContext, SlotSelectionContext,
+    ExpandedParamScope, SlotExpansionContext, SlotExpansionSourceKind, SlotSelectionContext,
 };
 use super::*;
 use std::path::Path;
@@ -98,7 +98,8 @@ fn repeated_slot_fragment_param_validation_rejects_nullability_conflicts() {
         query,
         analysis: core::AnalyzedQuery::new(core::Cardinality::Many),
         context: Some(SlotExpansionContext {
-            query_id: "listUsers".to_owned(),
+            source_kind: SlotExpansionSourceKind::Query,
+            source_id: "listUsers".to_owned(),
             selections: vec![SlotSelectionContext {
                 slot_id: "filter".to_owned(),
                 target_id: Some("byKind".to_owned()),

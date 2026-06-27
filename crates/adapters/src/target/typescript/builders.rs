@@ -3,13 +3,15 @@ use std::fmt::Write as _;
 use sqlay_core as core;
 
 use super::literals::typescript_string_literal;
-use super::slots::{is_slot_query, render_dynamic_sql_segment, render_slot_switch};
+use super::slots::{
+    is_slot_mutation, is_slot_query, render_dynamic_sql_segment, render_slot_switch,
+};
 use super::symbols::{MutationSymbols, QuerySymbols};
 use super::types::{
-    function_input_name, input_param_access, render_function_input_parameter,
-    render_input_type_alias, render_static_function_input_parameter,
-    render_static_input_type_alias, typescript_output_type, typescript_params_expression,
-    typescript_params_tuple_type, typescript_params_type, typescript_property_name,
+    function_input_name, function_input_name_for_input, input_param_access,
+    render_dynamic_input_type_alias, render_function_input_parameter, render_input_type_alias,
+    render_static_function_input_parameter, typescript_dynamic_params_type, typescript_output_type,
+    typescript_params_expression, typescript_params_type, typescript_property_name,
     typescript_result_type,
 };
 
@@ -77,7 +79,7 @@ fn render_generated_file_prelude(include_sql_param_alias: bool) -> String {
 const fn builder_uses_sql_param_alias(builder: &core::CompiledBuilder) -> bool {
     match builder {
         core::CompiledBuilder::Query(query) => is_slot_query(query),
-        core::CompiledBuilder::Mutation(_) => false,
+        core::CompiledBuilder::Mutation(mutation) => is_slot_mutation(mutation),
     }
 }
 
@@ -144,7 +146,12 @@ pub fn render_mutation(mutation: &core::CompiledMutation) -> String {
     let symbols = MutationSymbols::for_mutation(mutation);
     let mut output = String::new();
 
-    render_static_input_type_alias(&mut output, symbols.input_type_name(), mutation.input());
+    render_dynamic_input_type_alias(
+        &mut output,
+        symbols.input_type_name(),
+        mutation.input(),
+        mutation.dynamic_body(),
+    );
     output.push('\n');
 
     writeln!(&mut output, "export function {}(", symbols.function_name())
@@ -157,10 +164,18 @@ pub fn render_mutation(mutation: &core::CompiledMutation) -> String {
     writeln!(
         &mut output,
         "): {{ sql: string; params: {} }} {{",
-        typescript_params_tuple_type(mutation.params())
+        typescript_dynamic_params_type(mutation.dynamic_body(), mutation.params())
     )
     .expect("writing to String cannot fail");
-    render_static_builder_body(&mut output, mutation.sql(), mutation.params());
+    if let Some(dynamic_body) = mutation.dynamic_body() {
+        render_dynamic_sql_builder_body(
+            &mut output,
+            function_input_name_for_input(mutation.input()),
+            dynamic_body,
+        );
+    } else {
+        render_static_builder_body(&mut output, mutation.sql(), mutation.params());
+    }
     output.push_str("}\n");
 
     output
@@ -188,8 +203,14 @@ fn render_dynamic_builder_body(
     query: &core::CompiledQuery,
     dynamic_body: &core::CompiledDynamicQuery,
 ) {
-    let input_name = function_input_name(query);
+    render_dynamic_sql_builder_body(output, function_input_name(query), dynamic_body);
+}
 
+fn render_dynamic_sql_builder_body(
+    output: &mut String,
+    input_name: &str,
+    dynamic_body: &core::CompiledDynamicQuery,
+) {
     output.push_str("  const sqlParts: string[] = [];\n");
     output.push_str("  const params: SqlParam[] = [];\n\n");
 

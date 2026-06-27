@@ -116,6 +116,7 @@ pub struct CompiledMutation {
     source_path: Option<PathBuf>,
     input: Vec<InputField>,
     params: Vec<ParamBinding>,
+    dynamic_body: Option<CompiledDynamicQuery>,
 }
 
 impl CompiledMutation {
@@ -134,6 +135,7 @@ impl CompiledMutation {
             source_path: None,
             input,
             params: Vec::new(),
+            dynamic_body: None,
         }
     }
 
@@ -148,6 +150,13 @@ impl CompiledMutation {
     #[must_use]
     pub fn with_source_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.source_path = Some(path.into());
+        self
+    }
+
+    /// Attach dynamic SQL body data for a mutation with Slot occurrences.
+    #[must_use]
+    pub fn with_dynamic_body(mut self, body: CompiledDynamicQuery) -> Self {
+        self.dynamic_body = Some(body);
         self
     }
 
@@ -185,6 +194,12 @@ impl CompiledMutation {
     #[must_use]
     pub fn params(&self) -> &[ParamBinding] {
         &self.params
+    }
+
+    /// Dynamic Slot body for this mutation, when the mutation contains Slots.
+    #[must_use]
+    pub const fn dynamic_body(&self) -> Option<&CompiledDynamicQuery> {
+        self.dynamic_body.as_ref()
     }
 }
 

@@ -9,10 +9,15 @@ use crate::{
 };
 
 use super::diagnostics::{query_error, with_slot_variant_context};
-use super::dynamic_ir::compile_dynamic_query_body;
-use super::param_validation::{ScopedParamBinding, validate_expanded_variant_param_bindings};
-use super::slot_variants::analyze_query_variants;
-use super::variant_validation::{validate_variant_cardinality, validate_variant_row_shape};
+use super::dynamic_ir::{compile_dynamic_mutation_body, compile_dynamic_query_body};
+use super::param_validation::{
+    ScopedParamBinding, validate_expanded_mutation_variant_param_bindings,
+    validate_expanded_variant_param_bindings,
+};
+use super::slot_variants::{analyze_mutation_variants, analyze_query_variants};
+use super::variant_validation::{
+    validate_mutation_variant_kind, validate_variant_cardinality, validate_variant_row_shape,
+};
 use super::{CompilePipeline, MutationSummary, QuerySummary};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -72,7 +77,12 @@ where
                 compiled_builders.push(core::CompiledBuilder::Query(compiled));
             }
             core::RawSourceUnit::Mutation(mutation) => {
-                let (compiled, summary) = compile_slotless_mutation_builder(mutation, pipeline)?;
+                let (compiled, summary) = compile_mutation_builder(
+                    mutation,
+                    &fragments_by_id,
+                    &mut used_fragment_ids,
+                    pipeline,
+                )?;
                 mutation_summaries.push(summary);
                 compiled_builders.push(core::CompiledBuilder::Mutation(compiled));
             }
@@ -167,8 +177,10 @@ where
     Ok((compiled, summary))
 }
 
-fn compile_slotless_mutation_builder<P, S, D, M, Q, T, W>(
+fn compile_mutation_builder<P, S, D, M, Q, T, W>(
     mutation: &core::RawMutation,
+    fragments_by_id: &HashMap<&str, &core::RawFragment>,
+    used_fragment_ids: &mut HashSet<String>,
     pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
 ) -> core::DiagnosticResult<(core::CompiledMutation, MutationSummary)>
 where
@@ -180,44 +192,63 @@ where
     T: TargetGenerator,
     W: GeneratedFileWriter,
 {
-    reject_mutation_slots_until_pipeline_exists(mutation)?;
-
-    let analysis = pipeline.dialect_analyzer.analyze_mutation(mutation)?;
-    let metadata = pipeline
+    let analyzed_variants = analyze_mutation_variants(
+        mutation,
+        fragments_by_id,
+        used_fragment_ids,
+        pipeline.dialect_analyzer,
+    )?;
+    let unique_slot_count = analyzed_variants.unique_slot_count;
+    let variant_count = analyzed_variants.variants.len();
+    let Some(base_variant) = analyzed_variants.variants.first() else {
+        return Err(super::diagnostics::mutation_error(
+            mutation,
+            "Slot expansion produced no validation variants",
+        ));
+    };
+    validate_mutation_variant_kind(&analyzed_variants.variants)?;
+    let base_metadata = pipeline
         .metadata_provider
-        .describe_mutation(mutation, &analysis)?;
-    let compiled = pipeline
-        .query_compiler
-        .compile_mutation(mutation, &analysis, &metadata)?;
-    let summary = MutationSummary::from_compiled_mutation(&compiled, 0, 1);
+        .describe_mutation(&base_variant.mutation, &base_variant.analysis)
+        .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
+    let mut scoped_param_bindings = Vec::<ScopedParamBinding>::new();
+    validate_expanded_mutation_variant_param_bindings(
+        base_variant,
+        &base_metadata,
+        &mut scoped_param_bindings,
+    )
+    .map_err(|report| with_slot_variant_context(report, base_variant.context.as_ref()))?;
+    for variant in analyzed_variants.variants.iter().skip(1) {
+        let metadata = pipeline
+            .metadata_provider
+            .describe_mutation(&variant.mutation, &variant.analysis)
+            .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
+        validate_expanded_mutation_variant_param_bindings(
+            variant,
+            &metadata,
+            &mut scoped_param_bindings,
+        )
+        .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
+    }
+    let compiled = pipeline.query_compiler.compile_mutation(
+        &base_variant.mutation,
+        &base_variant.analysis,
+        &base_metadata,
+    )?;
+    let compiled = if analyzed_variants.slot_specs.is_empty() {
+        compiled
+    } else {
+        compiled.with_dynamic_body(compile_dynamic_mutation_body(
+            mutation,
+            &analyzed_variants.slot_specs,
+            fragments_by_id,
+            &scoped_param_bindings,
+        )?)
+    };
+    let summary =
+        MutationSummary::from_compiled_mutation(&compiled, unique_slot_count, variant_count);
 
     Ok((compiled, summary))
-}
-
-fn reject_mutation_slots_until_pipeline_exists(
-    mutation: &core::RawMutation,
-) -> core::DiagnosticResult<()> {
-    let Some(slot) = mutation.slot_usages().first() else {
-        return Ok(());
-    };
-
-    let location =
-        if slot.source_location().range().is_some() || slot.source_location().path().is_some() {
-            slot.source_location().clone()
-        } else {
-            mutation
-                .source_location()
-                .cloned()
-                .unwrap_or_else(core::SourceLocation::unknown)
-        };
-
-    Err(core::DiagnosticReport::new(
-        core::Diagnostic::error(format!(
-            "mutation source unit `{}` contains Slot markers, but mutation Slot/Fragment validation is not implemented yet",
-            mutation.metadata().id()
-        ))
-        .with_location(location),
-    ))
 }
 
 fn source_units_or_fallback(

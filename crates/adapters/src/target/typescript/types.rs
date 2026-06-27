@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use sqlay_core as core;
 
 use super::literals::typescript_string_literal;
-use super::slots::{has_slot_inputs, is_slot_query, render_slot_input_field};
+use super::slots::render_slot_input_field;
 use super::symbols::QuerySymbols;
 
 pub(super) fn render_input_type_alias(
@@ -11,14 +11,28 @@ pub(super) fn render_input_type_alias(
     query: &core::CompiledQuery,
     symbols: &QuerySymbols,
 ) {
-    if !has_slot_inputs(query) {
-        render_static_input_type_alias(output, symbols.input_type_name(), query.input());
+    render_dynamic_input_type_alias(
+        output,
+        symbols.input_type_name(),
+        query.input(),
+        query.dynamic_body(),
+    );
+}
+
+pub(super) fn render_dynamic_input_type_alias(
+    output: &mut String,
+    input_type_name: &str,
+    input: &[core::InputField],
+    dynamic_body: Option<&core::CompiledDynamicQuery>,
+) {
+    let has_slot_inputs = dynamic_body.is_some_and(|body| !body.slots().is_empty());
+    if !has_slot_inputs {
+        render_static_input_type_alias(output, input_type_name, input);
         return;
     }
 
-    writeln!(output, "export type {} = {{", symbols.input_type_name())
-        .expect("writing to String cannot fail");
-    for field in query.input() {
+    writeln!(output, "export type {input_type_name} = {{").expect("writing to String cannot fail");
+    for field in input {
         writeln!(
             output,
             "  {}: {};",
@@ -27,7 +41,7 @@ pub(super) fn render_input_type_alias(
         )
         .expect("writing to String cannot fail");
     }
-    if let Some(dynamic_body) = query.dynamic_body() {
+    if let Some(dynamic_body) = dynamic_body {
         for slot in dynamic_body.slots() {
             render_slot_input_field(output, slot);
         }
@@ -85,11 +99,11 @@ pub(super) fn render_static_function_input_parameter(
 }
 
 pub(super) fn function_input_name(query: &core::CompiledQuery) -> &'static str {
-    if query.input().is_empty() {
-        "_input"
-    } else {
-        "input"
-    }
+    function_input_name_for_input(query.input())
+}
+
+pub(super) const fn function_input_name_for_input(input: &[core::InputField]) -> &'static str {
+    if input.is_empty() { "_input" } else { "input" }
 }
 
 pub(super) fn typescript_output_type(
@@ -165,10 +179,17 @@ pub(super) fn typescript_params_tuple_type(params: &[core::ParamBinding]) -> Str
 }
 
 pub(super) fn typescript_params_type(query: &core::CompiledQuery) -> String {
-    if is_slot_query(query) {
+    typescript_dynamic_params_type(query.dynamic_body(), query.params())
+}
+
+pub(super) fn typescript_dynamic_params_type(
+    dynamic_body: Option<&core::CompiledDynamicQuery>,
+    params: &[core::ParamBinding],
+) -> String {
+    if dynamic_body.is_some() {
         "readonly SqlParam[]".to_owned()
     } else {
-        typescript_params_tuple_type(query.params())
+        typescript_params_tuple_type(params)
     }
 }
 

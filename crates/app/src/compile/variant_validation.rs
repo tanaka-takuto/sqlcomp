@@ -1,7 +1,7 @@
 use sqlay_core as core;
 
-use super::diagnostics::{query_error, with_slot_variant_context};
-use super::slot_variants::AnalyzedQueryVariant;
+use super::diagnostics::{mutation_error, query_error, with_slot_variant_context};
+use super::slot_variants::{AnalyzedMutationVariant, AnalyzedQueryVariant};
 
 pub(super) fn validate_variant_cardinality(
     variants: &[AnalyzedQueryVariant],
@@ -88,6 +88,35 @@ pub(super) fn validate_variant_row_shape(
     Ok(())
 }
 
+pub(super) fn validate_mutation_variant_kind(
+    variants: &[AnalyzedMutationVariant],
+) -> core::DiagnosticResult<()> {
+    let Some(base_variant) = variants.first() else {
+        return Ok(());
+    };
+    let base_kind = base_variant.analysis.kind();
+
+    for variant in variants.iter().skip(1) {
+        let variant_kind = variant.analysis.kind();
+        if variant_kind != base_kind {
+            return Err(with_slot_variant_context(
+                mutation_error(
+                    &variant.mutation,
+                    format!(
+                        "Slot expansion variant for mutation `{}` resolved statement kind `{}`, but the base variant resolved statement kind `{}`; all variants must have matching mutation statement kind",
+                        variant.mutation.metadata().id(),
+                        format_mutation_kind(variant_kind),
+                        format_mutation_kind(base_kind),
+                    ),
+                ),
+                variant.context.as_ref(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn row_shape_difference_error(
     variant: &AnalyzedQueryVariant,
     difference: &str,
@@ -122,5 +151,14 @@ const fn format_cardinality(cardinality: core::Cardinality) -> &'static str {
     match cardinality {
         core::Cardinality::One => "one",
         core::Cardinality::Many => "many",
+    }
+}
+
+const fn format_mutation_kind(kind: core::MutationKind) -> &'static str {
+    match kind {
+        core::MutationKind::Insert => "INSERT",
+        core::MutationKind::Update => "UPDATE",
+        core::MutationKind::Delete => "DELETE",
+        core::MutationKind::Replace => "REPLACE",
     }
 }

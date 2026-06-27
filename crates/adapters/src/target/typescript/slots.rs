@@ -11,10 +11,8 @@ pub(super) const fn is_slot_query(query: &core::CompiledQuery) -> bool {
     query.dynamic_body().is_some()
 }
 
-pub(super) fn has_slot_inputs(query: &core::CompiledQuery) -> bool {
-    query
-        .dynamic_body()
-        .is_some_and(|dynamic_body| !dynamic_body.slots().is_empty())
+pub(super) const fn is_slot_mutation(mutation: &core::CompiledMutation) -> bool {
+    mutation.dynamic_body().is_some()
 }
 
 pub(super) fn render_slot_switch(

@@ -267,6 +267,86 @@ fn generator_generates_slotless_mutation_builders_without_row_or_output_aliases(
 }
 
 #[test]
+fn generator_generates_slot_mutation_builders_with_runtime_branches() {
+    let plan = compilation_plan();
+    let dynamic_body = core::CompiledDynamicQuery::new(
+        vec![
+            sql_segment(
+                "UPDATE users AS u SET name = ?",
+                vec![param("name", core::CoreType::String, false)],
+            ),
+            sql_segment(
+                " WHERE u.id = ?;",
+                vec![param("id", core::CoreType::Int64, false)],
+            ),
+        ],
+        vec![core::CompiledSlotOccurrence::new("assignment".to_owned())],
+        vec![slot_definition(
+            "assignment",
+            vec![slot_branch(
+                "touchUpdatedAt",
+                ", updated_at = ?",
+                vec![param("updatedAt", core::CoreType::DateTime, false)],
+            )],
+        )],
+    );
+    let mutation = core::CompiledMutation::new(
+        core::MutationId::new("renameUser".to_owned()),
+        "UPDATE users AS u SET name = ? WHERE u.id = ?;".to_owned(),
+        core::MutationKind::Update,
+        vec![
+            core::InputField::new("name".to_owned(), core::CoreType::String, false),
+            core::InputField::new("id".to_owned(), core::CoreType::Int64, false),
+        ],
+    )
+    .with_params(vec![
+        param("name", core::CoreType::String, false),
+        param("id", core::CoreType::Int64, false),
+    ])
+    .with_dynamic_body(dynamic_body)
+    .with_source_path("sql/users.sql");
+    let builders = vec![core::CompiledBuilder::Mutation(mutation)];
+
+    let files = TypeScriptTargetGenerator
+        .generate(&plan, &builders)
+        .expect("Slot mutation builders should generate TypeScript SQL builders");
+
+    let users_contents = file_contents(
+        &files,
+        Path::new("/tmp/sqlay-project/src/generated/sqlay/sql/users.ts"),
+    );
+    assert!(users_contents.contains("type SqlParam = unknown;"));
+    assert!(users_contents.contains(
+        r#"export type renameUser_Input = {
+  name: string;
+  id: string;
+  assignment?: {
+    $fragment: "touchUpdatedAt";
+    updatedAt: string;
+  };
+};"#
+    ));
+    assert!(users_contents.contains(
+        "export function renameUser(\n  input: renameUser_Input,\n): { sql: string; params: readonly SqlParam[] }"
+    ));
+    assert!(users_contents.contains(
+        r#"  sqlParts.push("UPDATE users AS u SET name = ?");
+  params.push(input.name);
+  switch (input.assignment?.$fragment) {
+    case "touchUpdatedAt":
+      sqlParts.push(", updated_at = ?");
+      params.push(input.assignment.updatedAt);
+      break;
+  }
+  sqlParts.push(" WHERE u.id = ?;");
+  params.push(input.id);"#
+    ));
+    assert!(users_contents.contains("sql: sqlParts.join(\"\"),"));
+    assert!(!users_contents.contains("renameUser_Row"));
+    assert!(!users_contents.contains("renameUser_Output"));
+}
+
+#[test]
 fn generator_preserves_mixed_query_and_mutation_source_order_in_one_module() {
     let plan = compilation_plan();
     let list_users =

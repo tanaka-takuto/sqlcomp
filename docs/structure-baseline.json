@@ -17,6 +17,12 @@
       "softFileCount": 8
     }
   },
-  "files": [],
+  "files": [
+    {
+      "path": "crates/app/src/compile/slot_variants.rs",
+      "lineCount": 900,
+      "splitPlan": "Split query and mutation Slot variant expansion into responsibility-specific private modules before adding another Slot composition feature."
+    }
+  ],
   "directories": []
 }
