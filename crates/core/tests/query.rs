@@ -3,7 +3,7 @@ use std::path::Path;
 use sqlay_core::{
     AnalyzedMutation, AnalyzedQuery, Cardinality, CoreType, FragmentMetadata, MutationKind,
     MutationMetadata, ParamUsage, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit,
-    SlotUsage, SourceLocation, SourcePosition, SourceRange,
+    RepeatUsage, SlotUsage, SourceLocation, SourcePosition, SourceRange,
 };
 
 #[test]
@@ -83,6 +83,52 @@ fn raw_query_can_carry_slot_usages() {
 }
 
 #[test]
+fn raw_query_can_carry_repeat_usages_with_item_params() {
+    let repeat_location = SourceLocation::from_range(SourceRange::point(
+        SourcePosition::one_based(8, 35).expect("test position should be valid"),
+    ));
+    let param_location = SourceLocation::from_range(SourceRange::point(
+        SourcePosition::one_based(8, 75).expect("test position should be valid"),
+    ));
+    let query = RawQuery::new(
+        QueryMetadata::new("findUsers".to_owned(), None),
+        "SELECT id FROM users WHERE id IN (/* @sqlay { type: repeat id: ids separator: \",\" } */ /* @sqlay { type: param id: id valueType: int64 } */ 1 /* @sqlay { type: paramEnd } */ /* @sqlay { type: repeatEnd } */);".to_owned(),
+    )
+    .with_analysis_sql("SELECT id FROM users WHERE id IN ( ? );".to_owned())
+    .with_repeat_usages(vec![
+        RepeatUsage::new("ids".to_owned(), ",".to_owned(), 34, 37, repeat_location.clone())
+            .with_item_param_usages(vec![ParamUsage::new(
+                "id".to_owned(),
+                Some(CoreType::Int64),
+                false,
+                param_location.clone(),
+            )
+            .with_placeholder_index(35)]),
+    ]);
+
+    assert_eq!(query.repeat_usages().len(), 1);
+    assert_eq!(query.repeat_usages()[0].id(), "ids");
+    assert_eq!(query.repeat_usages()[0].separator(), ",");
+    assert_eq!(query.repeat_usages()[0].start_index(), 34);
+    assert_eq!(query.repeat_usages()[0].end_index(), 37);
+    assert_eq!(query.repeat_usages()[0].source_location(), &repeat_location);
+    assert_eq!(query.repeat_usages()[0].item_param_usages().len(), 1);
+    assert_eq!(query.repeat_usages()[0].item_param_usages()[0].id(), "id");
+    assert_eq!(
+        query.repeat_usages()[0].item_param_usages()[0].value_type_override(),
+        Some(CoreType::Int64)
+    );
+    assert_eq!(
+        query.repeat_usages()[0].item_param_usages()[0].placeholder_index(),
+        Some(35)
+    );
+    assert_eq!(
+        query.repeat_usages()[0].item_param_usages()[0].source_location(),
+        &param_location
+    );
+}
+
+#[test]
 fn raw_fragment_preserves_metadata_sql_source_path_and_optional_source_location() {
     let location = SourceLocation::at_range(
         "sql/fragments.sql",
@@ -126,6 +172,30 @@ fn raw_fragment_can_carry_analysis_sql_and_param_usages() {
         Some(CoreType::String)
     );
     assert_eq!(fragment.param_usages()[0].source_location(), &location);
+}
+
+#[test]
+fn raw_fragment_can_carry_repeat_usages() {
+    let location = SourceLocation::from_range(SourceRange::point(
+        SourcePosition::one_based(8, 12).expect("test position should be valid"),
+    ));
+    let fragment = RawFragment::new(
+        FragmentMetadata::new("byIds".to_owned()),
+        "\nAND u.id IN (/* @sqlay { type: repeat id: ids separator: \",\" } */ /* @sqlay { type: param id: id valueType: int64 } */ 1 /* @sqlay { type: paramEnd } */ /* @sqlay { type: repeatEnd } */)\n".to_owned(),
+    )
+    .with_analysis_sql("\nAND u.id IN ( ? )\n".to_owned())
+    .with_repeat_usages(vec![RepeatUsage::new(
+        "ids".to_owned(),
+        ",".to_owned(),
+        14,
+        17,
+        location.clone(),
+    )]);
+
+    assert_eq!(fragment.repeat_usages().len(), 1);
+    assert_eq!(fragment.repeat_usages()[0].id(), "ids");
+    assert_eq!(fragment.repeat_usages()[0].separator(), ",");
+    assert_eq!(fragment.repeat_usages()[0].source_location(), &location);
 }
 
 #[test]
@@ -195,6 +265,30 @@ fn raw_mutation_can_carry_analysis_sql_param_usages_and_slot_usages() {
     assert_eq!(mutation.slot_usages()[0].targets(), ["upsertName"]);
     assert_eq!(mutation.slot_usages()[0].insertion_index(), 36);
     assert_eq!(mutation.slot_usages()[0].source_location(), &slot_location);
+}
+
+#[test]
+fn raw_mutation_can_carry_repeat_usages() {
+    let location = SourceLocation::from_range(SourceRange::point(
+        SourcePosition::one_based(8, 34).expect("test position should be valid"),
+    ));
+    let mutation = RawMutation::new(
+        MutationMetadata::new("createUsers".to_owned()),
+        "INSERT INTO users (email) VALUES /* @sqlay { type: repeat id: rows separator: \",\" } */ (/* @sqlay { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlay { type: paramEnd } */) /* @sqlay { type: repeatEnd } */;".to_owned(),
+    )
+    .with_analysis_sql("INSERT INTO users (email) VALUES (?);".to_owned())
+    .with_repeat_usages(vec![RepeatUsage::new(
+        "rows".to_owned(),
+        ",".to_owned(),
+        33,
+        36,
+        location.clone(),
+    )]);
+
+    assert_eq!(mutation.repeat_usages().len(), 1);
+    assert_eq!(mutation.repeat_usages()[0].id(), "rows");
+    assert_eq!(mutation.repeat_usages()[0].separator(), ",");
+    assert_eq!(mutation.repeat_usages()[0].source_location(), &location);
 }
 
 #[test]

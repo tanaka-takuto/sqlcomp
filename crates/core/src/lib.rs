@@ -26,7 +26,7 @@ pub use plan::CompilationPlan;
 pub use query::{
     AnalyzedMutation, AnalyzedQuery, Cardinality, FragmentMetadata, MutationId, MutationMetadata,
     ParamUsage, QueryId, QueryMetadata, RawFragment, RawMutation, RawQuery, RawSourceUnit,
-    SlotUsage,
+    RepeatUsage, SlotUsage,
 };
 pub use reporting::{
     Diagnostic, DiagnosticReport, DiagnosticResult, DiagnosticSeverity, SourceLocation,

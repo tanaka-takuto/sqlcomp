@@ -4,8 +4,10 @@ use crate::ir::MutationKind;
 use crate::{CoreType, SourceLocation};
 
 mod mutation;
+mod repeat;
 
 pub use mutation::{MutationId, MutationMetadata, RawMutation};
+pub use repeat::RepeatUsage;
 
 /// Query identifier exactly as written in source metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -229,6 +231,7 @@ pub struct RawFragment {
     sql: String,
     analysis_sql: String,
     param_usages: Vec<ParamUsage>,
+    repeat_usages: Vec<RepeatUsage>,
     source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
@@ -244,6 +247,7 @@ impl RawFragment {
             sql,
             analysis_sql,
             param_usages: Vec::new(),
+            repeat_usages: Vec::new(),
             source_path: None,
             source_location: None,
         }
@@ -260,6 +264,13 @@ impl RawFragment {
     #[must_use]
     pub fn with_param_usages(mut self, usages: Vec<ParamUsage>) -> Self {
         self.param_usages = usages;
+        self
+    }
+
+    /// Attach inline Repeat usage occurrences in fragment source order.
+    #[must_use]
+    pub fn with_repeat_usages(mut self, usages: Vec<RepeatUsage>) -> Self {
+        self.repeat_usages = usages;
         self
     }
 
@@ -301,6 +312,12 @@ impl RawFragment {
         &self.param_usages
     }
 
+    /// Inline Repeat occurrences in fragment source order.
+    #[must_use]
+    pub fn repeat_usages(&self) -> &[RepeatUsage] {
+        &self.repeat_usages
+    }
+
     /// Source SQL path relative to the configuration directory, when known.
     #[must_use]
     pub fn source_path(&self) -> Option<&Path> {
@@ -322,6 +339,7 @@ pub struct RawQuery {
     analysis_sql: String,
     param_usages: Vec<ParamUsage>,
     slot_usages: Vec<SlotUsage>,
+    repeat_usages: Vec<RepeatUsage>,
     source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
@@ -338,6 +356,7 @@ impl RawQuery {
             analysis_sql,
             param_usages: Vec::new(),
             slot_usages: Vec::new(),
+            repeat_usages: Vec::new(),
             source_path: None,
             source_location: None,
         }
@@ -361,6 +380,13 @@ impl RawQuery {
     #[must_use]
     pub fn with_slot_usages(mut self, usages: Vec<SlotUsage>) -> Self {
         self.slot_usages = usages;
+        self
+    }
+
+    /// Attach inline Repeat usage occurrences in source order.
+    #[must_use]
+    pub fn with_repeat_usages(mut self, usages: Vec<RepeatUsage>) -> Self {
+        self.repeat_usages = usages;
         self
     }
 
@@ -406,6 +432,12 @@ impl RawQuery {
     #[must_use]
     pub fn slot_usages(&self) -> &[SlotUsage] {
         &self.slot_usages
+    }
+
+    /// Inline Repeat occurrences in source order.
+    #[must_use]
+    pub fn repeat_usages(&self) -> &[RepeatUsage] {
+        &self.repeat_usages
     }
 
     /// Source SQL path relative to the configuration directory, when known.

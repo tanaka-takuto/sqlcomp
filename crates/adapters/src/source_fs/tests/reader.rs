@@ -394,6 +394,42 @@ SELECT id FROM users;
 }
 
 #[test]
+fn filesystem_source_reader_attaches_file_path_to_repeat_locations() {
+    let project_dir = test_project_dir("attaches-repeat-locations");
+    let sql_path = project_dir.join("sql").join("users.sql");
+    write_sql(
+        &sql_path,
+        r#"
+/* @sqlay
+{
+  type: query
+  id: findUsers
+}
+*/
+SELECT id FROM users WHERE id IN (/* @sqlay { type: repeat id: ids separator: "," } */ /* @sqlay { type: param id: id valueType: int64 } */ 1 /* @sqlay { type: paramEnd } */ /* @sqlay { type: repeatEnd } */);
+"#,
+    );
+
+    let source_read = FileSystemSourceReader
+        .read(&compilation_plan(
+            &project_dir,
+            vec![project_dir.join("sql/**/*.sql")],
+            Vec::new(),
+        ))
+        .expect("included SQL file should be read");
+    let repeat = &source_read.queries()[0].repeat_usages()[0];
+    let item_param = &repeat.item_param_usages()[0];
+
+    assert_eq!(repeat.source_location().path(), Some(sql_path.as_path()));
+    assert_eq!(
+        item_param.source_location().path(),
+        Some(sql_path.as_path())
+    );
+
+    fs::remove_dir_all(project_dir).expect("test project directory should be removed");
+}
+
+#[test]
 fn source_reader_locations_feed_mysql_parser_diagnostics() {
     let project_dir = test_project_dir("feeds-parser-diagnostics");
     let sql_dir = project_dir.join("sql");

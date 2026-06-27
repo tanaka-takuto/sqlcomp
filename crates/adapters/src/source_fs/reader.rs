@@ -141,6 +141,12 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
         .cloned()
         .map(|usage| attach_slot_usage_path(usage, path))
         .collect::<Vec<_>>();
+    let repeat_usages = query
+        .repeat_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_repeat_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
     let query = if let Some(range) = range {
         query.with_source_location(core::SourceLocation::at_range(path, range))
@@ -151,6 +157,7 @@ fn attach_query_path(query: core::RawQuery, path: &Path) -> core::RawQuery {
     query
         .with_param_usages(param_usages)
         .with_slot_usages(slot_usages)
+        .with_repeat_usages(repeat_usages)
 }
 
 fn attach_mutation_path(mutation: core::RawMutation, path: &Path) -> core::RawMutation {
@@ -169,6 +176,12 @@ fn attach_mutation_path(mutation: core::RawMutation, path: &Path) -> core::RawMu
         .cloned()
         .map(|usage| attach_slot_usage_path(usage, path))
         .collect::<Vec<_>>();
+    let repeat_usages = mutation
+        .repeat_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_repeat_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
     let mutation = if let Some(range) = range {
         mutation.with_source_location(core::SourceLocation::at_range(path, range))
@@ -179,6 +192,7 @@ fn attach_mutation_path(mutation: core::RawMutation, path: &Path) -> core::RawMu
     mutation
         .with_param_usages(param_usages)
         .with_slot_usages(slot_usages)
+        .with_repeat_usages(repeat_usages)
 }
 
 fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFragment {
@@ -191,6 +205,12 @@ fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFr
         .cloned()
         .map(|usage| attach_param_usage_path(usage, path))
         .collect::<Vec<_>>();
+    let repeat_usages = fragment
+        .repeat_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_repeat_usage_path(usage, path))
+        .collect::<Vec<_>>();
 
     let fragment = if let Some(range) = range {
         fragment.with_source_location(core::SourceLocation::at_range(path, range))
@@ -198,7 +218,9 @@ fn attach_fragment_path(fragment: core::RawFragment, path: &Path) -> core::RawFr
         fragment.with_source_location(core::SourceLocation::for_path(path))
     };
 
-    fragment.with_param_usages(param_usages)
+    fragment
+        .with_param_usages(param_usages)
+        .with_repeat_usages(repeat_usages)
 }
 
 fn attach_source_unit_path(
@@ -233,6 +255,22 @@ fn attach_slot_usage_path(usage: core::SlotUsage, path: &Path) -> core::SlotUsag
     } else {
         usage.with_source_location(core::SourceLocation::for_path(path))
     }
+}
+
+fn attach_repeat_usage_path(usage: core::RepeatUsage, path: &Path) -> core::RepeatUsage {
+    let item_param_usages = usage
+        .item_param_usages()
+        .iter()
+        .cloned()
+        .map(|usage| attach_param_usage_path(usage, path))
+        .collect::<Vec<_>>();
+    let usage = if let Some(range) = usage.source_location().range() {
+        usage.with_source_location(core::SourceLocation::at_range(path, range))
+    } else {
+        usage.with_source_location(core::SourceLocation::for_path(path))
+    };
+
+    usage.with_item_param_usages(item_param_usages)
 }
 
 struct SourceUnitDeclaration {

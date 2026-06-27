@@ -217,6 +217,65 @@ ON DUPLICATE KEY UPDATE name = VALUES(name)
 }
 
 #[test]
+fn splits_repeat_usages_inside_mutation_and_fragment_source_units() {
+    let source = r#"
+/* @sqlay
+{
+  type: mutation
+  id: createUsers
+}
+*/
+INSERT INTO users (email)
+VALUES /* @sqlay { type: repeat id: rows separator: "," } */ (/* @sqlay { type: param id: email valueType: string } */ 'ada@example.test' /* @sqlay { type: paramEnd } */) /* @sqlay { type: repeatEnd } */;
+/* @sqlay
+{
+  type: fragment
+  id: byIds
+}
+*/
+AND u.id IN (/* @sqlay { type: repeat id: ids separator: "," } */ /* @sqlay { type: param id: id valueType: int64 } */ 1 /* @sqlay { type: paramEnd } */ /* @sqlay { type: repeatEnd } */)
+"#
+    .strip_prefix('\n')
+    .expect("raw SQL test source should start with a newline");
+
+    let source_units = split_sqlay_source_units(source).expect("source units should split");
+
+    assert_eq!(source_units.mutations().len(), 1);
+    let mutation = &source_units.mutations()[0];
+    assert_eq!(mutation.param_usages(), []);
+    assert_eq!(mutation.repeat_usages().len(), 1);
+    assert_eq!(mutation.repeat_usages()[0].id(), "rows");
+    assert_eq!(mutation.repeat_usages()[0].separator(), ",");
+    assert_eq!(mutation.repeat_usages()[0].item_param_usages().len(), 1);
+    assert_eq!(
+        mutation.repeat_usages()[0].item_param_usages()[0].id(),
+        "email"
+    );
+    assert_eq!(
+        &mutation.analysis_sql()
+            [mutation.repeat_usages()[0].start_index()..mutation.repeat_usages()[0].end_index()],
+        " (?) "
+    );
+
+    assert_eq!(source_units.fragments().len(), 1);
+    let fragment = &source_units.fragments()[0];
+    assert_eq!(fragment.param_usages(), []);
+    assert_eq!(fragment.repeat_usages().len(), 1);
+    assert_eq!(fragment.repeat_usages()[0].id(), "ids");
+    assert_eq!(fragment.repeat_usages()[0].separator(), ",");
+    assert_eq!(fragment.repeat_usages()[0].item_param_usages().len(), 1);
+    assert_eq!(
+        fragment.repeat_usages()[0].item_param_usages()[0].id(),
+        "id"
+    );
+    assert_eq!(
+        &fragment.analysis_sql()
+            [fragment.repeat_usages()[0].start_index()..fragment.repeat_usages()[0].end_index()],
+        " ? "
+    );
+}
+
+#[test]
 fn rejects_invalid_mutation_metadata() {
     for (source, expected_message) in [
         (
@@ -364,7 +423,7 @@ SELECT id FROM users;
 */
 CALL rebuild_search_index();
 ",
-            "unsupported `@sqlay` annotation type `procedure`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`",
+            "unsupported `@sqlay` annotation type `procedure`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, `slot`, `repeat`, and `repeatEnd`",
         ),
     ] {
         let source = source
@@ -396,7 +455,7 @@ SELECT id FROM users;
     assert_eq!(
         diagnostic_messages(&report),
         [
-            "unsupported `@sqlay` annotation type `false`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`"
+            "unsupported `@sqlay` annotation type `false`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, `slot`, `repeat`, and `repeatEnd`"
         ]
     );
 }

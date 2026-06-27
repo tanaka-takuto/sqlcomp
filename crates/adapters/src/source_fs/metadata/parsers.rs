@@ -7,8 +7,9 @@ use crate::source_fs::metadata::fields::{
     is_valid_query_id, optional_string_metadata_field, parse_cardinality, parse_param_value_type,
     reject_unknown_metadata_fields, required_annotation_type_from_metadata,
     required_fragment_string_metadata_field, required_mutation_string_metadata_field,
-    required_param_string_metadata_field, required_slot_string_metadata_field,
-    required_slot_targets_metadata_field, validate_param_nullable,
+    required_param_string_metadata_field, required_repeat_string_metadata_field,
+    required_slot_string_metadata_field, required_slot_targets_metadata_field,
+    validate_param_nullable,
 };
 use crate::source_fs::metadata::hjson::{deserialize_sqlay_metadata, parse_sqlay_metadata_object};
 use crate::source_fs::scanner::SqlayBlock;
@@ -50,6 +51,8 @@ pub(in crate::source_fs) enum SqlayAnnotation {
     Param(ParsedParamMetadata),
     ParamEnd,
     Slot(ParsedSlotMetadata),
+    Repeat(ParsedRepeatMetadata),
+    RepeatEnd,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +66,12 @@ pub(in crate::source_fs) struct ParsedParamMetadata {
 pub(in crate::source_fs) struct ParsedSlotMetadata {
     pub(in crate::source_fs) id: String,
     pub(in crate::source_fs) targets: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::source_fs) struct ParsedRepeatMetadata {
+    pub(in crate::source_fs) id: String,
+    pub(in crate::source_fs) separator: String,
 }
 
 #[derive(Debug)]
@@ -86,13 +95,18 @@ pub(in crate::source_fs) fn parse_sqlay_annotation(
             Ok(SqlayAnnotation::ParamEnd)
         }
         "slot" => parse_slot_metadata(block).map(SqlayAnnotation::Slot),
+        "repeat" => parse_repeat_metadata(block).map(SqlayAnnotation::Repeat),
+        "repeatEnd" => {
+            parse_repeat_end_metadata(block)?;
+            Ok(SqlayAnnotation::RepeatEnd)
+        }
         "param_end" => Err(metadata_error(
             "unsupported `@sqlay` annotation type `param_end`; use `paramEnd` for Param end markers",
             block.payload_range(),
         )),
         _ => Err(metadata_error(
             format!(
-                "unsupported `@sqlay` annotation type `{annotation_type}`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, and `slot`"
+                "unsupported `@sqlay` annotation type `{annotation_type}`; supported values are `query`, `mutation`, `fragment`, `param`, `paramEnd`, `slot`, `repeat`, and `repeatEnd`"
             ),
             block.payload_range(),
         )),
@@ -304,6 +318,32 @@ fn parse_slot_metadata(block: &SqlayBlock) -> core::DiagnosticResult<ParsedSlotM
     let targets = required_slot_targets_metadata_field(&metadata, block)?;
 
     Ok(ParsedSlotMetadata { id, targets })
+}
+
+fn parse_repeat_metadata(block: &SqlayBlock) -> core::DiagnosticResult<ParsedRepeatMetadata> {
+    let metadata = parse_sqlay_metadata_object(block)?;
+    reject_unknown_metadata_fields(
+        &metadata,
+        &["type", "id", "separator"],
+        "repeat",
+        "`type`, `id`, and `separator`",
+        block,
+    )?;
+    let id = required_repeat_string_metadata_field(&metadata, "id", block)?;
+    if !is_valid_query_id(&id) {
+        return Err(metadata_error(
+            format!("invalid Repeat id `{id}`; must match `^[A-Za-z_][A-Za-z0-9_]*$`"),
+            block.payload_range(),
+        ));
+    }
+    let separator = required_repeat_string_metadata_field(&metadata, "separator", block)?;
+
+    Ok(ParsedRepeatMetadata { id, separator })
+}
+
+fn parse_repeat_end_metadata(block: &SqlayBlock) -> core::DiagnosticResult<()> {
+    let metadata = parse_sqlay_metadata_object(block)?;
+    reject_unknown_metadata_fields(&metadata, &["type"], "repeatEnd", "`type`", block)
 }
 
 #[derive(Debug, Deserialize)]

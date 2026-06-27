@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::SourceLocation;
 
-use super::{ParamUsage, SlotUsage};
+use super::{ParamUsage, RepeatUsage, SlotUsage};
 
 /// Mutation identifier exactly as written in source metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,6 +50,7 @@ pub struct RawMutation {
     analysis_sql: String,
     param_usages: Vec<ParamUsage>,
     slot_usages: Vec<SlotUsage>,
+    repeat_usages: Vec<RepeatUsage>,
     source_path: Option<PathBuf>,
     source_location: Option<SourceLocation>,
 }
@@ -66,6 +67,7 @@ impl RawMutation {
             analysis_sql,
             param_usages: Vec::new(),
             slot_usages: Vec::new(),
+            repeat_usages: Vec::new(),
             source_path: None,
             source_location: None,
         }
@@ -89,6 +91,13 @@ impl RawMutation {
     #[must_use]
     pub fn with_slot_usages(mut self, usages: Vec<SlotUsage>) -> Self {
         self.slot_usages = usages;
+        self
+    }
+
+    /// Attach inline Repeat usage occurrences in source order.
+    #[must_use]
+    pub fn with_repeat_usages(mut self, usages: Vec<RepeatUsage>) -> Self {
+        self.repeat_usages = usages;
         self
     }
 
@@ -134,6 +143,12 @@ impl RawMutation {
     #[must_use]
     pub fn slot_usages(&self) -> &[SlotUsage] {
         &self.slot_usages
+    }
+
+    /// Inline Repeat occurrences in source order.
+    #[must_use]
+    pub fn repeat_usages(&self) -> &[RepeatUsage] {
+        &self.repeat_usages
     }
 
     /// Source SQL path relative to the configuration directory, when known.

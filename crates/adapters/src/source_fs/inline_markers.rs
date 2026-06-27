@@ -1,10 +1,12 @@
 use sqlay_core as core;
 
+mod scanners;
+
 use crate::source_fs::diagnostics::metadata_error;
 use crate::source_fs::metadata::{ParsedSqlayBlock, SqlayAnnotation};
-use crate::source_fs::scanner::{
-    SqlayBlock, is_quote_delimiter, source_range_for_span, source_range_for_sql_body,
-};
+use crate::source_fs::scanner::{SqlayBlock, source_range_for_span, source_range_for_sql_body};
+
+use scanners::{first_placeholder_index, first_statement_separator_index, placeholder_count};
 
 const RAW_PLACEHOLDER_GUIDANCE: &str = "raw `?` placeholders are not supported in source SQL; use paired `@sqlay` Param markers around a sample expression, such as `/* @sqlay { type: param id: value } */ 1 /* @sqlay { type: paramEnd } */`";
 
@@ -12,6 +14,7 @@ pub(super) struct InlineMarkerReplacement {
     pub(super) analysis_sql: String,
     pub(super) param_usages: Vec<core::ParamUsage>,
     pub(super) slot_usages: Vec<core::SlotUsage>,
+    pub(super) repeat_usages: Vec<core::RepeatUsage>,
 }
 
 pub(super) fn replace_inline_markers(
@@ -27,10 +30,7 @@ pub(super) fn replace_inline_markers(
             start >= body_start && start < body_end
         })
         .collect::<Vec<_>>();
-    let mut analysis_sql = String::with_capacity(body_end - body_start);
-    let mut param_usages = Vec::new();
-    let mut slot_usages = Vec::new();
-    let mut cursor = body_start;
+    let mut state = ReplacementState::new(source, body_start, body_end - body_start);
     let mut index = 0;
 
     while index < query_blocks.len() {
@@ -43,78 +43,201 @@ pub(super) fn replace_inline_markers(
                 unreachable!("fragment annotations are global source unit boundaries");
             }
             SqlayAnnotation::Slot(metadata) => {
-                append_non_param_sql(
-                    source,
-                    cursor,
-                    parsed_block.block.comment_start_index(),
-                    &mut analysis_sql,
-                )?;
-
-                slot_usages.push(core::SlotUsage::new(
-                    metadata.id.clone(),
-                    metadata.targets.clone(),
-                    analysis_sql.len(),
-                    core::SourceLocation::from_range(parsed_block.block.comment_range()),
-                ));
-
-                cursor = parsed_block.block.comment_end_index();
+                state.append_slot(parsed_block, &metadata.id, &metadata.targets)?;
                 index += 1;
             }
             SqlayAnnotation::Param(metadata) => {
-                append_non_param_sql(
-                    source,
-                    cursor,
-                    parsed_block.block.comment_start_index(),
-                    &mut analysis_sql,
-                )?;
-
                 let Some(end_block) = query_blocks.get(index + 1).copied() else {
                     unreachable!("Param marker pairing is validated before replacement");
                 };
                 debug_assert!(matches!(end_block.annotation, SqlayAnnotation::ParamEnd));
-
-                let sample_start = parsed_block.block.comment_end_index();
-                let sample_end = end_block.block.comment_start_index();
-                reject_sample_placeholder(source, sample_start, sample_end)?;
-
-                let placeholder_index = analysis_sql.len();
-                analysis_sql.push('?');
-                param_usages.push(
-                    core::ParamUsage::new(
-                        metadata.id.clone(),
-                        metadata.value_type,
-                        metadata.nullable,
-                        core::SourceLocation::from_range(source_range_for_span(
-                            source,
-                            parsed_block.block.comment_start_index(),
-                            end_block.block.comment_end_index(),
-                        )),
-                    )
-                    .with_placeholder_index(placeholder_index)
-                    .with_sample_sql(source[sample_start..sample_end].to_owned()),
-                );
-
-                cursor = end_block.block.comment_end_index();
+                state.append_param(
+                    parsed_block,
+                    end_block,
+                    &metadata.id,
+                    metadata.value_type,
+                    metadata.nullable,
+                )?;
                 index += 2;
             }
             SqlayAnnotation::ParamEnd => {
                 unreachable!("Param end markers are consumed with their matching Param marker");
             }
+            SqlayAnnotation::Repeat(metadata) => {
+                state.open_repeat(parsed_block, &metadata.id, &metadata.separator)?;
+                index += 1;
+            }
+            SqlayAnnotation::RepeatEnd => {
+                state.close_repeat(parsed_block)?;
+                index += 1;
+            }
         }
     }
 
-    append_non_param_sql(source, cursor, body_end, &mut analysis_sql)?;
-    verify_placeholder_count(
-        &analysis_sql,
-        param_usages.len(),
+    state.finish(
+        body_end,
         source_range_for_sql_body(source, body_start, body_end),
-    )?;
+    )
+}
 
-    Ok(InlineMarkerReplacement {
-        analysis_sql,
-        param_usages,
-        slot_usages,
-    })
+struct ReplacementState<'a> {
+    source: &'a str,
+    analysis_sql: String,
+    param_usages: Vec<core::ParamUsage>,
+    slot_usages: Vec<core::SlotUsage>,
+    repeat_usages: Vec<core::RepeatUsage>,
+    open_repeat: Option<PendingRepeat<'a>>,
+    cursor: usize,
+}
+
+impl<'a> ReplacementState<'a> {
+    fn new(source: &'a str, cursor: usize, capacity: usize) -> Self {
+        Self {
+            source,
+            analysis_sql: String::with_capacity(capacity),
+            param_usages: Vec::new(),
+            slot_usages: Vec::new(),
+            repeat_usages: Vec::new(),
+            open_repeat: None,
+            cursor,
+        }
+    }
+
+    fn append_slot(
+        &mut self,
+        parsed_block: &ParsedSqlayBlock<'a>,
+        id: &str,
+        targets: &[String],
+    ) -> core::DiagnosticResult<()> {
+        debug_assert!(self.open_repeat.is_none());
+        self.append_non_param_sql(parsed_block.block.comment_start_index())?;
+        self.slot_usages.push(core::SlotUsage::new(
+            id.to_owned(),
+            targets.to_vec(),
+            self.analysis_sql.len(),
+            core::SourceLocation::from_range(parsed_block.block.comment_range()),
+        ));
+        self.cursor = parsed_block.block.comment_end_index();
+        Ok(())
+    }
+
+    fn append_param(
+        &mut self,
+        parsed_block: &ParsedSqlayBlock<'a>,
+        end_block: &ParsedSqlayBlock<'a>,
+        id: &str,
+        value_type: Option<core::CoreType>,
+        nullable: bool,
+    ) -> core::DiagnosticResult<()> {
+        self.append_non_param_sql(parsed_block.block.comment_start_index())?;
+        let sample_start = parsed_block.block.comment_end_index();
+        let sample_end = end_block.block.comment_start_index();
+        reject_sample_placeholder(self.source, sample_start, sample_end)?;
+
+        let placeholder_index = self.analysis_sql.len();
+        self.analysis_sql.push('?');
+        let usage = core::ParamUsage::new(
+            id.to_owned(),
+            value_type,
+            nullable,
+            core::SourceLocation::from_range(source_range_for_span(
+                self.source,
+                parsed_block.block.comment_start_index(),
+                end_block.block.comment_end_index(),
+            )),
+        )
+        .with_placeholder_index(placeholder_index)
+        .with_sample_sql(self.source[sample_start..sample_end].to_owned());
+
+        if let Some(repeat) = self.open_repeat.as_mut() {
+            repeat.item_param_usages.push(usage);
+        } else {
+            self.param_usages.push(usage);
+        }
+
+        self.cursor = end_block.block.comment_end_index();
+        Ok(())
+    }
+
+    fn open_repeat(
+        &mut self,
+        parsed_block: &ParsedSqlayBlock<'a>,
+        id: &str,
+        separator: &str,
+    ) -> core::DiagnosticResult<()> {
+        debug_assert!(self.open_repeat.is_none());
+        self.append_non_param_sql(parsed_block.block.comment_start_index())?;
+        self.open_repeat = Some(PendingRepeat {
+            id: id.to_owned(),
+            separator: separator.to_owned(),
+            start_index: self.analysis_sql.len(),
+            start_block: parsed_block.block,
+            item_param_usages: Vec::new(),
+        });
+        self.cursor = parsed_block.block.comment_end_index();
+        Ok(())
+    }
+
+    fn close_repeat(&mut self, parsed_block: &ParsedSqlayBlock<'a>) -> core::DiagnosticResult<()> {
+        self.append_non_param_sql(parsed_block.block.comment_start_index())?;
+        let repeat = self
+            .open_repeat
+            .take()
+            .expect("Repeat marker pairing is validated before replacement");
+        self.repeat_usages.push(
+            core::RepeatUsage::new(
+                repeat.id,
+                repeat.separator,
+                repeat.start_index,
+                self.analysis_sql.len(),
+                core::SourceLocation::from_range(source_range_for_span(
+                    self.source,
+                    repeat.start_block.comment_start_index(),
+                    parsed_block.block.comment_end_index(),
+                )),
+            )
+            .with_item_param_usages(repeat.item_param_usages),
+        );
+        self.cursor = parsed_block.block.comment_end_index();
+        Ok(())
+    }
+
+    fn append_non_param_sql(&mut self, end: usize) -> core::DiagnosticResult<()> {
+        append_non_param_sql(self.source, self.cursor, end, &mut self.analysis_sql)
+    }
+
+    fn finish(
+        mut self,
+        body_end: usize,
+        body_range: core::SourceRange,
+    ) -> core::DiagnosticResult<InlineMarkerReplacement> {
+        self.append_non_param_sql(body_end)?;
+        let repeat_item_param_count = self
+            .repeat_usages
+            .iter()
+            .map(|usage| usage.item_param_usages().len())
+            .sum::<usize>();
+        verify_placeholder_count(
+            &self.analysis_sql,
+            self.param_usages.len() + repeat_item_param_count,
+            body_range,
+        )?;
+
+        Ok(InlineMarkerReplacement {
+            analysis_sql: self.analysis_sql,
+            param_usages: self.param_usages,
+            slot_usages: self.slot_usages,
+            repeat_usages: self.repeat_usages,
+        })
+    }
+}
+
+struct PendingRepeat<'a> {
+    id: String,
+    separator: String,
+    start_index: usize,
+    start_block: &'a SqlayBlock,
+    item_param_usages: Vec<core::ParamUsage>,
 }
 
 fn append_non_param_sql(
@@ -155,7 +278,7 @@ fn verify_placeholder_count(
     param_usage_count: usize,
     range: core::SourceRange,
 ) -> core::DiagnosticResult<()> {
-    let placeholder_count = PlaceholderScanner::new(analysis_sql, 0, analysis_sql.len()).count();
+    let placeholder_count = placeholder_count(analysis_sql);
     if placeholder_count != param_usage_count {
         return Err(metadata_error(
             format!(
@@ -183,114 +306,20 @@ pub(super) fn reject_fragment_statement_separator(
     Ok(())
 }
 
-fn first_statement_separator_index(source: &str, start: usize, end: usize) -> Option<usize> {
-    StatementSeparatorScanner::new(source, start, end).next_separator_index()
-}
-
 /// Validates the structural constraints of inline `@sqlay` markers.
 ///
-/// Ensures that `param` and `paramEnd` markers are paired without nesting, that inline
-/// markers appear only inside query, mutation, or fragment bodies, that `slot`
-/// markers are used only in query or mutation bodies, and that `slot` markers do
-/// not nest within `param` ranges.
+/// Ensures that paired inline markers are balanced without unsupported nesting,
+/// that inline markers appear only inside supported source-unit bodies, and that
+/// Slot and Repeat placement follows the accepted source-intake model.
 pub(super) fn validate_inline_markers(
     parsed_blocks: &[ParsedSqlayBlock<'_>],
 ) -> core::DiagnosticResult<()> {
-    let mut context = InlineMarkerContext::OutsideSourceUnit;
-    let mut open_param_block: Option<&SqlayBlock> = None;
-
+    let mut validator = InlineMarkerValidator::new();
     for parsed_block in parsed_blocks {
-        match parsed_block.annotation {
-            SqlayAnnotation::Query(_) => {
-                if let Some(block) = open_param_block.take() {
-                    return Err(metadata_error(
-                        "`param` marker is missing a matching `paramEnd` marker",
-                        block.payload_range(),
-                    ));
-                }
-                context = InlineMarkerContext::QueryBody;
-            }
-            SqlayAnnotation::Mutation(_) => {
-                if let Some(block) = open_param_block.take() {
-                    return Err(metadata_error(
-                        "`param` marker is missing a matching `paramEnd` marker",
-                        block.payload_range(),
-                    ));
-                }
-                context = InlineMarkerContext::MutationBody;
-            }
-            SqlayAnnotation::Fragment(_) => {
-                if let Some(block) = open_param_block.take() {
-                    return Err(metadata_error(
-                        "`param` marker is missing a matching `paramEnd` marker",
-                        block.payload_range(),
-                    ));
-                }
-                context = InlineMarkerContext::FragmentBody;
-            }
-            SqlayAnnotation::Param(_) => {
-                if context == InlineMarkerContext::OutsideSourceUnit {
-                    return Err(metadata_error(
-                        "`param` markers must appear inside a query, mutation, or fragment body; top-level Param markers are not supported",
-                        parsed_block.block.payload_range(),
-                    ));
-                }
-                if open_param_block.is_some() {
-                    return Err(metadata_error(
-                        "nested Param ranges are not supported",
-                        parsed_block.block.payload_range(),
-                    ));
-                }
-                open_param_block = Some(parsed_block.block);
-            }
-            SqlayAnnotation::ParamEnd => {
-                if context == InlineMarkerContext::OutsideSourceUnit {
-                    return Err(metadata_error(
-                        "`paramEnd` markers must appear inside a query, mutation, or fragment body; top-level paramEnd markers are not supported",
-                        parsed_block.block.payload_range(),
-                    ));
-                }
-                if open_param_block.take().is_none() {
-                    return Err(metadata_error(
-                        "`paramEnd` marker has no matching `param` marker",
-                        parsed_block.block.payload_range(),
-                    ));
-                }
-            }
-            SqlayAnnotation::Slot(_) => {
-                match context {
-                    InlineMarkerContext::OutsideSourceUnit => {
-                        return Err(metadata_error(
-                            "`slot` markers must appear inside a query or mutation body; top-level Slot markers are not supported",
-                            parsed_block.block.payload_range(),
-                        ));
-                    }
-                    InlineMarkerContext::FragmentBody => {
-                        return Err(metadata_error(
-                            "slot markers inside fragments are not supported yet; define slots in query or mutation bodies",
-                            parsed_block.block.payload_range(),
-                        ));
-                    }
-                    InlineMarkerContext::QueryBody | InlineMarkerContext::MutationBody => {}
-                }
-                if open_param_block.is_some() {
-                    return Err(metadata_error(
-                        "Slot markers are not supported inside Param ranges",
-                        parsed_block.block.payload_range(),
-                    ));
-                }
-            }
-        }
+        validator.visit(parsed_block)?;
     }
 
-    if let Some(block) = open_param_block {
-        return Err(metadata_error(
-            "`param` marker is missing a matching `paramEnd` marker",
-            block.payload_range(),
-        ));
-    }
-
-    Ok(())
+    validator.finish()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -301,247 +330,191 @@ enum InlineMarkerContext {
     FragmentBody,
 }
 
-fn first_placeholder_index(source: &str, start: usize, end: usize) -> Option<usize> {
-    PlaceholderScanner::new(source, start, end).next_placeholder_index()
+struct InlineMarkerValidator<'a> {
+    context: InlineMarkerContext,
+    open_param_block: Option<&'a SqlayBlock>,
+    open_repeat_block: Option<&'a SqlayBlock>,
+    open_repeat_contains_param: bool,
 }
 
-struct PlaceholderScanner<'a> {
-    source: &'a str,
-    index: usize,
-    end: usize,
-}
-
-impl<'a> PlaceholderScanner<'a> {
-    const fn new(source: &'a str, start: usize, end: usize) -> Self {
+impl<'a> InlineMarkerValidator<'a> {
+    const fn new() -> Self {
         Self {
-            source,
-            index: start,
-            end,
+            context: InlineMarkerContext::OutsideSourceUnit,
+            open_param_block: None,
+            open_repeat_block: None,
+            open_repeat_contains_param: false,
         }
     }
 
-    fn count(mut self) -> usize {
-        let mut count = 0;
-        while self.next_placeholder_index().is_some() {
-            count += 1;
-        }
-
-        count
-    }
-
-    fn next_placeholder_index(&mut self) -> Option<usize> {
-        while !self.is_at_end() {
-            if self.starts_with("/*") {
-                self.skip_block_comment();
-            } else if self.is_line_comment_start() {
-                self.skip_line_comment();
-            } else if self.current_char().is_some_and(is_quote_delimiter) {
-                self.skip_quoted();
-            } else if self.current_char() == Some('?') {
-                let index = self.index;
-                self.advance_current();
-                return Some(index);
-            } else {
-                self.advance_current();
+    fn visit(&mut self, parsed_block: &'a ParsedSqlayBlock<'a>) -> core::DiagnosticResult<()> {
+        match &parsed_block.annotation {
+            SqlayAnnotation::Query(_) => self.start_source_unit(InlineMarkerContext::QueryBody),
+            SqlayAnnotation::Mutation(_) => {
+                self.start_source_unit(InlineMarkerContext::MutationBody)
             }
-        }
-
-        None
-    }
-
-    fn skip_block_comment(&mut self) {
-        self.advance_current();
-        self.advance_current();
-
-        while !self.is_at_end() {
-            if self.starts_with("*/") {
-                self.advance_current();
-                self.advance_current();
-                return;
+            SqlayAnnotation::Fragment(_) => {
+                self.start_source_unit(InlineMarkerContext::FragmentBody)
             }
-
-            self.advance_current();
+            SqlayAnnotation::Param(_) => self.visit_param(parsed_block.block),
+            SqlayAnnotation::ParamEnd => self.visit_param_end(parsed_block.block),
+            SqlayAnnotation::Slot(_) => self.visit_slot(parsed_block.block),
+            SqlayAnnotation::Repeat(_) => self.visit_repeat(parsed_block.block),
+            SqlayAnnotation::RepeatEnd => self.visit_repeat_end(parsed_block.block),
         }
     }
 
-    fn skip_line_comment(&mut self) {
-        while let Some(char) = self.advance_current() {
-            if char == '\n' {
-                return;
+    fn start_source_unit(&mut self, context: InlineMarkerContext) -> core::DiagnosticResult<()> {
+        if let Some(block) = self.open_param_block.take() {
+            return Err(metadata_error(
+                "`param` marker is missing a matching `paramEnd` marker",
+                block.payload_range(),
+            ));
+        }
+        if let Some(block) = self.open_repeat_block.take() {
+            return Err(metadata_error(
+                "`repeat` marker is missing a matching `repeatEnd` marker",
+                block.payload_range(),
+            ));
+        }
+        self.open_repeat_contains_param = false;
+        self.context = context;
+        Ok(())
+    }
+
+    fn visit_param(&mut self, block: &'a SqlayBlock) -> core::DiagnosticResult<()> {
+        if self.context == InlineMarkerContext::OutsideSourceUnit {
+            return Err(metadata_error(
+                "`param` markers must appear inside a query, mutation, or fragment body; top-level Param markers are not supported",
+                block.payload_range(),
+            ));
+        }
+        if self.open_param_block.is_some() {
+            return Err(metadata_error(
+                "nested Param ranges are not supported",
+                block.payload_range(),
+            ));
+        }
+        if self.open_repeat_block.is_some() {
+            self.open_repeat_contains_param = true;
+        }
+        self.open_param_block = Some(block);
+        Ok(())
+    }
+
+    fn visit_param_end(&mut self, block: &SqlayBlock) -> core::DiagnosticResult<()> {
+        if self.context == InlineMarkerContext::OutsideSourceUnit {
+            return Err(metadata_error(
+                "`paramEnd` markers must appear inside a query, mutation, or fragment body; top-level paramEnd markers are not supported",
+                block.payload_range(),
+            ));
+        }
+        if self.open_param_block.take().is_none() {
+            return Err(metadata_error(
+                "`paramEnd` marker has no matching `param` marker",
+                block.payload_range(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn visit_slot(&self, block: &SqlayBlock) -> core::DiagnosticResult<()> {
+        match self.context {
+            InlineMarkerContext::OutsideSourceUnit => {
+                return Err(metadata_error(
+                    "`slot` markers must appear inside a query or mutation body; top-level Slot markers are not supported",
+                    block.payload_range(),
+                ));
             }
-        }
-    }
-
-    fn skip_quoted(&mut self) {
-        let delimiter = self
-            .current_char()
-            .expect("quoted skip should start at a delimiter");
-        self.advance_current();
-
-        while let Some(char) = self.current_char() {
-            self.advance_current();
-
-            if delimiter != '`' && char == '\\' {
-                if !self.is_at_end() {
-                    self.advance_current();
-                }
-                continue;
+            InlineMarkerContext::FragmentBody => {
+                return Err(metadata_error(
+                    "slot markers inside fragments are not supported yet; define slots in query or mutation bodies",
+                    block.payload_range(),
+                ));
             }
-
-            if char == delimiter {
-                if self.current_char() == Some(delimiter) {
-                    self.advance_current();
-                } else {
-                    break;
-                }
-            }
+            InlineMarkerContext::QueryBody | InlineMarkerContext::MutationBody => {}
         }
-    }
-
-    fn advance_current(&mut self) -> Option<char> {
-        let char = self.current_char()?;
-        self.index += char.len_utf8();
-        Some(char)
-    }
-
-    fn current_char(&self) -> Option<char> {
-        if self.is_at_end() {
-            return None;
+        if self.open_param_block.is_some() {
+            return Err(metadata_error(
+                "Slot markers are not supported inside Param ranges",
+                block.payload_range(),
+            ));
         }
-
-        self.source[self.index..self.end].chars().next()
-    }
-
-    const fn is_at_end(&self) -> bool {
-        self.index >= self.end
-    }
-
-    fn starts_with(&self, needle: &str) -> bool {
-        self.source[self.index..self.end].starts_with(needle)
-    }
-
-    fn is_line_comment_start(&self) -> bool {
-        self.starts_with("#")
-            || (self.starts_with("--")
-                && self.source[self.index + 2..self.end]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace))
-    }
-}
-
-struct StatementSeparatorScanner<'a> {
-    source: &'a str,
-    index: usize,
-    end: usize,
-}
-
-impl<'a> StatementSeparatorScanner<'a> {
-    const fn new(source: &'a str, start: usize, end: usize) -> Self {
-        Self {
-            source,
-            index: start,
-            end,
+        if self.open_repeat_block.is_some() {
+            return Err(metadata_error(
+                "Slot markers are not supported inside Repeat ranges",
+                block.payload_range(),
+            ));
         }
+        Ok(())
     }
 
-    fn next_separator_index(&mut self) -> Option<usize> {
-        while !self.is_at_end() {
-            if self.starts_with("/*") {
-                self.skip_block_comment();
-            } else if self.is_line_comment_start() {
-                self.skip_line_comment();
-            } else if self.current_char().is_some_and(is_quote_delimiter) {
-                self.skip_quoted();
-            } else if self.current_char() == Some(';') {
-                let index = self.index;
-                self.advance_current();
-                return Some(index);
-            } else {
-                self.advance_current();
-            }
+    fn visit_repeat(&mut self, block: &'a SqlayBlock) -> core::DiagnosticResult<()> {
+        if self.context == InlineMarkerContext::OutsideSourceUnit {
+            return Err(metadata_error(
+                "`repeat` markers must appear inside a query, mutation, or fragment body; top-level Repeat markers are not supported",
+                block.payload_range(),
+            ));
         }
-
-        None
-    }
-
-    fn skip_block_comment(&mut self) {
-        self.advance_current();
-        self.advance_current();
-
-        while !self.is_at_end() {
-            if self.starts_with("*/") {
-                self.advance_current();
-                self.advance_current();
-                return;
-            }
-
-            self.advance_current();
+        if self.open_param_block.is_some() {
+            return Err(metadata_error(
+                "Repeat markers are not supported inside Param ranges",
+                block.payload_range(),
+            ));
         }
-    }
-
-    fn skip_line_comment(&mut self) {
-        while let Some(char) = self.advance_current() {
-            if char == '\n' {
-                return;
-            }
+        if self.open_repeat_block.is_some() {
+            return Err(metadata_error(
+                "nested Repeat ranges are not supported",
+                block.payload_range(),
+            ));
         }
+        self.open_repeat_block = Some(block);
+        self.open_repeat_contains_param = false;
+        Ok(())
     }
 
-    fn skip_quoted(&mut self) {
-        let delimiter = self
-            .current_char()
-            .expect("quoted skip should start at a delimiter");
-        self.advance_current();
-
-        while let Some(char) = self.current_char() {
-            self.advance_current();
-
-            if delimiter != '`' && char == '\\' {
-                if !self.is_at_end() {
-                    self.advance_current();
-                }
-                continue;
-            }
-
-            if char == delimiter {
-                if self.current_char() == Some(delimiter) {
-                    self.advance_current();
-                } else {
-                    break;
-                }
-            }
+    fn visit_repeat_end(&mut self, block: &SqlayBlock) -> core::DiagnosticResult<()> {
+        if self.context == InlineMarkerContext::OutsideSourceUnit {
+            return Err(metadata_error(
+                "`repeatEnd` markers must appear inside a query, mutation, or fragment body; top-level repeatEnd markers are not supported",
+                block.payload_range(),
+            ));
         }
-    }
-
-    fn advance_current(&mut self) -> Option<char> {
-        let char = self.current_char()?;
-        self.index += char.len_utf8();
-        Some(char)
-    }
-
-    fn current_char(&self) -> Option<char> {
-        if self.is_at_end() {
-            return None;
+        if self.open_param_block.is_some() {
+            return Err(metadata_error(
+                "Repeat markers are not supported inside Param ranges",
+                block.payload_range(),
+            ));
         }
-
-        self.source[self.index..self.end].chars().next()
+        if self.open_repeat_block.take().is_none() {
+            return Err(metadata_error(
+                "`repeatEnd` marker has no matching `repeat` marker",
+                block.payload_range(),
+            ));
+        }
+        if !self.open_repeat_contains_param {
+            return Err(metadata_error(
+                "Repeat ranges must contain at least one Param marker",
+                block.payload_range(),
+            ));
+        }
+        self.open_repeat_contains_param = false;
+        Ok(())
     }
 
-    const fn is_at_end(&self) -> bool {
-        self.index >= self.end
-    }
-
-    fn starts_with(&self, needle: &str) -> bool {
-        self.source[self.index..self.end].starts_with(needle)
-    }
-
-    fn is_line_comment_start(&self) -> bool {
-        self.starts_with("#")
-            || (self.starts_with("--")
-                && self.source[self.index + 2..self.end]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace))
+    fn finish(self) -> core::DiagnosticResult<()> {
+        if let Some(block) = self.open_param_block {
+            return Err(metadata_error(
+                "`param` marker is missing a matching `paramEnd` marker",
+                block.payload_range(),
+            ));
+        }
+        if let Some(block) = self.open_repeat_block {
+            return Err(metadata_error(
+                "`repeat` marker is missing a matching `repeatEnd` marker",
+                block.payload_range(),
+            ));
+        }
+        Ok(())
     }
 }
