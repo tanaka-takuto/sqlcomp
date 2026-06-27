@@ -1,6 +1,7 @@
 mod inline_markers;
 mod metadata;
 mod reader;
+mod repeat_markers;
 mod scanner;
 mod source_units;
 

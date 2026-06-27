@@ -127,6 +127,7 @@ pub(super) fn split_sqlay_source_units_from_scan(
                     .with_analysis_sql(replacement.analysis_sql)
                     .with_param_usages(replacement.param_usages)
                     .with_slot_usages(replacement.slot_usages)
+                    .with_repeat_usages(replacement.repeat_usages)
                     .with_source_location(location);
                 source_units.push(core::RawSourceUnit::Query(query.clone()));
                 queries.push(query);
@@ -139,6 +140,7 @@ pub(super) fn split_sqlay_source_units_from_scan(
                     .with_analysis_sql(replacement.analysis_sql)
                     .with_param_usages(replacement.param_usages)
                     .with_slot_usages(replacement.slot_usages)
+                    .with_repeat_usages(replacement.repeat_usages)
                     .with_source_location(location);
                 source_units.push(core::RawSourceUnit::Mutation(mutation.clone()));
                 mutations.push(mutation);
@@ -151,11 +153,16 @@ pub(super) fn split_sqlay_source_units_from_scan(
                 let fragment = core::RawFragment::new(metadata.clone(), sql)
                     .with_analysis_sql(replacement.analysis_sql)
                     .with_param_usages(replacement.param_usages)
+                    .with_repeat_usages(replacement.repeat_usages)
                     .with_source_location(location);
                 source_units.push(core::RawSourceUnit::Fragment(fragment.clone()));
                 fragments.push(fragment);
             }
-            SqlayAnnotation::Param(_) | SqlayAnnotation::ParamEnd | SqlayAnnotation::Slot(_) => {
+            SqlayAnnotation::Param(_)
+            | SqlayAnnotation::ParamEnd
+            | SqlayAnnotation::Slot(_)
+            | SqlayAnnotation::Repeat(_)
+            | SqlayAnnotation::RepeatEnd => {
                 unreachable!("source unit indexes only point at global annotations");
             }
         }
