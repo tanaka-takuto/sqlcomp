@@ -11,6 +11,7 @@ mod dynamic_ir;
 mod generation;
 mod outcomes;
 mod param_validation;
+mod repeat_inputs;
 mod slot_variants;
 mod variant_validation;
 

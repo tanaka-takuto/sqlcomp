@@ -15,6 +15,7 @@ mod generation_pipeline;
 mod mutation_slot;
 mod planning;
 mod query_compiler;
+mod repeat_input_resolution;
 mod slot_expansion;
 mod slot_param_validation;
 mod slot_shape_validation;
