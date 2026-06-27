@@ -196,6 +196,8 @@ fn check_rejects_repeated_query_repeat_id_with_item_value_type_conflict() {
     let sql = "SELECT u.id FROM users AS u WHERE u.id IN (?) OR u.id IN (?);";
     let first_placeholder = sql.find('?').expect("first Repeat placeholder exists");
     let second_placeholder = sql.rfind('?').expect("second Repeat placeholder exists");
+    let first_repeat_location = test_location(5, 14);
+    let second_repeat_location = test_location(6, 14);
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUsers".to_owned(), None),
         sql.to_owned(),
@@ -207,7 +209,7 @@ fn check_rejects_repeated_query_repeat_id_with_item_value_type_conflict() {
             ",".to_owned(),
             first_placeholder,
             first_placeholder + 1,
-            core::SourceLocation::unknown(),
+            first_repeat_location,
         )
         .with_item_param_usages(vec![
             core::ParamUsage::new(
@@ -223,7 +225,7 @@ fn check_rejects_repeated_query_repeat_id_with_item_value_type_conflict() {
             ",".to_owned(),
             second_placeholder,
             second_placeholder + 1,
-            core::SourceLocation::unknown(),
+            second_repeat_location.clone(),
         )
         .with_item_param_usages(vec![
             core::ParamUsage::new(
@@ -241,6 +243,10 @@ fn check_rejects_repeated_query_repeat_id_with_item_value_type_conflict() {
         .expect_err("repeated Repeat item Params with conflicting valueTypes should be rejected");
 
     assert_eq!(
+        report.diagnostics()[0].location(),
+        Some(&second_repeat_location)
+    );
+    assert_eq!(
         diagnostic_messages(&report),
         "conflicting Repeat `values` item shape in query `findUsers` item Param `id` type conflict: first occurrence uses Int64 but conflicting occurrence uses String; repeated Repeat IDs must use the same item Param ID set with matching valueType and nullability"
     );
@@ -251,6 +257,8 @@ fn check_rejects_repeated_query_repeat_id_with_item_nullability_conflict() {
     let sql = "SELECT u.id FROM users AS u WHERE u.id IN (?) OR u.id IN (?);";
     let first_placeholder = sql.find('?').expect("first Repeat placeholder exists");
     let second_placeholder = sql.rfind('?').expect("second Repeat placeholder exists");
+    let first_repeat_location = test_location(8, 14);
+    let second_repeat_location = test_location(9, 14);
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUsers".to_owned(), None),
         sql.to_owned(),
@@ -262,7 +270,7 @@ fn check_rejects_repeated_query_repeat_id_with_item_nullability_conflict() {
             ",".to_owned(),
             first_placeholder,
             first_placeholder + 1,
-            core::SourceLocation::unknown(),
+            first_repeat_location,
         )
         .with_item_param_usages(vec![
             core::ParamUsage::new(
@@ -278,7 +286,7 @@ fn check_rejects_repeated_query_repeat_id_with_item_nullability_conflict() {
             ",".to_owned(),
             second_placeholder,
             second_placeholder + 1,
-            core::SourceLocation::unknown(),
+            second_repeat_location.clone(),
         )
         .with_item_param_usages(vec![
             core::ParamUsage::new(
@@ -295,6 +303,10 @@ fn check_rejects_repeated_query_repeat_id_with_item_nullability_conflict() {
     let report = check_single_query(query)
         .expect_err("repeated Repeat item Params with conflicting nullability should be rejected");
 
+    assert_eq!(
+        report.diagnostics()[0].location(),
+        Some(&second_repeat_location)
+    );
     assert_eq!(
         diagnostic_messages(&report),
         "conflicting Repeat `values` item shape in query `findUsers` item Param `id` nullability conflict: first occurrence is nullable false but conflicting occurrence is nullable true; repeated Repeat IDs must use the same item Param ID set with matching valueType and nullability"
@@ -430,4 +442,11 @@ fn check_source_read(source_read: SourceRead) -> core::DiagnosticResult<CheckOut
     };
 
     DefaultCompileUseCase::check(&config, &pipeline)
+}
+
+fn test_location(line: usize, column: usize) -> core::SourceLocation {
+    core::SourceLocation::at_position(
+        "sql/users.sql",
+        core::SourcePosition::one_based(line, column).expect("test position should be valid"),
+    )
 }
