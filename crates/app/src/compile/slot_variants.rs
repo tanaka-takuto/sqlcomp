@@ -9,6 +9,7 @@ use super::diagnostics::{
     mutation_slot_spec_error as slot_spec_error, mutation_slot_usage_error, param_usage_error,
     query_error, query_param_placeholder_index, slot_usage_error, with_slot_variant_context,
 };
+use super::repeat_inputs::{validate_mutation_repeat_inputs, validate_query_repeat_inputs};
 
 const SLOT_VARIANT_LIMIT: usize = 256;
 
@@ -36,6 +37,7 @@ where
     D: DialectAnalyzer,
 {
     if query.slot_usages().is_empty() {
+        validate_query_repeat_inputs(query, &[], fragments_by_id)?;
         let direct_param_count = query.param_usages().len();
         return Ok(AnalyzedQueryVariants {
             variants: vec![AnalyzedQueryVariant {
@@ -52,6 +54,7 @@ where
 
     let slot_specs = unique_slot_specs(query)?;
     reject_direct_param_slot_collisions(query, &slot_specs)?;
+    validate_query_repeat_inputs(query, &slot_specs, fragments_by_id)?;
     let variant_choices =
         slot_variant_choices(query, &slot_specs, fragments_by_id, used_fragment_ids)?;
     let variants = variant_choices
@@ -89,6 +92,7 @@ where
     D: MutationAnalyzer,
 {
     if mutation.slot_usages().is_empty() {
+        validate_mutation_repeat_inputs(mutation, &[], fragments_by_id)?;
         let direct_param_count = mutation.param_usages().len();
         return Ok(AnalyzedMutationVariants {
             variants: vec![AnalyzedMutationVariant {
@@ -105,6 +109,7 @@ where
 
     let slot_specs = unique_mutation_slot_specs(mutation)?;
     reject_mutation_direct_param_slot_collisions(mutation, &slot_specs)?;
+    validate_mutation_repeat_inputs(mutation, &slot_specs, fragments_by_id)?;
     let variant_choices =
         mutation_slot_variant_choices(mutation, &slot_specs, fragments_by_id, used_fragment_ids)?;
     let variants = variant_choices
