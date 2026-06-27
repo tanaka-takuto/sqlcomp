@@ -11,6 +11,18 @@ import {
   type listTopRatedBooks_Output,
 } from "./generated/sql/books";
 import {
+  createOrder,
+  createOrderItems,
+  deleteUnapprovedReview,
+  findOrderById,
+  type findOrderById_Output,
+  findOrderByNumber,
+  type findOrderByNumber_Output,
+  markOrderPaid,
+  replaceCategory,
+  upsertOrderStatus,
+} from "./generated/sql/mutations";
+import {
   findLatestOrderForCustomer,
   type findLatestOrderForCustomer_Output,
   listCustomerOrders,
@@ -60,6 +72,66 @@ const unreviewedPurchasesOutput: listUnreviewedPurchases_Output = [];
 const monthlySalesQuery = listMonthlySales();
 const monthlySalesOutput: listMonthlySales_Output = [];
 
+const createOrderMutation = createOrder({
+  customerId: "1000",
+  orderNumber: "BK-2000",
+  status: "draft",
+  currency: "USD",
+  placedAt: "2026-04-20 12:00:00.000000",
+  paidAt: null,
+  shippedAt: null,
+  shippingMethod: "priority",
+  giftMessage: null,
+});
+const createOrderSql: string = createOrderMutation.sql;
+const createOrderParams: readonly [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string | null,
+  string | null,
+  string | null,
+  string | null,
+] = createOrderMutation.params;
+
+const createdOrderQuery = findOrderById({ orderId: "5004" });
+const createdOrderOutput: findOrderById_Output = null;
+const upsertedOrderQuery = findOrderByNumber({ orderNumber: "BK-2001" });
+const upsertedOrderOutput: findOrderByNumber_Output = null;
+
+const markOrderPaidMutation = markOrderPaid({
+  paidAt: "2026-04-20 12:01:00.000000",
+  orderNumber: "BK-2000",
+});
+const deleteReviewMutation = deleteUnapprovedReview({ reviewId: "7003" });
+const orderItemsMutation = createOrderItems({
+  orderId: "5004",
+  firstBookId: "100",
+  firstQuantity: 1,
+  firstUnitPrice: "16.99",
+  firstDiscountAmount: null,
+  secondBookId: "102",
+  secondQuantity: 1,
+  secondUnitPrice: "18.00",
+  secondDiscountAmount: "2.00",
+});
+const upsertOrderStatusMutation = upsertOrderStatus({
+  customerId: "1000",
+  orderNumber: "BK-2001",
+  initialStatus: "draft",
+  currency: "USD",
+  placedAt: "2026-04-20 12:00:00.000000",
+  nextStatus: "paid",
+  paidAt: "2026-04-20 12:01:00.000000",
+});
+const replaceCategoryMutation = replaceCategory({
+  categoryId: "13",
+  slug: "staff-picks",
+  displayName: "Staff Picks",
+});
+
 void availableBooksSql;
 void availableBooksParams;
 void availableBooksOutput;
@@ -81,3 +153,14 @@ void unreviewedPurchasesQuery;
 void unreviewedPurchasesOutput;
 void monthlySalesQuery;
 void monthlySalesOutput;
+void createOrderSql;
+void createOrderParams;
+void createdOrderQuery;
+void createdOrderOutput;
+void upsertedOrderQuery;
+void upsertedOrderOutput;
+void markOrderPaidMutation;
+void deleteReviewMutation;
+void orderItemsMutation;
+void upsertOrderStatusMutation;
+void replaceCategoryMutation;
