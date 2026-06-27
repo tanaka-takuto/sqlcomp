@@ -78,6 +78,8 @@ fn repeated_slot_fragment_param_validation_rejects_nullability_conflicts() {
         "sql/users.sql",
         core::SourcePosition::one_based(9, 96).expect("test position should be valid"),
     );
+    let expected_first_slot_location = first_slot_location.clone();
+    let expected_second_slot_location = second_slot_location.clone();
     let query = core::RawQuery::new(
         core::QueryMetadata::new("listUsers".to_owned(), None),
         "SELECT id FROM users WHERE first = ? OR second = ?;".to_owned(),
@@ -138,6 +140,18 @@ fn repeated_slot_fragment_param_validation_rejects_nullability_conflicts() {
     assert_diagnostic_messages(
         &report,
         "conflicting Fragment Param `kind` nullability in query `listUsers`, Slot `filter`, Fragment `byKind`: occurrence 1 is nullable false but occurrence 2 is nullable true; repeated Slot occurrences that select the same Fragment must resolve matching Param type and nullability\nfirst occurrence of Slot `filter` selecting Fragment `byKind` is here\nconflicting occurrence of Slot `filter` selecting Fragment `byKind` is here\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=byKind\nSlot `filter` selected `byKind` in this variant",
+    );
+    assert_eq!(
+        report.diagnostics()[1].location(),
+        Some(&expected_first_slot_location)
+    );
+    assert_eq!(
+        report.diagnostics()[2].location(),
+        Some(&expected_second_slot_location)
+    );
+    assert_eq!(
+        report.diagnostics()[4].location(),
+        Some(&expected_first_slot_location)
     );
 }
 
