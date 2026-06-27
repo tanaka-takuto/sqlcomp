@@ -179,7 +179,7 @@ fn check_reports_mutation_slot_variant_limit_at_mutation_location() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Slot expansion for mutation `renameUser` would produce 1024 SQL variants, exceeding the 256 variant limit"
+        "Dynamic SQL validation for mutation `renameUser` would produce 1024 validation cases, exceeding the 256 validation case limit"
     );
     assert_eq!(report.diagnostics()[0].location(), Some(&mutation_location));
     assert_eq!(calls, ["read"]);

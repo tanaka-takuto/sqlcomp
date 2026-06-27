@@ -294,7 +294,7 @@ fn invalid_slot_fragment_compile_fixtures_fail_before_metadata_lookup() {
         (
             "slot_variant_limit_exceeded.sql",
             SLOT_VARIANT_LIMIT_EXCEEDED,
-            "Slot expansion for query `slotVariantLimitExceeded` would produce 625 SQL variants, exceeding the 256 variant limit",
+            "Dynamic SQL validation for query `slotVariantLimitExceeded` would produce 625 validation cases, exceeding the 256 validation case limit",
         ),
         (
             "slot_variant_invalid_selected_fragment.sql",

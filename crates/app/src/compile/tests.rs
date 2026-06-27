@@ -1,8 +1,9 @@
 use super::diagnostics::with_slot_variant_context;
 use super::param_validation::validate_expanded_variant_param_bindings;
 use super::slot_variants::{
-    AnalyzedQueryVariant, ExpandedFragmentParamOccurrence, ExpandedParamOccurrence,
-    ExpandedParamScope, SlotExpansionContext, SlotExpansionSourceKind, SlotSelectionContext,
+    AnalyzedQueryVariant, ExpandedFragmentParamOccurrence, ExpandedFragmentRepeatParamOccurrence,
+    ExpandedParamOccurrence, ExpandedParamScope, SlotExpansionContext, SlotExpansionSourceKind,
+    SlotSelectionContext,
 };
 use super::*;
 use std::path::Path;
@@ -151,5 +152,103 @@ fn repeated_slot_fragment_param_validation_rejects_nullability_conflicts() {
             .collect::<Vec<_>>()
             .join("\n"),
         "conflicting Fragment Param `kind` nullability in query `listUsers`, Slot `filter`, Fragment `byKind`: occurrence 1 is nullable false but occurrence 2 is nullable true; repeated Slot occurrences that select the same Fragment must resolve matching Param type and nullability\nfirst occurrence of Slot `filter` selecting Fragment `byKind` is here\nconflicting occurrence of Slot `filter` selecting Fragment `byKind` is here\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=byKind\nSlot `filter` selected `byKind` in this variant"
+    );
+}
+
+#[test]
+fn fragment_repeat_param_validation_reports_slot_fragment_and_repeat_context() {
+    let slot_location = core::SourceLocation::at_position(
+        "sql/users.sql",
+        core::SourcePosition::one_based(8, 88).expect("test position should be valid"),
+    );
+    let repeat_location = core::SourceLocation::at_position(
+        "sql/fragments.sql",
+        core::SourcePosition::one_based(3, 14).expect("test position should be valid"),
+    );
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("listUsers".to_owned(), None),
+        "SELECT id FROM users WHERE id IN (?,?);".to_owned(),
+    )
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "id".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_placeholder_index(34),
+        core::ParamUsage::new(
+            "id".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        )
+        .with_placeholder_index(36),
+    ]);
+    let variant = AnalyzedQueryVariant {
+        query,
+        analysis: core::AnalyzedQuery::new(core::Cardinality::Many),
+        context: Some(SlotExpansionContext {
+            source_kind: SlotExpansionSourceKind::Query,
+            source_id: "listUsers".to_owned(),
+            selections: vec![SlotSelectionContext {
+                slot_id: "filter".to_owned(),
+                target_id: Some("byIds".to_owned()),
+                slot_location: slot_location.clone(),
+                fragment_location: None,
+            }],
+        }),
+        param_scopes: vec![
+            ExpandedParamScope::FragmentRepeatItem {
+                slot_id: "filter".to_owned(),
+                target_id: "byIds".to_owned(),
+                repeat_id: "ids".to_owned(),
+            },
+            ExpandedParamScope::FragmentRepeatItem {
+                slot_id: "filter".to_owned(),
+                target_id: "byIds".to_owned(),
+                repeat_id: "ids".to_owned(),
+            },
+        ],
+        param_occurrences: vec![
+            ExpandedParamOccurrence::FragmentRepeatItem(ExpandedFragmentRepeatParamOccurrence {
+                slot_id: "filter".to_owned(),
+                target_id: "byIds".to_owned(),
+                repeat_id: "ids".to_owned(),
+                representative_item_index: 1,
+                slot_occurrence_index: 1,
+                slot_location,
+                repeat_location: repeat_location.clone(),
+            }),
+            ExpandedParamOccurrence::FragmentRepeatItem(ExpandedFragmentRepeatParamOccurrence {
+                slot_id: "filter".to_owned(),
+                target_id: "byIds".to_owned(),
+                repeat_id: "ids".to_owned(),
+                representative_item_index: 2,
+                slot_occurrence_index: 1,
+                slot_location: core::SourceLocation::unknown(),
+                repeat_location,
+            }),
+        ],
+    };
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new("id".to_owned(), core::CoreType::Int64),
+        core::DbParamUsage::new("id".to_owned(), core::CoreType::String),
+    ]);
+    let mut scoped_param_bindings = Vec::new();
+
+    let report =
+        validate_expanded_variant_param_bindings(&variant, &metadata, &mut scoped_param_bindings)
+            .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))
+            .expect_err("Fragment Repeat Param type conflicts should include context");
+
+    assert_eq!(
+        report
+            .diagnostics()
+            .iter()
+            .map(core::Diagnostic::message)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        "conflicting Fragment Repeat item Param `id` type in query `listUsers`, Slot `filter`, Fragment `byIds`, Repeat `ids`: first representative occurrence resolved to Int64 but conflicting representative occurrence resolved to String; Repeat item fields with the same ID must resolve matching Param type and nullability\nfirst Repeat `ids` occurrence in Slot `filter` selecting Fragment `byIds` is here\nconflicting Repeat `ids` occurrence in Slot `filter` selecting Fragment `byIds` is here\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=byIds\nSlot `filter` selected `byIds` in this variant"
     );
 }

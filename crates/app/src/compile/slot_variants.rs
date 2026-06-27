@@ -5,13 +5,18 @@ use sqlay_core as core;
 use crate::{DialectAnalyzer, MutationAnalyzer};
 
 use super::diagnostics::{
-    location_error, mutation_param_placeholder_index, mutation_param_usage_error,
-    mutation_slot_spec_error as slot_spec_error, mutation_slot_usage_error, param_usage_error,
-    query_error, query_param_placeholder_index, slot_usage_error, with_slot_variant_context,
+    location_error, mutation_error, mutation_slot_spec_error as slot_spec_error,
+    mutation_slot_usage_error, query_error, slot_usage_error, with_slot_variant_context,
+};
+use super::repeat_expansion::{
+    build_representative_mutation, build_representative_query, push_fragment_segment_with_repeats,
+    push_mutation_fragment_segment_with_repeats, push_mutation_segment_with_repeats,
+    push_query_segment_with_repeats,
 };
 use super::repeat_inputs::{validate_mutation_repeat_inputs, validate_query_repeat_inputs};
 
-const SLOT_VARIANT_LIMIT: usize = 256;
+const VALIDATION_CASE_LIMIT: usize = 256;
+const REPEAT_REPRESENTATIVE_CASE_COUNT: usize = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct AnalyzedQueryVariants {
@@ -38,14 +43,15 @@ where
 {
     if query.slot_usages().is_empty() {
         validate_query_repeat_inputs(query, &[], fragments_by_id)?;
-        let direct_param_count = query.param_usages().len();
+        let expanded = build_representative_query(query)?;
+        let analysis = dialect_analyzer.analyze(&expanded.query)?;
         return Ok(AnalyzedQueryVariants {
             variants: vec![AnalyzedQueryVariant {
-                query: query.clone(),
-                analysis: dialect_analyzer.analyze(query)?,
+                query: expanded.query,
+                analysis,
                 context: None,
-                param_scopes: vec![ExpandedParamScope::QueryDirect; direct_param_count],
-                param_occurrences: vec![ExpandedParamOccurrence::QueryDirect; direct_param_count],
+                param_scopes: expanded.param_scopes,
+                param_occurrences: expanded.param_occurrences,
             }],
             slot_specs: Vec::new(),
             unique_slot_count: 0,
@@ -93,14 +99,15 @@ where
 {
     if mutation.slot_usages().is_empty() {
         validate_mutation_repeat_inputs(mutation, &[], fragments_by_id)?;
-        let direct_param_count = mutation.param_usages().len();
+        let expanded = build_representative_mutation(mutation)?;
+        let analysis = mutation_analyzer.analyze_mutation(&expanded.mutation)?;
         return Ok(AnalyzedMutationVariants {
             variants: vec![AnalyzedMutationVariant {
-                mutation: mutation.clone(),
-                analysis: mutation_analyzer.analyze_mutation(mutation)?,
+                mutation: expanded.mutation,
+                analysis,
                 context: None,
-                param_scopes: vec![ExpandedParamScope::QueryDirect; direct_param_count],
-                param_occurrences: vec![ExpandedParamOccurrence::QueryDirect; direct_param_count],
+                param_scopes: expanded.param_scopes,
+                param_occurrences: expanded.param_occurrences,
             }],
             slot_specs: Vec::new(),
             unique_slot_count: 0,
@@ -181,13 +188,33 @@ struct SlotExpansionMutationVariant {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ExpandedParamScope {
     QueryDirect,
-    Fragment { slot_id: String, target_id: String },
+    RepeatItem {
+        repeat_id: String,
+    },
+    Fragment {
+        slot_id: String,
+        target_id: String,
+    },
+    FragmentRepeatItem {
+        slot_id: String,
+        target_id: String,
+        repeat_id: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ExpandedParamOccurrence {
     QueryDirect,
+    RepeatItem(ExpandedRepeatParamOccurrence),
     Fragment(ExpandedFragmentParamOccurrence),
+    FragmentRepeatItem(ExpandedFragmentRepeatParamOccurrence),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ExpandedRepeatParamOccurrence {
+    pub(super) repeat_id: String,
+    pub(super) representative_item_index: usize,
+    pub(super) repeat_location: core::SourceLocation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,11 +225,22 @@ pub(super) struct ExpandedFragmentParamOccurrence {
     pub(super) slot_location: core::SourceLocation,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ExpandedFragmentRepeatParamOccurrence {
+    pub(super) slot_id: String,
+    pub(super) target_id: String,
+    pub(super) repeat_id: String,
+    pub(super) representative_item_index: usize,
+    pub(super) slot_occurrence_index: usize,
+    pub(super) slot_location: core::SourceLocation,
+    pub(super) repeat_location: core::SourceLocation,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct ExpandedParamBuffers {
-    usages: Vec<core::ParamUsage>,
-    scopes: Vec<ExpandedParamScope>,
-    occurrences: Vec<ExpandedParamOccurrence>,
+pub(super) struct ExpandedParamBuffers {
+    pub(super) usages: Vec<core::ParamUsage>,
+    pub(super) scopes: Vec<ExpandedParamScope>,
+    pub(super) occurrences: Vec<ExpandedParamOccurrence>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -450,11 +488,12 @@ fn slot_variant_choices<'a>(
         }
 
         let variant_count = variants.len().saturating_mul(choices.len());
-        if variant_count > SLOT_VARIANT_LIMIT {
+        let validation_case_count = variant_count.saturating_mul(REPEAT_REPRESENTATIVE_CASE_COUNT);
+        if validation_case_count > VALIDATION_CASE_LIMIT {
             return Err(query_error(
                 query,
                 format!(
-                    "Slot expansion for query `{}` would produce {variant_count} SQL variants, exceeding the {SLOT_VARIANT_LIMIT} variant limit",
+                    "Dynamic SQL validation for query `{}` would produce {validation_case_count} validation cases, exceeding the {VALIDATION_CASE_LIMIT} validation case limit",
                     query.metadata().id()
                 ),
             ));
@@ -501,11 +540,12 @@ fn mutation_slot_variant_choices<'a>(
         }
 
         let variant_count = variants.len().saturating_mul(choices.len());
-        if variant_count > SLOT_VARIANT_LIMIT {
-            return Err(super::diagnostics::mutation_error(
+        let validation_case_count = variant_count.saturating_mul(REPEAT_REPRESENTATIVE_CASE_COUNT);
+        if validation_case_count > VALIDATION_CASE_LIMIT {
+            return Err(mutation_error(
                 mutation,
                 format!(
-                    "Slot expansion for mutation `{}` would produce {variant_count} SQL variants, exceeding the {SLOT_VARIANT_LIMIT} variant limit",
+                    "Dynamic SQL validation for mutation `{}` would produce {validation_case_count} validation cases, exceeding the {VALIDATION_CASE_LIMIT} validation case limit",
                     mutation.metadata().id()
                 ),
             ));
@@ -538,6 +578,7 @@ fn build_slot_variant_query(
     let mut analysis_sql = String::with_capacity(query.analysis_sql().len());
     let mut cursor = 0;
     let mut query_param_cursor = 0;
+    let mut query_repeat_cursor = 0;
     let mut params = ExpandedParamBuffers::default();
     let mut slot_occurrence_counts = HashMap::<&str, usize>::new();
 
@@ -554,40 +595,36 @@ fn build_slot_variant_query(
             ));
         }
 
-        let segment_output_start = analysis_sql.len();
-        analysis_sql.push_str(&query.analysis_sql()[cursor..insertion_index]);
-        push_query_params_before_index(
+        push_query_segment_with_repeats(
             query,
             cursor,
-            segment_output_start,
             insertion_index,
             &mut query_param_cursor,
+            &mut query_repeat_cursor,
+            &mut analysis_sql,
             &mut params,
         )?;
         if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
             let slot_occurrence_index = slot_occurrence_counts.entry(usage.id()).or_insert(0);
             *slot_occurrence_index += 1;
-            let fragment_output_start = analysis_sql.len();
-            analysis_sql.push_str(fragment.analysis_sql());
-            push_fragment_params(
+            push_fragment_segment_with_repeats(
                 fragment,
-                fragment_output_start,
-                &mut params,
                 query,
                 usage,
                 *slot_occurrence_index,
+                &mut analysis_sql,
+                &mut params,
             )?;
         }
         cursor = insertion_index;
     }
-    let segment_output_start = analysis_sql.len();
-    analysis_sql.push_str(&query.analysis_sql()[cursor..]);
-    push_query_params_before_index(
+    push_query_segment_with_repeats(
         query,
         cursor,
-        segment_output_start,
         query.analysis_sql().len(),
         &mut query_param_cursor,
+        &mut query_repeat_cursor,
+        &mut analysis_sql,
         &mut params,
     )?;
 
@@ -628,6 +665,7 @@ fn build_slot_variant_mutation(
     let mut analysis_sql = String::with_capacity(mutation.analysis_sql().len());
     let mut cursor = 0;
     let mut mutation_param_cursor = 0;
+    let mut mutation_repeat_cursor = 0;
     let mut params = ExpandedParamBuffers::default();
     let mut slot_occurrence_counts = HashMap::<&str, usize>::new();
 
@@ -644,40 +682,36 @@ fn build_slot_variant_mutation(
             ));
         }
 
-        let segment_output_start = analysis_sql.len();
-        analysis_sql.push_str(&mutation.analysis_sql()[cursor..insertion_index]);
-        push_mutation_params_before_index(
+        push_mutation_segment_with_repeats(
             mutation,
             cursor,
-            segment_output_start,
             insertion_index,
             &mut mutation_param_cursor,
+            &mut mutation_repeat_cursor,
+            &mut analysis_sql,
             &mut params,
         )?;
         if let Some(Some(fragment)) = choices_by_slot.get(usage.id()) {
             let slot_occurrence_index = slot_occurrence_counts.entry(usage.id()).or_insert(0);
             *slot_occurrence_index += 1;
-            let fragment_output_start = analysis_sql.len();
-            analysis_sql.push_str(fragment.analysis_sql());
-            push_mutation_fragment_params(
+            push_mutation_fragment_segment_with_repeats(
                 fragment,
-                fragment_output_start,
-                &mut params,
                 mutation,
                 usage,
                 *slot_occurrence_index,
+                &mut analysis_sql,
+                &mut params,
             )?;
         }
         cursor = insertion_index;
     }
-    let segment_output_start = analysis_sql.len();
-    analysis_sql.push_str(&mutation.analysis_sql()[cursor..]);
-    push_mutation_params_before_index(
+    push_mutation_segment_with_repeats(
         mutation,
         cursor,
-        segment_output_start,
         mutation.analysis_sql().len(),
         &mut mutation_param_cursor,
+        &mut mutation_repeat_cursor,
+        &mut analysis_sql,
         &mut params,
     )?;
 
@@ -728,166 +762,4 @@ fn slot_expansion_context(
         source_id: source_id.to_owned(),
         selections,
     }
-}
-
-fn push_query_params_before_index(
-    query: &core::RawQuery,
-    segment_start: usize,
-    segment_output_start: usize,
-    limit: usize,
-    query_param_cursor: &mut usize,
-    params: &mut ExpandedParamBuffers,
-) -> core::DiagnosticResult<()> {
-    while let Some(usage) = query.param_usages().get(*query_param_cursor) {
-        let placeholder_index = query_param_placeholder_index(query, usage)?;
-        if placeholder_index >= limit {
-            break;
-        }
-        if placeholder_index < segment_start {
-            return Err(param_usage_error(
-                query,
-                usage,
-                format!(
-                    "Param `{}` placeholder index {placeholder_index} appears before the current Slot expansion cursor {segment_start}",
-                    usage.id()
-                ),
-            ));
-        }
-
-        params.usages.push(
-            usage
-                .clone()
-                .with_placeholder_index(segment_output_start + placeholder_index - segment_start),
-        );
-        params.scopes.push(ExpandedParamScope::QueryDirect);
-        params
-            .occurrences
-            .push(ExpandedParamOccurrence::QueryDirect);
-        *query_param_cursor += 1;
-    }
-
-    Ok(())
-}
-
-fn push_mutation_params_before_index(
-    mutation: &core::RawMutation,
-    segment_start: usize,
-    segment_output_start: usize,
-    limit: usize,
-    mutation_param_cursor: &mut usize,
-    params: &mut ExpandedParamBuffers,
-) -> core::DiagnosticResult<()> {
-    while let Some(usage) = mutation.param_usages().get(*mutation_param_cursor) {
-        let placeholder_index = mutation_param_placeholder_index(mutation, usage)?;
-        if placeholder_index >= limit {
-            break;
-        }
-        if placeholder_index < segment_start {
-            return Err(mutation_param_usage_error(
-                mutation,
-                usage,
-                format!(
-                    "Param `{}` placeholder index {placeholder_index} appears before the current Slot expansion cursor {segment_start}",
-                    usage.id()
-                ),
-            ));
-        }
-
-        params.usages.push(
-            usage
-                .clone()
-                .with_placeholder_index(segment_output_start + placeholder_index - segment_start),
-        );
-        params.scopes.push(ExpandedParamScope::QueryDirect);
-        params
-            .occurrences
-            .push(ExpandedParamOccurrence::QueryDirect);
-        *mutation_param_cursor += 1;
-    }
-
-    Ok(())
-}
-
-fn push_fragment_params(
-    fragment: &core::RawFragment,
-    fragment_output_start: usize,
-    params: &mut ExpandedParamBuffers,
-    query: &core::RawQuery,
-    slot_usage: &core::SlotUsage,
-    slot_occurrence_index: usize,
-) -> core::DiagnosticResult<()> {
-    for usage in fragment.param_usages() {
-        let Some(placeholder_index) = usage.placeholder_index() else {
-            return Err(query_error(
-                query,
-                format!(
-                    "Param `{}` in fragment `{}` is missing placeholder position metadata",
-                    usage.id(),
-                    fragment.metadata().id()
-                ),
-            ));
-        };
-
-        params.usages.push(
-            usage
-                .clone()
-                .with_placeholder_index(fragment_output_start + placeholder_index),
-        );
-        params.scopes.push(ExpandedParamScope::Fragment {
-            slot_id: slot_usage.id().to_owned(),
-            target_id: fragment.metadata().id().to_owned(),
-        });
-        params.occurrences.push(ExpandedParamOccurrence::Fragment(
-            ExpandedFragmentParamOccurrence {
-                slot_id: slot_usage.id().to_owned(),
-                target_id: fragment.metadata().id().to_owned(),
-                slot_occurrence_index,
-                slot_location: slot_usage.source_location().clone(),
-            },
-        ));
-    }
-
-    Ok(())
-}
-
-fn push_mutation_fragment_params(
-    fragment: &core::RawFragment,
-    fragment_output_start: usize,
-    params: &mut ExpandedParamBuffers,
-    mutation: &core::RawMutation,
-    slot_usage: &core::SlotUsage,
-    slot_occurrence_index: usize,
-) -> core::DiagnosticResult<()> {
-    for usage in fragment.param_usages() {
-        let Some(placeholder_index) = usage.placeholder_index() else {
-            return Err(super::diagnostics::mutation_error(
-                mutation,
-                format!(
-                    "Param `{}` in fragment `{}` is missing placeholder position metadata",
-                    usage.id(),
-                    fragment.metadata().id()
-                ),
-            ));
-        };
-
-        params.usages.push(
-            usage
-                .clone()
-                .with_placeholder_index(fragment_output_start + placeholder_index),
-        );
-        params.scopes.push(ExpandedParamScope::Fragment {
-            slot_id: slot_usage.id().to_owned(),
-            target_id: fragment.metadata().id().to_owned(),
-        });
-        params.occurrences.push(ExpandedParamOccurrence::Fragment(
-            ExpandedFragmentParamOccurrence {
-                slot_id: slot_usage.id().to_owned(),
-                target_id: fragment.metadata().id().to_owned(),
-                slot_occurrence_index,
-                slot_location: slot_usage.source_location().clone(),
-            },
-        ));
-    }
-
-    Ok(())
 }

@@ -407,6 +407,6 @@ fn check_rejects_slot_expansion_above_variant_limit() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Slot expansion for query `listUsers` would produce 257 SQL variants, exceeding the 256 variant limit"
+        "Dynamic SQL validation for query `listUsers` would produce 257 validation cases, exceeding the 256 validation case limit"
     );
 }
