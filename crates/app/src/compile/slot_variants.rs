@@ -6,8 +6,8 @@ use crate::{DialectAnalyzer, MutationAnalyzer};
 
 use super::diagnostics::{
     location_error, mutation_param_placeholder_index, mutation_param_usage_error,
-    mutation_slot_usage_error, param_usage_error, query_error, query_param_placeholder_index,
-    slot_usage_error, with_slot_variant_context,
+    mutation_slot_spec_error as slot_spec_error, mutation_slot_usage_error, param_usage_error,
+    query_error, query_param_placeholder_index, slot_usage_error, with_slot_variant_context,
 };
 
 const SLOT_VARIANT_LIMIT: usize = 256;
@@ -36,21 +36,14 @@ where
     D: DialectAnalyzer,
 {
     if query.slot_usages().is_empty() {
+        let direct_param_count = query.param_usages().len();
         return Ok(AnalyzedQueryVariants {
             variants: vec![AnalyzedQueryVariant {
                 query: query.clone(),
                 analysis: dialect_analyzer.analyze(query)?,
                 context: None,
-                param_scopes: query
-                    .param_usages()
-                    .iter()
-                    .map(|_| ExpandedParamScope::QueryDirect)
-                    .collect(),
-                param_occurrences: query
-                    .param_usages()
-                    .iter()
-                    .map(|_| ExpandedParamOccurrence::QueryDirect)
-                    .collect(),
+                param_scopes: vec![ExpandedParamScope::QueryDirect; direct_param_count],
+                param_occurrences: vec![ExpandedParamOccurrence::QueryDirect; direct_param_count],
             }],
             slot_specs: Vec::new(),
             unique_slot_count: 0,
@@ -96,21 +89,14 @@ where
     D: MutationAnalyzer,
 {
     if mutation.slot_usages().is_empty() {
+        let direct_param_count = mutation.param_usages().len();
         return Ok(AnalyzedMutationVariants {
             variants: vec![AnalyzedMutationVariant {
                 mutation: mutation.clone(),
                 analysis: mutation_analyzer.analyze_mutation(mutation)?,
                 context: None,
-                param_scopes: mutation
-                    .param_usages()
-                    .iter()
-                    .map(|_| ExpandedParamScope::QueryDirect)
-                    .collect(),
-                param_occurrences: mutation
-                    .param_usages()
-                    .iter()
-                    .map(|_| ExpandedParamOccurrence::QueryDirect)
-                    .collect(),
+                param_scopes: vec![ExpandedParamScope::QueryDirect; direct_param_count],
+                param_occurrences: vec![ExpandedParamOccurrence::QueryDirect; direct_param_count],
             }],
             slot_specs: Vec::new(),
             unique_slot_count: 0,
@@ -413,8 +399,9 @@ fn reject_mutation_direct_param_slot_collisions(
 
     for slot in slot_specs {
         if direct_param_ids.contains(slot.id.as_str()) {
-            return Err(location_error(
-                slot.source_location.clone(),
+            return Err(slot_spec_error(
+                mutation,
+                &slot.source_location,
                 format!(
                     "Slot `{}` in mutation `{}` conflicts with mutation direct Param `{}`; mutation direct Param IDs and Slot IDs share the generated input namespace",
                     slot.id,
@@ -495,8 +482,9 @@ fn mutation_slot_variant_choices<'a>(
         choices.push(None);
         for target in &slot.targets {
             let Some(fragment) = fragments_by_id.get(target.as_str()).copied() else {
-                return Err(location_error(
-                    slot.source_location.clone(),
+                return Err(slot_spec_error(
+                    mutation,
+                    &slot.source_location,
                     format!(
                         "unknown Slot target `{target}` in Slot `{}`; no fragment with that id was found",
                         slot.id

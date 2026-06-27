@@ -12,6 +12,7 @@ pub use crate::{
 mod support;
 
 mod generation_pipeline;
+mod mutation_slot;
 mod planning;
 mod query_compiler;
 mod slot_expansion;

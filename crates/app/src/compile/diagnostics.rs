@@ -109,6 +109,18 @@ pub(super) fn mutation_slot_usage_error(
     location_error(location, message)
 }
 
+pub(super) fn mutation_slot_spec_error(
+    mutation: &core::RawMutation,
+    slot_location: &core::SourceLocation,
+    message: impl Into<String>,
+) -> core::DiagnosticReport {
+    if slot_location.range().is_some() || slot_location.path().is_some() {
+        return location_error(slot_location.clone(), message);
+    }
+
+    mutation_error(mutation, message)
+}
+
 pub(super) fn param_usage_error(
     query: &core::RawQuery,
     usage: &core::ParamUsage,
