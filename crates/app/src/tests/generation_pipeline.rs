@@ -532,6 +532,83 @@ fn check_expands_mutation_repeat_to_two_item_validation_sql() {
     );
 }
 
+#[test]
+fn check_combines_mutation_slot_variants_with_fragment_repeat_validation_sql() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let mutation_sql = "UPDATE users AS u SET name = name WHERE 1 = 1;";
+    let slot_index = mutation_sql.find(';').expect("Slot insertion point exists");
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("touchUsers".to_owned()),
+        "UPDATE users AS u SET name = name WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [byIds] } */;"
+            .to_owned(),
+    )
+    .with_analysis_sql(mutation_sql.to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["byIds".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = "\nAND u.id IN (?)";
+    let placeholder = fragment_sql.find('?').expect("Repeat placeholder exists");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byIds".to_owned()),
+        fragment_sql.to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_repeat_usages(vec![
+        core::RepeatUsage::new(
+            "ids".to_owned(),
+            ",".to_owned(),
+            placeholder,
+            placeholder + 1,
+            core::SourceLocation::unknown(),
+        )
+        .with_item_param_usages(vec![test_param_usage("id", placeholder)]),
+    ])
+    .with_source_path("sql/mutation_fragments.sql");
+    let source_read = SourceRead::from_queries(Vec::new())
+        .with_mutations(vec![mutation.clone()])
+        .with_fragments(vec![fragment])
+        .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+        .with_source_file_count(2);
+    let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("Slot-selected mutation Fragment Repeat should validate representative SQL");
+
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "UPDATE users AS u SET name = name WHERE 1 = 1;",
+            "UPDATE users AS u SET name = name WHERE 1 = 1\nAND u.id IN (?,?);",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [Vec::<String>::new(), vec!["id".to_owned(), "id".to_owned()]]
+    );
+}
+
 fn mutation_slot_assignment_fixture() -> (core::RawMutation, core::RawFragment) {
     let base_sql = "UPDATE users AS u SET name = ? WHERE u.id = ?;";
     let slot_index = base_sql
