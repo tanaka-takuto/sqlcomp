@@ -10,16 +10,26 @@ use super::diagnostics::{
 use super::param_validation::ScopedParamBinding;
 use super::slot_variants::{ExpandedParamScope, SlotSpec};
 
+mod repeat_bodies;
+mod repeat_definitions;
+
+use repeat_bodies::{
+    compiled_mutation_body, compiled_mutation_fragment_body, compiled_query_body,
+    compiled_query_fragment_body,
+};
+use repeat_definitions::{compiled_mutation_repeat_definitions, compiled_query_repeat_definitions};
+
 pub(super) fn compile_dynamic_query_body(
     query: &core::RawQuery,
     slot_specs: &[SlotSpec],
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     scoped_param_bindings: &[ScopedParamBinding],
 ) -> core::DiagnosticResult<core::CompiledDynamicQuery> {
-    let mut base_segments = Vec::with_capacity(query.slot_usages().len() + 1);
+    let mut base_bodies = Vec::with_capacity(query.slot_usages().len() + 1);
     let mut slot_occurrences = Vec::with_capacity(query.slot_usages().len());
     let mut cursor = 0;
     let mut query_param_cursor = 0;
+    let mut query_repeat_cursor = 0;
 
     for usage in query.slot_usages() {
         let insertion_index = usage.insertion_index();
@@ -34,22 +44,24 @@ pub(super) fn compile_dynamic_query_body(
             ));
         }
 
-        base_segments.push(compiled_base_segment(
+        base_bodies.push(compiled_query_body(
             query,
             cursor,
             insertion_index,
             &mut query_param_cursor,
+            &mut query_repeat_cursor,
             scoped_param_bindings,
         )?);
         slot_occurrences.push(core::CompiledSlotOccurrence::new(usage.id().to_owned()));
         cursor = insertion_index;
     }
 
-    base_segments.push(compiled_base_segment(
+    base_bodies.push(compiled_query_body(
         query,
         cursor,
         query.analysis_sql().len(),
         &mut query_param_cursor,
+        &mut query_repeat_cursor,
         scoped_param_bindings,
     )?);
 
@@ -57,11 +69,18 @@ pub(super) fn compile_dynamic_query_body(
         .iter()
         .map(|slot| compiled_slot_definition(query, slot, fragments_by_id, scoped_param_bindings))
         .collect::<core::DiagnosticResult<Vec<_>>>()?;
+    let repeats = compiled_query_repeat_definitions(
+        query,
+        query.repeat_usages(),
+        &RepeatBindingScope::Builder,
+        scoped_param_bindings,
+    )?;
 
-    Ok(core::CompiledDynamicQuery::new(
-        base_segments,
+    Ok(core::CompiledDynamicQuery::new_with_bodies(
+        base_bodies,
         slot_occurrences,
         slots,
+        repeats,
     ))
 }
 
@@ -71,10 +90,11 @@ pub(super) fn compile_dynamic_mutation_body(
     fragments_by_id: &HashMap<&str, &core::RawFragment>,
     scoped_param_bindings: &[ScopedParamBinding],
 ) -> core::DiagnosticResult<core::CompiledDynamicQuery> {
-    let mut base_segments = Vec::with_capacity(mutation.slot_usages().len() + 1);
+    let mut base_bodies = Vec::with_capacity(mutation.slot_usages().len() + 1);
     let mut slot_occurrences = Vec::with_capacity(mutation.slot_usages().len());
     let mut cursor = 0;
     let mut mutation_param_cursor = 0;
+    let mut mutation_repeat_cursor = 0;
 
     for usage in mutation.slot_usages() {
         let insertion_index = usage.insertion_index();
@@ -89,22 +109,24 @@ pub(super) fn compile_dynamic_mutation_body(
             ));
         }
 
-        base_segments.push(compiled_mutation_base_segment(
+        base_bodies.push(compiled_mutation_body(
             mutation,
             cursor,
             insertion_index,
             &mut mutation_param_cursor,
+            &mut mutation_repeat_cursor,
             scoped_param_bindings,
         )?);
         slot_occurrences.push(core::CompiledSlotOccurrence::new(usage.id().to_owned()));
         cursor = insertion_index;
     }
 
-    base_segments.push(compiled_mutation_base_segment(
+    base_bodies.push(compiled_mutation_body(
         mutation,
         cursor,
         mutation.analysis_sql().len(),
         &mut mutation_param_cursor,
+        &mut mutation_repeat_cursor,
         scoped_param_bindings,
     )?);
 
@@ -119,12 +141,40 @@ pub(super) fn compile_dynamic_mutation_body(
             )
         })
         .collect::<core::DiagnosticResult<Vec<_>>>()?;
+    let repeats = compiled_mutation_repeat_definitions(
+        mutation,
+        mutation.repeat_usages(),
+        &RepeatBindingScope::Builder,
+        scoped_param_bindings,
+    )?;
 
-    Ok(core::CompiledDynamicQuery::new(
-        base_segments,
+    Ok(core::CompiledDynamicQuery::new_with_bodies(
+        base_bodies,
         slot_occurrences,
         slots,
+        repeats,
     ))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum RepeatBindingScope {
+    Builder,
+    Fragment { slot_id: String, target_id: String },
+}
+
+impl RepeatBindingScope {
+    fn expanded_scope(&self, repeat_id: &str) -> ExpandedParamScope {
+        match self {
+            Self::Builder => ExpandedParamScope::RepeatItem {
+                repeat_id: repeat_id.to_owned(),
+            },
+            Self::Fragment { slot_id, target_id } => ExpandedParamScope::FragmentRepeatItem {
+                slot_id: slot_id.clone(),
+                target_id: target_id.clone(),
+                repeat_id: repeat_id.to_owned(),
+            },
+        }
+    }
 }
 
 fn compiled_base_segment(
@@ -279,16 +329,28 @@ fn compiled_slot_branch(
         slot_id: slot_id.to_owned(),
         target_id: fragment.metadata().id().to_owned(),
     };
-    let params = fragment
-        .param_usages()
-        .iter()
-        .map(|usage| compiled_param_binding(query, usage, &scope, scoped_param_bindings))
-        .collect::<core::DiagnosticResult<Vec<_>>>()?;
-    let segment = core::CompiledSqlSegment::new(fragment.analysis_sql().to_owned(), params);
+    let repeat_scope = RepeatBindingScope::Fragment {
+        slot_id: slot_id.to_owned(),
+        target_id: fragment.metadata().id().to_owned(),
+    };
+    let body = compiled_query_fragment_body(
+        query,
+        fragment,
+        &scope,
+        &repeat_scope,
+        scoped_param_bindings,
+    )?;
+    let repeats = compiled_query_repeat_definitions(
+        query,
+        fragment.repeat_usages(),
+        &repeat_scope,
+        scoped_param_bindings,
+    )?;
 
-    Ok(core::CompiledSlotBranch::new(
+    Ok(core::CompiledSlotBranch::new_with_body(
         fragment.metadata().id().to_owned(),
-        vec![segment],
+        body,
+        repeats,
     ))
 }
 
@@ -302,18 +364,28 @@ fn compiled_mutation_slot_branch(
         slot_id: slot_id.to_owned(),
         target_id: fragment.metadata().id().to_owned(),
     };
-    let params = fragment
-        .param_usages()
-        .iter()
-        .map(|usage| {
-            compiled_mutation_param_binding(mutation, usage, &scope, scoped_param_bindings)
-        })
-        .collect::<core::DiagnosticResult<Vec<_>>>()?;
-    let segment = core::CompiledSqlSegment::new(fragment.analysis_sql().to_owned(), params);
+    let repeat_scope = RepeatBindingScope::Fragment {
+        slot_id: slot_id.to_owned(),
+        target_id: fragment.metadata().id().to_owned(),
+    };
+    let body = compiled_mutation_fragment_body(
+        mutation,
+        fragment,
+        &scope,
+        &repeat_scope,
+        scoped_param_bindings,
+    )?;
+    let repeats = compiled_mutation_repeat_definitions(
+        mutation,
+        fragment.repeat_usages(),
+        &repeat_scope,
+        scoped_param_bindings,
+    )?;
 
-    Ok(core::CompiledSlotBranch::new(
+    Ok(core::CompiledSlotBranch::new_with_body(
         fragment.metadata().id().to_owned(),
-        vec![segment],
+        body,
+        repeats,
     ))
 }
 

@@ -17,8 +17,9 @@ pub use config::{
 };
 pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
 pub use ir::{
-    CompiledBuilder, CompiledDynamicQuery, CompiledMutation, CompiledQuery, CompiledSlotBranch,
-    CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlSegment, CoreType, InputField,
+    CompiledBuilder, CompiledDynamicQuery, CompiledMutation, CompiledQuery,
+    CompiledRepeatDefinition, CompiledRepeatOccurrence, CompiledSlotBranch, CompiledSlotDefinition,
+    CompiledSlotOccurrence, CompiledSqlBody, CompiledSqlSegment, CoreType, InputField,
     MutationKind, ParamBinding, ResultColumn,
 };
 pub use metadata::{DbMutationMetadata, DbParamUsage, DbQueryMetadata, DbResultColumn};

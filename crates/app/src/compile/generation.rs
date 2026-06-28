@@ -168,7 +168,7 @@ where
         pipeline
             .query_compiler
             .compile(query, &base_variant.analysis, &base_compile_metadata)?;
-    let compiled = if analyzed_variants.slot_specs.is_empty() {
+    let compiled = if analyzed_variants.slot_specs.is_empty() && query.repeat_usages().is_empty() {
         compiled
     } else {
         compiled.with_dynamic_body(compile_dynamic_query_body(
@@ -253,7 +253,8 @@ where
         &base_variant.analysis,
         &base_compile_metadata,
     )?;
-    let compiled = if analyzed_variants.slot_specs.is_empty() {
+    let compiled = if analyzed_variants.slot_specs.is_empty() && mutation.repeat_usages().is_empty()
+    {
         compiled
     } else {
         compiled.with_dynamic_body(compile_dynamic_mutation_body(

@@ -34,7 +34,7 @@ fn check_keeps_query_direct_param_and_repeat_item_param_inference_independent() 
     .with_source_path("sql/users.sql");
     let source_reader =
         FakeSourceReader::new(SourceRead::from_queries(vec![query]).with_source_file_count(1));
-    let dialect_analyzer = FakeDialectAnalyzer;
+    let dialect_analyzer = FakeDialectAnalyzer::default();
     let metadata_provider = FakeMetadataProvider::new()
         .with_param_type_before_placeholder("u.email = ", core::CoreType::String)
         .with_param_type_before_placeholder("u.id IN (", core::CoreType::Int64)
@@ -104,7 +104,7 @@ fn check_keeps_mutation_direct_param_and_repeat_item_param_inference_independent
             .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
             .with_source_file_count(1),
     );
-    let dialect_analyzer = FakeDialectAnalyzer;
+    let dialect_analyzer = FakeDialectAnalyzer::default();
     let metadata_provider = FakeMetadataProvider::new()
         .with_param_type_before_placeholder("email = ", core::CoreType::String)
         .with_param_type_before_placeholder("u.id IN (", core::CoreType::Int64)
@@ -148,6 +148,390 @@ fn check_keeps_mutation_direct_param_and_repeat_item_param_inference_independent
     );
 }
 
+#[test]
+fn check_expands_query_repeat_to_two_item_validation_sql() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let sql = "SELECT u.id FROM users AS u WHERE u.id IN (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUsers".to_owned(), None),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![
+        core::RepeatUsage::new(
+            "ids".to_owned(),
+            ",".to_owned(),
+            placeholder,
+            placeholder + 1,
+            core::SourceLocation::unknown(),
+        )
+        .with_item_param_usages(vec![test_param_usage("id", placeholder)]),
+    ])
+    .with_source_path("sql/users.sql");
+    let source_reader =
+        FakeSourceReader::new(SourceRead::from_queries(vec![query]).with_source_file_count(1));
+    let dialect_analyzer = FakeDialectAnalyzer::default();
+    let metadata_provider = FakeMetadataProvider::new();
+    let query_compiler = DefaultingQueryCompiler;
+    let target_generator = RecordingTargetGenerator::default();
+    let generated_file_writer = NoopGeneratedFileWriter;
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("query Repeat should validate with a representative two-item expansion");
+
+    assert_eq!(outcome.variant_count(), 1);
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        ["SELECT u.id FROM users AS u WHERE u.id IN (?,?);"]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [vec!["id".to_owned(), "id".to_owned()]]
+    );
+
+    let generated_queries = target_generator.generated_queries();
+    assert_eq!(generated_queries.len(), 1);
+    let dynamic = generated_queries[0]
+        .dynamic_body()
+        .expect("query Repeat should carry dynamic Core IR");
+    assert_eq!(dynamic.repeats().len(), 1);
+    assert_eq!(dynamic.repeats()[0].id(), "ids");
+    assert_eq!(
+        dynamic.repeats()[0].fields(),
+        [core::ParamBinding::new(
+            "id".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+    assert_eq!(dynamic.base_bodies().len(), 1);
+    let body = &dynamic.base_bodies()[0];
+    assert_eq!(body.base_segments().len(), 2);
+    assert_eq!(
+        body.base_segments()[0].sql(),
+        "SELECT u.id FROM users AS u WHERE u.id IN ("
+    );
+    assert!(body.base_segments()[0].params().is_empty());
+    assert_eq!(body.base_segments()[1].sql(), ");");
+    assert_eq!(body.repeat_occurrences().len(), 1);
+    assert_eq!(body.repeat_occurrences()[0].repeat_id(), "ids");
+    assert_eq!(body.repeat_occurrences()[0].separator(), ",");
+    assert_eq!(body.repeat_occurrences()[0].item_segment().sql(), "?");
+    assert_eq!(
+        body.repeat_occurrences()[0].item_segment().params(),
+        [core::ParamBinding::new(
+            "id".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+}
+
+#[test]
+fn check_combines_slot_variants_with_fragment_repeat_validation_sql() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
+    let slot_index = query_sql.find(';').expect("Slot insertion point exists");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUsers".to_owned(), None),
+        "SELECT u.id FROM users AS u WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [byIds] } */;"
+            .to_owned(),
+    )
+    .with_analysis_sql(query_sql.to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["byIds".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = "\nAND u.id IN (?)";
+    let placeholder = fragment_sql.find('?').expect("Repeat placeholder exists");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byIds".to_owned()),
+        fragment_sql.to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_repeat_usages(vec![
+        core::RepeatUsage::new(
+            "ids".to_owned(),
+            ",".to_owned(),
+            placeholder,
+            placeholder + 1,
+            core::SourceLocation::unknown(),
+        )
+        .with_item_param_usages(vec![test_param_usage("id", placeholder)]),
+    ])
+    .with_source_path("sql/fragments.sql");
+    let source_reader = FakeSourceReader::new(
+        SourceRead::from_queries(vec![query.clone()])
+            .with_fragments(vec![fragment])
+            .with_source_units(vec![core::RawSourceUnit::Query(query)])
+            .with_source_file_count(2),
+    );
+    let dialect_analyzer = FakeDialectAnalyzer::default();
+    let metadata_provider = FakeMetadataProvider::new();
+    let query_compiler = DefaultingQueryCompiler;
+    let target_generator = RecordingTargetGenerator::default();
+    let generated_file_writer = NoopGeneratedFileWriter;
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("Slot-selected Fragment Repeat should validate with representative SQL");
+
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "SELECT u.id FROM users AS u WHERE 1 = 1;",
+            "SELECT u.id FROM users AS u WHERE 1 = 1\nAND u.id IN (?,?);",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [Vec::<String>::new(), vec!["id".to_owned(), "id".to_owned()]]
+    );
+
+    let generated_queries = target_generator.generated_queries();
+    assert_eq!(generated_queries.len(), 1);
+    let dynamic = generated_queries[0]
+        .dynamic_body()
+        .expect("Slot-selected Fragment Repeat should carry dynamic Core IR");
+    assert_slot_fragment_repeat_core_ir(dynamic);
+}
+
+#[test]
+fn check_expands_mutation_repeat_to_two_item_validation_sql() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let sql = "INSERT INTO users (email) VALUES (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUsers".to_owned()),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![
+        core::RepeatUsage::new(
+            "rows".to_owned(),
+            ",".to_owned(),
+            placeholder - 1,
+            placeholder + 2,
+            core::SourceLocation::unknown(),
+        )
+        .with_item_param_usages(vec![test_param_usage("email", placeholder)]),
+    ])
+    .with_source_path("sql/users.sql");
+    let source_reader = FakeSourceReader::new(
+        SourceRead::from_queries(Vec::new())
+            .with_mutations(vec![mutation.clone()])
+            .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+            .with_source_file_count(1),
+    );
+    let dialect_analyzer = FakeDialectAnalyzer::default();
+    let metadata_provider = FakeMetadataProvider::new();
+    let query_compiler = DefaultingQueryCompiler;
+    let target_generator = RecordingTargetGenerator::default();
+    let generated_file_writer = NoopGeneratedFileWriter;
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("mutation Repeat should validate with a representative two-item expansion");
+
+    assert_eq!(outcome.variant_count(), 1);
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        ["INSERT INTO users (email) VALUES (?),(?);"]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [vec!["email".to_owned(), "email".to_owned()]]
+    );
+
+    let generated_builders = target_generator.generated_builders();
+    assert_eq!(generated_builders.len(), 1);
+    let core::CompiledBuilder::Mutation(compiled) = &generated_builders[0] else {
+        panic!("target generator should receive a mutation builder");
+    };
+    let dynamic = compiled
+        .dynamic_body()
+        .expect("mutation Repeat should carry dynamic Core IR");
+    assert_eq!(dynamic.repeats().len(), 1);
+    assert_eq!(dynamic.repeats()[0].id(), "rows");
+    assert_eq!(
+        dynamic.repeats()[0].fields(),
+        [core::ParamBinding::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+    assert_eq!(dynamic.base_bodies().len(), 1);
+    let body = &dynamic.base_bodies()[0];
+    assert_eq!(body.base_segments().len(), 2);
+    assert_eq!(
+        body.base_segments()[0].sql(),
+        "INSERT INTO users (email) VALUES "
+    );
+    assert_eq!(body.base_segments()[1].sql(), ";");
+    assert_eq!(body.repeat_occurrences().len(), 1);
+    assert_eq!(body.repeat_occurrences()[0].repeat_id(), "rows");
+    assert_eq!(body.repeat_occurrences()[0].separator(), ",");
+    assert_eq!(body.repeat_occurrences()[0].item_segment().sql(), "(?)");
+    assert_eq!(
+        body.repeat_occurrences()[0].item_segment().params(),
+        [core::ParamBinding::new(
+            "email".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+}
+
+#[test]
+fn check_combines_mutation_slot_variants_with_fragment_repeat_validation_sql() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let mutation_sql = "UPDATE users AS u SET name = name WHERE 1 = 1;";
+    let slot_index = mutation_sql.find(';').expect("Slot insertion point exists");
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("touchUsers".to_owned()),
+        "UPDATE users AS u SET name = name WHERE 1 = 1/* @sqlay { type: slot id: filter targets: [byIds] } */;"
+            .to_owned(),
+    )
+    .with_analysis_sql(mutation_sql.to_owned())
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["byIds".to_owned()],
+        slot_index,
+        core::SourceLocation::unknown(),
+    )])
+    .with_source_path("sql/users.sql");
+    let fragment_sql = "\nAND u.id IN (?)";
+    let placeholder = fragment_sql.find('?').expect("Repeat placeholder exists");
+    let fragment = core::RawFragment::new(
+        core::FragmentMetadata::new("byIds".to_owned()),
+        fragment_sql.to_owned(),
+    )
+    .with_analysis_sql(fragment_sql.to_owned())
+    .with_repeat_usages(vec![
+        core::RepeatUsage::new(
+            "ids".to_owned(),
+            ",".to_owned(),
+            placeholder,
+            placeholder + 1,
+            core::SourceLocation::unknown(),
+        )
+        .with_item_param_usages(vec![test_param_usage("id", placeholder)]),
+    ])
+    .with_source_path("sql/mutation_fragments.sql");
+    let source_reader = FakeSourceReader::new(
+        SourceRead::from_queries(Vec::new())
+            .with_mutations(vec![mutation.clone()])
+            .with_fragments(vec![fragment])
+            .with_source_units(vec![core::RawSourceUnit::Mutation(mutation)])
+            .with_source_file_count(2),
+    );
+    let dialect_analyzer = FakeDialectAnalyzer::default();
+    let metadata_provider = FakeMetadataProvider::new();
+    let query_compiler = DefaultingQueryCompiler;
+    let target_generator = RecordingTargetGenerator::default();
+    let generated_file_writer = NoopGeneratedFileWriter;
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::check(&config, &pipeline)
+        .expect("Slot-selected mutation Fragment Repeat should validate representative SQL");
+
+    assert_eq!(outcome.unique_slot_count(), 1);
+    assert_eq!(outcome.variant_count(), 2);
+    assert_eq!(
+        dialect_analyzer.analyzed_sql(),
+        [
+            "UPDATE users AS u SET name = name WHERE 1 = 1;",
+            "UPDATE users AS u SET name = name WHERE 1 = 1\nAND u.id IN (?,?);",
+        ]
+    );
+    assert_eq!(
+        metadata_provider.described_param_ids(),
+        [Vec::<String>::new(), vec!["id".to_owned(), "id".to_owned()]]
+    );
+
+    let generated_builders = target_generator.generated_builders();
+    assert_eq!(generated_builders.len(), 1);
+    let core::CompiledBuilder::Mutation(compiled) = &generated_builders[0] else {
+        panic!("target generator should receive a mutation builder");
+    };
+    let dynamic = compiled
+        .dynamic_body()
+        .expect("Slot-selected mutation Fragment Repeat should carry dynamic Core IR");
+    assert_slot_fragment_repeat_core_ir(dynamic);
+}
+
+fn assert_slot_fragment_repeat_core_ir(dynamic: &core::CompiledDynamicQuery) {
+    assert!(dynamic.repeats().is_empty());
+    assert_eq!(dynamic.slots().len(), 1);
+    let branch = &dynamic.slots()[0].branches()[0];
+    assert_eq!(branch.repeats().len(), 1);
+    assert_eq!(branch.repeats()[0].id(), "ids");
+    assert_eq!(
+        branch.repeats()[0].fields(),
+        [core::ParamBinding::new(
+            "id".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+    let body = branch.body();
+    assert_eq!(body.base_segments().len(), 2);
+    assert_eq!(body.base_segments()[0].sql(), "\nAND u.id IN (");
+    assert_eq!(body.base_segments()[1].sql(), ")");
+    assert_eq!(body.repeat_occurrences().len(), 1);
+    assert_eq!(body.repeat_occurrences()[0].repeat_id(), "ids");
+    assert_eq!(body.repeat_occurrences()[0].separator(), ",");
+    assert_eq!(body.repeat_occurrences()[0].item_segment().sql(), "?");
+    assert_eq!(
+        body.repeat_occurrences()[0].item_segment().params(),
+        [core::ParamBinding::new(
+            "id".to_owned(),
+            core::CoreType::String,
+            false
+        )]
+    );
+}
+
 fn project_config(config_dir: PathBuf) -> core::ProjectConfig {
     core::ProjectConfig::new(
         config_dir,
@@ -183,11 +567,22 @@ impl SourceReader for FakeSourceReader {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct FakeDialectAnalyzer;
+#[derive(Clone, Debug, Default)]
+struct FakeDialectAnalyzer {
+    analyzed_sql: Rc<RefCell<Vec<String>>>,
+}
+
+impl FakeDialectAnalyzer {
+    fn analyzed_sql(&self) -> Vec<String> {
+        self.analyzed_sql.borrow().clone()
+    }
+}
 
 impl sqlay_app::DialectAnalyzer for FakeDialectAnalyzer {
-    fn analyze(&self, _query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
+    fn analyze(&self, query: &core::RawQuery) -> core::DiagnosticResult<core::AnalyzedQuery> {
+        self.analyzed_sql
+            .borrow_mut()
+            .push(query.analysis_sql().to_owned());
         Ok(core::AnalyzedQuery::new(core::Cardinality::Many))
     }
 }
@@ -195,15 +590,25 @@ impl sqlay_app::DialectAnalyzer for FakeDialectAnalyzer {
 impl sqlay_app::MutationAnalyzer for FakeDialectAnalyzer {
     fn analyze_mutation(
         &self,
-        _mutation: &core::RawMutation,
+        mutation: &core::RawMutation,
     ) -> core::DiagnosticResult<core::AnalyzedMutation> {
-        Ok(core::AnalyzedMutation::new(core::MutationKind::Update))
+        self.analyzed_sql
+            .borrow_mut()
+            .push(mutation.analysis_sql().to_owned());
+        let kind = if mutation.analysis_sql().trim_start().starts_with("INSERT") {
+            core::MutationKind::Insert
+        } else {
+            core::MutationKind::Update
+        };
+
+        Ok(core::AnalyzedMutation::new(kind))
     }
 }
 
 #[derive(Clone, Debug, Default)]
 struct FakeMetadataProvider {
     param_types_by_placeholder_prefix: Vec<(&'static str, core::CoreType)>,
+    described_param_ids: Rc<RefCell<Vec<Vec<String>>>>,
 }
 
 impl FakeMetadataProvider {
@@ -219,6 +624,10 @@ impl FakeMetadataProvider {
         self.param_types_by_placeholder_prefix
             .push((sql_prefix, ty));
         self
+    }
+
+    fn described_param_ids(&self) -> Vec<Vec<String>> {
+        self.described_param_ids.borrow().clone()
     }
 
     fn param_type_for_usage(
@@ -241,6 +650,13 @@ impl MetadataProvider for FakeMetadataProvider {
         query: &core::RawQuery,
         _analysis: &core::AnalyzedQuery,
     ) -> core::DiagnosticResult<core::DbQueryMetadata> {
+        self.described_param_ids.borrow_mut().push(
+            query
+                .param_usages()
+                .iter()
+                .map(|usage| usage.id().to_owned())
+                .collect(),
+        );
         let param_usages = query
             .param_usages()
             .iter()
@@ -268,6 +684,13 @@ impl MutationMetadataProvider for FakeMetadataProvider {
         mutation: &core::RawMutation,
         _analysis: &core::AnalyzedMutation,
     ) -> core::DiagnosticResult<core::DbMutationMetadata> {
+        self.described_param_ids.borrow_mut().push(
+            mutation
+                .param_usages()
+                .iter()
+                .map(|usage| usage.id().to_owned())
+                .collect(),
+        );
         let param_usages = mutation
             .param_usages()
             .iter()

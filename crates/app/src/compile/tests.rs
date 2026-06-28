@@ -1,6 +1,8 @@
 use super::diagnostics::with_slot_variant_context;
+use super::dynamic_ir::{compile_dynamic_mutation_body, compile_dynamic_query_body};
 use super::param_validation::{
-    validate_expanded_mutation_variant_param_bindings, validate_expanded_variant_param_bindings,
+    ScopedParamBinding, validate_expanded_mutation_variant_param_bindings,
+    validate_expanded_variant_param_bindings,
 };
 use super::slot_variants::{
     AnalyzedMutationVariant, AnalyzedQueryVariant, ExpandedFragmentParamOccurrence,
@@ -9,6 +11,7 @@ use super::slot_variants::{
     SlotSelectionContext,
 };
 use super::*;
+use std::collections::HashMap;
 use std::path::Path;
 
 #[test]
@@ -483,6 +486,208 @@ fn mutation_fragment_repeat_param_validation_reports_slot_fragment_and_repeat_co
     );
 }
 
+#[test]
+fn repeat_core_ir_query_param_binding_rejects_missing_placeholder_metadata() {
+    let sql = "SELECT id FROM users WHERE id IN (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let repeat = core::RepeatUsage::new(
+        "ids".to_owned(),
+        ",".to_owned(),
+        placeholder,
+        placeholder + 1,
+        core::SourceLocation::unknown(),
+    )
+    .with_item_param_usages(vec![core::ParamUsage::new(
+        "id".to_owned(),
+        None,
+        false,
+        core::SourceLocation::unknown(),
+    )]);
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUsers".to_owned(), None),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![repeat]);
+    let scoped_param_bindings = vec![repeat_item_binding("ids", "id")];
+
+    let report = compile_dynamic_query_body(&query, &[], &HashMap::new(), &scoped_param_bindings)
+        .expect_err("Repeat item placeholder metadata errors should propagate");
+
+    assert_diagnostic_messages(
+        &report,
+        "Param `id` in Repeat `ids` is missing placeholder position metadata",
+    );
+}
+
+#[test]
+fn repeat_core_ir_mutation_param_binding_rejects_missing_placeholder_metadata() {
+    let sql = "INSERT INTO users (email) VALUES (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let repeat = core::RepeatUsage::new(
+        "rows".to_owned(),
+        ",".to_owned(),
+        placeholder - 1,
+        placeholder + 2,
+        core::SourceLocation::unknown(),
+    )
+    .with_item_param_usages(vec![core::ParamUsage::new(
+        "email".to_owned(),
+        None,
+        false,
+        core::SourceLocation::unknown(),
+    )]);
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUsers".to_owned()),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![repeat]);
+    let scoped_param_bindings = vec![repeat_item_binding("rows", "email")];
+
+    let report =
+        compile_dynamic_mutation_body(&mutation, &[], &HashMap::new(), &scoped_param_bindings)
+            .expect_err("Repeat item placeholder metadata errors should propagate");
+
+    assert_diagnostic_messages(
+        &report,
+        "Param `email` in Repeat `rows` is missing placeholder position metadata",
+    );
+}
+
+#[test]
+fn repeat_core_ir_query_param_binding_rejects_out_of_range_placeholder_metadata() {
+    let sql = "SELECT id FROM users WHERE id IN (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let repeat = core::RepeatUsage::new(
+        "ids".to_owned(),
+        ",".to_owned(),
+        placeholder,
+        placeholder + 1,
+        core::SourceLocation::unknown(),
+    )
+    .with_item_param_usages(vec![test_param_usage("id", placeholder + 2, false)]);
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUsers".to_owned(), None),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![repeat]);
+    let scoped_param_bindings = vec![repeat_item_binding("ids", "id")];
+
+    let report = compile_dynamic_query_body(&query, &[], &HashMap::new(), &scoped_param_bindings)
+        .expect_err("Repeat item placeholder range errors should propagate");
+
+    assert_diagnostic_messages(
+        &report,
+        &format!(
+            "Param `id` placeholder index {} is outside Repeat `ids` item range {}..{}",
+            placeholder + 2,
+            placeholder,
+            placeholder + 1
+        ),
+    );
+}
+
+#[test]
+fn repeat_core_ir_mutation_param_binding_rejects_out_of_range_placeholder_metadata() {
+    let sql = "INSERT INTO users (email) VALUES (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let repeat = core::RepeatUsage::new(
+        "rows".to_owned(),
+        ",".to_owned(),
+        placeholder - 1,
+        placeholder + 2,
+        core::SourceLocation::unknown(),
+    )
+    .with_item_param_usages(vec![test_param_usage("email", placeholder + 3, false)]);
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUsers".to_owned()),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![repeat]);
+    let scoped_param_bindings = vec![repeat_item_binding("rows", "email")];
+
+    let report =
+        compile_dynamic_mutation_body(&mutation, &[], &HashMap::new(), &scoped_param_bindings)
+            .expect_err("Repeat item placeholder range errors should propagate");
+
+    assert_diagnostic_messages(
+        &report,
+        &format!(
+            "Param `email` placeholder index {} is outside Repeat `rows` item range {}..{}",
+            placeholder + 3,
+            placeholder - 1,
+            placeholder + 2
+        ),
+    );
+}
+
+#[test]
+fn repeat_core_ir_query_rejects_repeat_crossing_slot_segment_boundary() {
+    let sql = "SELECT id FROM users WHERE id IN (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findUsers".to_owned(), None),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![core::RepeatUsage::new(
+        "ids".to_owned(),
+        ",".to_owned(),
+        placeholder - 1,
+        placeholder + 2,
+        core::SourceLocation::unknown(),
+    )])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "filter".to_owned(),
+        vec!["byIds".to_owned()],
+        placeholder,
+        core::SourceLocation::unknown(),
+    )]);
+
+    let report = compile_dynamic_query_body(&query, &[], &HashMap::new(), &[])
+        .expect_err("Repeat ranges must not cross Slot Core IR segments");
+
+    assert_diagnostic_messages(
+        &report,
+        "Repeat `ids` in query `findUsers` crosses a Slot Core IR segment boundary",
+    );
+}
+
+#[test]
+fn repeat_core_ir_mutation_rejects_repeat_crossing_slot_segment_boundary() {
+    let sql = "INSERT INTO users (email) VALUES (?);";
+    let placeholder = sql.find('?').expect("Repeat placeholder exists");
+    let mutation = core::RawMutation::new(
+        core::MutationMetadata::new("createUsers".to_owned()),
+        sql.to_owned(),
+    )
+    .with_analysis_sql(sql.to_owned())
+    .with_repeat_usages(vec![core::RepeatUsage::new(
+        "rows".to_owned(),
+        ",".to_owned(),
+        placeholder - 1,
+        placeholder + 2,
+        core::SourceLocation::unknown(),
+    )])
+    .with_slot_usages(vec![core::SlotUsage::new(
+        "suffix".to_owned(),
+        vec!["returningNothing".to_owned()],
+        placeholder,
+        core::SourceLocation::unknown(),
+    )]);
+
+    let report = compile_dynamic_mutation_body(&mutation, &[], &HashMap::new(), &[])
+        .expect_err("Repeat ranges must not cross Slot Core IR segments");
+
+    assert_diagnostic_messages(
+        &report,
+        "Repeat `rows` in mutation `createUsers` crosses a Slot Core IR segment boundary",
+    );
+}
+
 fn assert_diagnostic_messages(report: &core::DiagnosticReport, expected: &str) {
     assert_eq!(
         report
@@ -493,6 +698,22 @@ fn assert_diagnostic_messages(report: &core::DiagnosticReport, expected: &str) {
             .join("\n"),
         expected
     );
+}
+
+fn repeat_item_binding(repeat_id: &str, param_id: &str) -> ScopedParamBinding {
+    ScopedParamBinding {
+        scope: ExpandedParamScope::RepeatItem {
+            repeat_id: repeat_id.to_owned(),
+        },
+        id: param_id.to_owned(),
+        ty: core::CoreType::String,
+        nullable: false,
+        first_occurrence: ExpandedParamOccurrence::RepeatItem(ExpandedRepeatParamOccurrence {
+            repeat_id: repeat_id.to_owned(),
+            representative_item_index: 1,
+            repeat_location: core::SourceLocation::unknown(),
+        }),
+    }
 }
 
 fn test_param_usage(id: &str, placeholder_index: usize, nullable: bool) -> core::ParamUsage {

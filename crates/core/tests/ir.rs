@@ -2,8 +2,9 @@ use std::path::Path;
 
 use sqlay_core::{
     Cardinality, CompiledBuilder, CompiledDynamicQuery, CompiledMutation, CompiledQuery,
-    CompiledSlotBranch, CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlSegment,
-    CoreType, InputField, MutationId, MutationKind, ParamBinding, QueryId, ResultColumn,
+    CompiledRepeatOccurrence, CompiledSlotBranch, CompiledSlotDefinition, CompiledSlotOccurrence,
+    CompiledSqlBody, CompiledSqlSegment, CoreType, InputField, MutationId, MutationKind,
+    ParamBinding, QueryId, ResultColumn,
 };
 
 #[test]
@@ -94,6 +95,78 @@ fn compiled_query_can_carry_dynamic_slot_body() {
     assert_eq!(dynamic_body.base_segments().len(), 2);
     assert_eq!(dynamic_body.slot_occurrences()[0].slot_id(), "filter");
     assert_eq!(dynamic_body.slots()[0].branches()[0].target_id(), "byEmail");
+}
+
+#[test]
+fn compiled_dynamic_query_legacy_segments_include_repeat_item_sql_and_params() {
+    let dynamic_body = CompiledDynamicQuery::new_with_bodies(
+        vec![CompiledSqlBody::new(
+            vec![
+                CompiledSqlSegment::new("SELECT id FROM users WHERE id IN (".to_owned(), vec![]),
+                CompiledSqlSegment::new(");".to_owned(), vec![]),
+            ],
+            vec![CompiledRepeatOccurrence::new(
+                "ids".to_owned(),
+                ",".to_owned(),
+                CompiledSqlSegment::new(
+                    "?".to_owned(),
+                    vec![ParamBinding::new("id".to_owned(), CoreType::Int64, false)],
+                ),
+            )],
+        )],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+
+    assert_eq!(dynamic_body.base_segments().len(), 1);
+    assert_eq!(
+        dynamic_body.base_segments()[0].sql(),
+        "SELECT id FROM users WHERE id IN (?);"
+    );
+    assert_eq!(
+        dynamic_body.base_segments()[0].params(),
+        [ParamBinding::new("id".to_owned(), CoreType::Int64, false)]
+    );
+}
+
+#[test]
+fn compiled_slot_branch_static_body_normalizes_legacy_segments() {
+    let branch = CompiledSlotBranch::new(
+        "byName".to_owned(),
+        vec![
+            CompiledSqlSegment::new(
+                " AND first_name = ?".to_owned(),
+                vec![ParamBinding::new(
+                    "firstName".to_owned(),
+                    CoreType::String,
+                    false,
+                )],
+            ),
+            CompiledSqlSegment::new(
+                " AND last_name = ?".to_owned(),
+                vec![ParamBinding::new(
+                    "lastName".to_owned(),
+                    CoreType::String,
+                    false,
+                )],
+            ),
+        ],
+    );
+
+    assert_eq!(branch.segments().len(), 2);
+    assert_eq!(branch.body().base_segments().len(), 1);
+    assert_eq!(
+        branch.body().base_segments()[0].sql(),
+        " AND first_name = ? AND last_name = ?"
+    );
+    assert_eq!(
+        branch.body().base_segments()[0].params(),
+        [
+            ParamBinding::new("firstName".to_owned(), CoreType::String, false),
+            ParamBinding::new("lastName".to_owned(), CoreType::String, false),
+        ]
+    );
 }
 
 #[test]

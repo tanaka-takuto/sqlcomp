@@ -2,6 +2,13 @@ use std::path::{Path, PathBuf};
 
 use crate::{Cardinality, MutationId, QueryId};
 
+mod dynamic;
+
+pub use dynamic::{
+    CompiledDynamicQuery, CompiledRepeatDefinition, CompiledRepeatOccurrence, CompiledSlotBranch,
+    CompiledSlotDefinition, CompiledSlotOccurrence, CompiledSqlBody, CompiledSqlSegment,
+};
+
 /// Language-neutral compiled query.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledQuery {
@@ -242,155 +249,6 @@ impl CompiledBuilder {
             Self::Query(query) => query.source_path(),
             Self::Mutation(mutation) => mutation.source_path(),
         }
-    }
-}
-
-/// Runtime-composable SQL body for a query with Slot occurrences.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledDynamicQuery {
-    base_segments: Vec<CompiledSqlSegment>,
-    slot_occurrences: Vec<CompiledSlotOccurrence>,
-    slots: Vec<CompiledSlotDefinition>,
-}
-
-impl CompiledDynamicQuery {
-    /// Build a dynamic query body.
-    ///
-    /// `base_segments` contains the SQL text around Slot occurrences, so callers
-    /// should provide exactly one more base segment than Slot occurrence.
-    #[must_use]
-    pub const fn new(
-        base_segments: Vec<CompiledSqlSegment>,
-        slot_occurrences: Vec<CompiledSlotOccurrence>,
-        slots: Vec<CompiledSlotDefinition>,
-    ) -> Self {
-        Self {
-            base_segments,
-            slot_occurrences,
-            slots,
-        }
-    }
-
-    /// Base SQL segments around Slot occurrences.
-    #[must_use]
-    pub fn base_segments(&self) -> &[CompiledSqlSegment] {
-        &self.base_segments
-    }
-
-    /// Slot occurrences in query SQL order.
-    #[must_use]
-    pub fn slot_occurrences(&self) -> &[CompiledSlotOccurrence] {
-        &self.slot_occurrences
-    }
-
-    /// Unique Slot definitions in query first-seen order.
-    #[must_use]
-    pub fn slots(&self) -> &[CompiledSlotDefinition] {
-        &self.slots
-    }
-}
-
-/// One SQL segment and the Param bindings it contains.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledSqlSegment {
-    sql: String,
-    params: Vec<ParamBinding>,
-}
-
-impl CompiledSqlSegment {
-    /// Build a compiled SQL segment.
-    #[must_use]
-    pub const fn new(sql: String, params: Vec<ParamBinding>) -> Self {
-        Self { sql, params }
-    }
-
-    /// SQL text for this segment.
-    #[must_use]
-    pub fn sql(&self) -> &str {
-        &self.sql
-    }
-
-    /// Param bindings in this segment in SQL placeholder order.
-    #[must_use]
-    pub fn params(&self) -> &[ParamBinding] {
-        &self.params
-    }
-}
-
-/// One occurrence of a query-local Slot in SQL order.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledSlotOccurrence {
-    slot_id: String,
-}
-
-impl CompiledSlotOccurrence {
-    /// Build a compiled Slot occurrence.
-    #[must_use]
-    pub const fn new(slot_id: String) -> Self {
-        Self { slot_id }
-    }
-
-    /// Query-local Slot ID for this occurrence.
-    #[must_use]
-    pub fn slot_id(&self) -> &str {
-        &self.slot_id
-    }
-}
-
-/// Unique Slot definition and its ordered target branches.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledSlotDefinition {
-    id: String,
-    branches: Vec<CompiledSlotBranch>,
-}
-
-impl CompiledSlotDefinition {
-    /// Build a compiled Slot definition.
-    #[must_use]
-    pub const fn new(id: String, branches: Vec<CompiledSlotBranch>) -> Self {
-        Self { id, branches }
-    }
-
-    /// Query-local Slot ID.
-    #[must_use]
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    /// Target branches in source `targets` order.
-    #[must_use]
-    pub fn branches(&self) -> &[CompiledSlotBranch] {
-        &self.branches
-    }
-}
-
-/// One selected Fragment branch for a Slot.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledSlotBranch {
-    target_id: String,
-    segments: Vec<CompiledSqlSegment>,
-}
-
-impl CompiledSlotBranch {
-    /// Build a compiled Slot branch.
-    #[must_use]
-    pub const fn new(target_id: String, segments: Vec<CompiledSqlSegment>) -> Self {
-        Self {
-            target_id,
-            segments,
-        }
-    }
-
-    /// Fragment ID selected by this branch.
-    #[must_use]
-    pub fn target_id(&self) -> &str {
-        &self.target_id
-    }
-
-    /// Fragment SQL segments for this branch.
-    #[must_use]
-    pub fn segments(&self) -> &[CompiledSqlSegment] {
-        &self.segments
     }
 }
 
