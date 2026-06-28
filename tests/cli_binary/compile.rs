@@ -69,6 +69,82 @@ fn compile_prints_generated_or_updated_file_count() {
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
 }
 
+#[test]
+fn compile_warns_when_source_include_matches_no_sql_files() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-compile-warning");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .arg("compile")
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlay compile should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("source.include matched no SQL files after applying source.exclude"),
+        "stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Matched 0 SQL files."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Generated or updated 0 files."),
+        "stdout: {stdout}"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn compile_fail_on_empty_rejects_empty_source_matches_before_cleaning() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-compile-fail");
+    let stale_path = config_dir.join("src/generated/sqlay/sql/stale.ts");
+    std::fs::create_dir_all(
+        stale_path
+            .parent()
+            .expect("stale file should have a parent"),
+    )
+    .expect("temp output dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+    write_managed_generated_file(&stale_path);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["compile", "--clean", "--fail-on-empty"])
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlay compile should run");
+
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("source.include matched no SQL files after applying source.exclude"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stale_path.exists(),
+        "compile --fail-on-empty should stop before cleaning stale generated files"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
 /// Verifies fragment-only SQL sources do not create path-parity `.ts` files.
 
 #[test]

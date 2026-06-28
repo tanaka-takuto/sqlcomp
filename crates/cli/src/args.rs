@@ -12,17 +12,19 @@ pub enum Command {
     Init,
     Check {
         config: Option<PathBuf>,
+        fail_on_empty: bool,
     },
     Compile {
         config: Option<PathBuf>,
         clean: bool,
+        fail_on_empty: bool,
     },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfiguredCommand {
-    Check,
-    Compile { clean: bool },
+    Check { fail_on_empty: bool },
+    Compile { clean: bool, fail_on_empty: bool },
 }
 
 pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticResult<Command> {
@@ -46,6 +48,7 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticR
             } else {
                 Command::Check {
                     config: options.config,
+                    fail_on_empty: options.fail_on_empty,
                 }
             }
         }),
@@ -56,6 +59,7 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> core::DiagnosticR
                 Command::Compile {
                     config: options.config,
                     clean: options.clean,
+                    fail_on_empty: options.fail_on_empty,
                 }
             }
         }),
@@ -102,6 +106,7 @@ enum CleanOption {
 struct CommandOptions {
     config: Option<PathBuf>,
     clean: bool,
+    fail_on_empty: bool,
     help: bool,
 }
 
@@ -157,6 +162,14 @@ fn parse_options(
             }
 
             options.clean = true;
+        } else if arg == "--fail-on-empty" {
+            if options.fail_on_empty {
+                return Err(single_cli_error(
+                    "`--fail-on-empty` may only be provided once",
+                ));
+            }
+
+            options.fail_on_empty = true;
         } else if is_help_arg(&arg) {
             options.help = true;
         } else if let Some(path) = config_equals_path(&arg) {
@@ -201,7 +214,10 @@ mod tests {
     fn parses_check_without_config() {
         assert_eq!(
             parse_args(["sqlay", "check"].map(OsString::from)).expect("args should parse"),
-            Command::Check { config: None }
+            Command::Check {
+                config: None,
+                fail_on_empty: false,
+            }
         );
     }
 
@@ -253,6 +269,7 @@ mod tests {
             Command::Compile {
                 config: Some(PathBuf::from("custom/sqlay.config.json")),
                 clean: false,
+                fail_on_empty: false,
             }
         );
     }
@@ -266,6 +283,7 @@ mod tests {
             .expect("args should parse"),
             Command::Check {
                 config: Some(PathBuf::from("custom/sqlay.config.json")),
+                fail_on_empty: false,
             }
         );
     }
@@ -286,6 +304,7 @@ mod tests {
             Command::Compile {
                 config: Some(PathBuf::from("custom/sqlay.config.json")),
                 clean: true,
+                fail_on_empty: false,
             }
         );
     }
@@ -298,6 +317,32 @@ mod tests {
             Command::Compile {
                 config: None,
                 clean: true,
+                fail_on_empty: false,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_check_fail_on_empty() {
+        assert_eq!(
+            parse_args(["sqlay", "check", "--fail-on-empty"].map(OsString::from))
+                .expect("args should parse"),
+            Command::Check {
+                config: None,
+                fail_on_empty: true,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_compile_clean_fail_on_empty() {
+        assert_eq!(
+            parse_args(["sqlay", "compile", "--clean", "--fail-on-empty"].map(OsString::from))
+                .expect("args should parse"),
+            Command::Compile {
+                config: None,
+                clean: true,
+                fail_on_empty: true,
             }
         );
     }
@@ -311,6 +356,7 @@ mod tests {
             .expect("args should parse"),
             Command::Check {
                 config: Some(PathBuf::from("custom/sqlay.config.json")),
+                fail_on_empty: false,
             }
         );
     }

@@ -33,6 +33,7 @@ fn no_args_prints_top_level_help() {
         stdout.contains("source.include paths must stay inside the config directory"),
         "stdout: {stdout}"
     );
+    assert!(stdout.contains("--fail-on-empty"), "stdout: {stdout}");
     assert!(
         stdout.contains(
             "Place sqlay.config.json at the project root when SQL lives in sibling directories"
@@ -142,6 +143,7 @@ fn check_help_describes_config_discovery_and_database_url() {
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
     assert!(stdout.contains("sqlay check"), "stdout: {stdout}");
     assert!(stdout.contains("--config <path>"), "stdout: {stdout}");
+    assert!(stdout.contains("--fail-on-empty"), "stdout: {stdout}");
     assert!(
         stdout.contains("searches from the current working directory upward"),
         "stdout: {stdout}"
@@ -224,6 +226,7 @@ fn compile_help_describes_output_writing_and_clean() {
     assert!(stdout.contains("Usage:"), "stdout: {stdout}");
     assert!(stdout.contains("sqlay compile"), "stdout: {stdout}");
     assert!(stdout.contains("--config <path>"), "stdout: {stdout}");
+    assert!(stdout.contains("--fail-on-empty"), "stdout: {stdout}");
     assert!(
         stdout.contains("generated TypeScript files"),
         "stdout: {stdout}"

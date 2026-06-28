@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlay_core as core;
 
@@ -48,6 +48,11 @@ where
     let source_file_count = source_read.source_file_count();
     let (raw_queries, raw_mutations, raw_fragments, raw_source_units, mut diagnostics) =
         source_read.into_parts();
+    if source_file_count == 0 {
+        diagnostics.push(core::Diagnostic::warning(empty_source_set_warning_message(
+            plan,
+        )));
+    }
     let source_units = source_units_or_fallback(
         &raw_queries,
         &raw_mutations,
@@ -339,6 +344,47 @@ fn push_unused_fragment_warnings(
         }
         diagnostics.push(diagnostic);
     }
+}
+
+pub(super) fn empty_source_set_error_message(plan: &core::CompilationPlan) -> String {
+    format!(
+        "{}; disable `--fail-on-empty` only when an empty source set is intentional",
+        empty_source_set_base_message(plan)
+    )
+}
+
+fn empty_source_set_warning_message(plan: &core::CompilationPlan) -> String {
+    format!(
+        "{}; check the patterns in `sqlay.config.json` when this run should validate SQL",
+        empty_source_set_base_message(plan)
+    )
+}
+
+fn empty_source_set_base_message(plan: &core::CompilationPlan) -> String {
+    format!(
+        "source.include matched no SQL files after applying source.exclude; source.include: {}; source.exclude: {}",
+        format_patterns(plan.source_include()),
+        format_patterns(plan.source_exclude())
+    )
+}
+
+fn format_patterns(patterns: &[PathBuf]) -> String {
+    if patterns.is_empty() {
+        return "[]".to_owned();
+    }
+
+    format!(
+        "[{}]",
+        patterns
+            .iter()
+            .map(|pattern| format!("`{}`", display_path(pattern)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn display_path(path: &Path) -> String {
+    path.display().to_string()
 }
 
 fn direct_query_param_metadata(

@@ -24,6 +24,15 @@ pub use outcomes::{
     BuilderSummaryCounts, CheckOutcome, CompileOutcome, MutationSummary, QuerySummary,
 };
 
+/// Behavior for runs where `source.include` resolves to no SQL files.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EmptySourceSetPolicy {
+    /// Emit a warning and continue.
+    Warn,
+    /// Return an error before writing or cleaning generated files.
+    Fail,
+}
+
 /// Application service for compile-like CLI commands.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultCompileUseCase;
@@ -78,8 +87,35 @@ impl DefaultCompileUseCase {
         T: TargetGenerator,
         W: GeneratedFileWriter,
     {
+        Self::check_with_empty_source_policy(config, pipeline, EmptySourceSetPolicy::Warn)
+    }
+
+    /// Run the `check` command with explicit empty source-set handling.
+    ///
+    /// Returns non-fatal diagnostics that should be shown to the user.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when planning, source intake, analysis, metadata
+    /// lookup, core compilation, target generation, or empty source-set policy
+    /// enforcement fails.
+    pub fn check_with_empty_source_policy<P, S, D, M, Q, T, W>(
+        config: &core::ProjectConfig,
+        pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
+        empty_source_policy: EmptySourceSetPolicy,
+    ) -> core::DiagnosticResult<CheckOutcome>
+    where
+        P: CompilationPlanner,
+        S: SourceReader,
+        D: DialectAnalyzer + MutationAnalyzer,
+        M: MetadataProvider + MutationMetadataProvider,
+        Q: QueryCompiler + MutationCompiler,
+        T: TargetGenerator,
+        W: GeneratedFileWriter,
+    {
         let plan = pipeline.planner.plan(config)?;
         let output = generate_files(&plan, pipeline)?;
+        enforce_empty_source_policy(&plan, &output, empty_source_policy)?;
 
         Ok(CheckOutcome::new(
             output.diagnostics,
@@ -113,9 +149,37 @@ impl DefaultCompileUseCase {
         T: TargetGenerator,
         W: GeneratedFileWriter + GeneratedFileCleaner,
     {
+        Self::compile_with_empty_source_policy(config, pipeline, clean, EmptySourceSetPolicy::Warn)
+    }
+
+    /// Run the `compile` command with explicit empty source-set handling.
+    ///
+    /// Returns a success outcome with non-fatal diagnostics and write counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns diagnostics when planning, source intake, analysis, metadata
+    /// lookup, generation, empty source-set policy enforcement, file writing, or
+    /// stale file cleaning fails.
+    pub fn compile_with_empty_source_policy<P, S, D, M, Q, T, W>(
+        config: &core::ProjectConfig,
+        pipeline: &CompilePipeline<'_, P, S, D, M, Q, T, W>,
+        clean: bool,
+        empty_source_policy: EmptySourceSetPolicy,
+    ) -> core::DiagnosticResult<CompileOutcome>
+    where
+        P: CompilationPlanner,
+        S: SourceReader,
+        D: DialectAnalyzer + MutationAnalyzer,
+        M: MetadataProvider + MutationMetadataProvider,
+        Q: QueryCompiler + MutationCompiler,
+        T: TargetGenerator,
+        W: GeneratedFileWriter + GeneratedFileCleaner,
+    {
         let plan = pipeline.planner.plan(config)?;
 
         let output = generate_files(&plan, pipeline)?;
+        enforce_empty_source_policy(&plan, &output, empty_source_policy)?;
         let generated_file_paths = output
             .generated_files
             .files()
@@ -147,6 +211,20 @@ impl DefaultCompileUseCase {
         )
         .with_stale_file_removal_count(stale_file_removal_count))
     }
+}
+
+fn enforce_empty_source_policy(
+    plan: &core::CompilationPlan,
+    output: &generation::GeneratedPipelineOutput,
+    policy: EmptySourceSetPolicy,
+) -> core::DiagnosticResult<()> {
+    if output.source_file_count != 0 || policy == EmptySourceSetPolicy::Warn {
+        return Ok(());
+    }
+
+    Err(core::DiagnosticReport::new(core::Diagnostic::error(
+        generation::empty_source_set_error_message(plan),
+    )))
 }
 
 /// Dummy port bundle showing dependencies required by compile-like use cases.

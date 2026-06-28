@@ -13,6 +13,7 @@ Options:
   -h, --help         Print this help.
   --config <path>    Use an explicit config path for check or compile.
   --clean            Remove stale generated files during compile.
+  --fail-on-empty    Exit with an error when source.include matches no SQL files after source.exclude.
 
 Minimal query annotation:
   /* @sqlay
@@ -104,6 +105,7 @@ Behavior:
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
   The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, Repeat, validation case counts, output.dir, and per-query/per-mutation Param, Slot, Repeat, and validation case counts.
+  Empty source matches are reported as warnings unless --fail-on-empty is provided.
 
 Param marker example:
   /* @sqlay
@@ -141,6 +143,7 @@ Param metadata:
 Options:
   -h, --help         Print this help.
   --config <path>    Use an explicit config path.
+  --fail-on-empty    Exit with an error when source.include matches no SQL files after source.exclude.
 
 Examples:
   DATABASE_URL=... sqlay check
@@ -161,6 +164,7 @@ Behavior:
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
   The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, Repeat, validation case counts, generated file paths, stale-file cleanup, and per-query/per-mutation Param, Slot, Repeat, and validation case counts.
+  Empty source matches are reported as warnings unless --fail-on-empty is provided.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:
@@ -200,6 +204,7 @@ Options:
   -h, --help         Print this help.
   --config <path>    Use an explicit config path.
   --clean            Remove stale generated files that no longer correspond to input SQL files.
+  --fail-on-empty    Exit with an error when source.include matches no SQL files after source.exclude.
 
 Examples:
   DATABASE_URL=... sqlay compile

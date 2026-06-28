@@ -48,10 +48,21 @@ fn run_with_args(args: impl IntoIterator<Item = OsString>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Init) => run_init_command(),
-        Ok(Command::Check { config }) => run_configured_command(ConfiguredCommand::Check, config),
-        Ok(Command::Compile { config, clean }) => {
-            run_configured_command(ConfiguredCommand::Compile { clean }, config)
-        }
+        Ok(Command::Check {
+            config,
+            fail_on_empty,
+        }) => run_configured_command(ConfiguredCommand::Check { fail_on_empty }, config),
+        Ok(Command::Compile {
+            config,
+            clean,
+            fail_on_empty,
+        }) => run_configured_command(
+            ConfiguredCommand::Compile {
+                clean,
+                fail_on_empty,
+            },
+            config,
+        ),
         Err(report) => fail(&report),
     }
 }
@@ -100,14 +111,35 @@ fn run_configured_use_case(
     };
 
     match command {
-        ConfiguredCommand::Check => {
-            DefaultCompileUseCase::check(config, &pipeline).map(ConfiguredCommandOutcome::Check)
+        ConfiguredCommand::Check { fail_on_empty } => {
+            DefaultCompileUseCase::check_with_empty_source_policy(
+                config,
+                &pipeline,
+                empty_source_policy(fail_on_empty),
+            )
+            .map(ConfiguredCommandOutcome::Check)
         }
-        ConfiguredCommand::Compile { clean } => {
-            let outcome = DefaultCompileUseCase::compile(config, &pipeline, clean)?;
+        ConfiguredCommand::Compile {
+            clean,
+            fail_on_empty,
+        } => {
+            let outcome = DefaultCompileUseCase::compile_with_empty_source_policy(
+                config,
+                &pipeline,
+                clean,
+                empty_source_policy(fail_on_empty),
+            )?;
 
             Ok(ConfiguredCommandOutcome::Compile(outcome))
         }
+    }
+}
+
+const fn empty_source_policy(fail_on_empty: bool) -> app::EmptySourceSetPolicy {
+    if fail_on_empty {
+        app::EmptySourceSetPolicy::Fail
+    } else {
+        app::EmptySourceSetPolicy::Warn
     }
 }
 

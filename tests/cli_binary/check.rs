@@ -41,6 +41,73 @@ fn check_warns_for_included_unannotated_sql_file() {
 }
 
 #[test]
+fn check_warns_when_source_include_matches_no_sql_files() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-warning");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .arg("check")
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlay check should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("source.include matched no SQL files after applying source.exclude"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("source.include"), "stderr: {stderr}");
+    assert!(stderr.contains("source.exclude"), "stderr: {stderr}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Matched 0 SQL files."), "stdout: {stdout}");
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn check_fail_on_empty_rejects_empty_source_matches() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-fail");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["check", "--fail-on-empty"])
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlay check should run");
+
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("source.include matched no SQL files after applying source.exclude"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("disable `--fail-on-empty`"),
+        "stderr: {stderr}"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
 fn check_does_not_warn_for_empty_or_comment_only_sql_files() {
     let config_dir = unique_temp_dir("sqlay-cli-comment-only-sql");
     let sql_dir = config_dir.join("sql");
