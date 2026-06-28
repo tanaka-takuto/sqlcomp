@@ -4,7 +4,8 @@ use super::fixture_support::{
     DATABASE_URL_ENV, FRAGMENT_PARAM_INFERENCE_FAILURE, INIT_FIXTURES,
     MUTATION_UNSUPPORTED_INFERENCE_CONTEXT, MYSQL_FIXTURE_LOCK,
     PARAM_CONFLICTING_REPEATED_NULLABILITY, PARAM_CONFLICTING_REPEATED_TYPE,
-    PARAM_UNSUPPORTED_INFERENCE_CONTEXT, REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT,
+    PARAM_UNSUPPORTED_INFERENCE_CONTEXT, REPEAT_PARAM_INFERENCE_FAILURE,
+    REPEATED_REPEAT_ITEM_INFERRED_TYPE_CONFLICT, REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT,
     SLOT_VARIANT_ROW_SHAPE_MISMATCH, assert_mysql_invalid_fixture_error_contains,
     execute_fixture_statements,
 };
@@ -123,6 +124,43 @@ fn mysql_mutation_invalid_fixtures_report_expected_diagnostics()
         MUTATION_UNSUPPORTED_INFERENCE_CONTEXT,
         "Param `adjustment` requires `valueType` because no supported mutation column context was found",
     )?;
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a running MySQL service and DATABASE_URL"]
+fn mysql_repeat_invalid_fixtures_report_expected_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _fixture_lock = MYSQL_FIXTURE_LOCK
+        .lock()
+        .expect("fixture lock should not be poisoned");
+    let database_url = std::env::var(DATABASE_URL_ENV)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let mut connection = runtime.block_on(MySqlConnection::connect(&database_url))?;
+
+    for fixture in INIT_FIXTURES {
+        runtime.block_on(execute_fixture_statements(&mut connection, fixture))?;
+    }
+
+    let cases = [
+        (
+            "repeat_param_inference_failure.sql",
+            REPEAT_PARAM_INFERENCE_FAILURE,
+            "Param `value` requires `valueType` because no supported qualified column context was found",
+        ),
+        (
+            "repeated_repeat_item_inferred_type_conflict.sql",
+            REPEATED_REPEAT_ITEM_INFERRED_TYPE_CONFLICT,
+            "conflicting Repeat item Param `value` type in query `repeatedRepeatItemInferredTypeConflict`, Repeat `values`",
+        ),
+    ];
+
+    for (file_name, source, expected) in cases {
+        assert_mysql_invalid_fixture_error_contains(&database_url, file_name, source, expected)?;
+    }
 
     Ok(())
 }

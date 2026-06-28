@@ -63,10 +63,47 @@ const PARAM_SAMPLE_PLACEHOLDER: &str =
     include_str!("../../../fixtures/sql/invalid/param_sample_placeholder.sql");
 const PARAM_UNSUPPORTED_VALUE_TYPE: &str =
     include_str!("../../../fixtures/sql/invalid/param_unsupported_value_type.sql");
+const DIRECT_PARAM_REPEAT_ID_COLLISION: &str =
+    include_str!("../../../fixtures/sql/invalid/direct_param_repeat_id_collision.sql");
+const FRAGMENT_PARAM_REPEAT_BRANCH_COLLISION: &str =
+    include_str!("../../../fixtures/sql/invalid/fragment_param_repeat_branch_collision.sql");
 const REPEATED_SLOT_DIFFERENT_TARGETS: &str =
     include_str!("../../../fixtures/sql/invalid/repeated_slot_different_targets.sql");
 const REPEATED_SLOT_SAME_TARGETS_DIFFERENT_ORDER: &str =
     include_str!("../../../fixtures/sql/invalid/repeated_slot_same_targets_different_order.sql");
+const REPEAT_END_UNKNOWN_METADATA_FIELD: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_end_unknown_metadata_field.sql");
+const REPEAT_END_WITHOUT_START: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_end_without_start.sql");
+const REPEAT_INSIDE_PARAM_RANGE: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_inside_param_range.sql");
+const REPEAT_INVALID_ID: &str = include_str!("../../../fixtures/sql/invalid/repeat_invalid_id.sql");
+const REPEAT_MISSING_END: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_missing_end.sql");
+const REPEAT_MISSING_SEPARATOR: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_missing_separator.sql");
+const REPEAT_NESTED_RANGES: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_nested_ranges.sql");
+const REPEAT_NON_STRING_SEPARATOR: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_non_string_separator.sql");
+const REPEAT_REPRESENTATIVE_INVALID_SQL: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_representative_invalid_sql.sql");
+const REPEAT_UNKNOWN_METADATA_FIELD: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_unknown_metadata_field.sql");
+const REPEAT_VALIDATION_CASE_LIMIT_EXCEEDED: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_validation_case_limit_exceeded.sql");
+const REPEAT_WITHOUT_PARAM: &str =
+    include_str!("../../../fixtures/sql/invalid/repeat_without_param.sql");
+const REPEATED_REPEAT_ITEM_NULLABILITY_CONFLICT: &str =
+    include_str!("../../../fixtures/sql/invalid/repeated_repeat_item_nullability_conflict.sql");
+const REPEATED_REPEAT_ITEM_SHAPE_CONFLICT: &str =
+    include_str!("../../../fixtures/sql/invalid/repeated_repeat_item_shape_conflict.sql");
+const REPEATED_REPEAT_ITEM_TYPE_CONFLICT: &str =
+    include_str!("../../../fixtures/sql/invalid/repeated_repeat_item_type_conflict.sql");
+const SLOT_INSIDE_REPEAT_RANGE: &str =
+    include_str!("../../../fixtures/sql/invalid/slot_inside_repeat_range.sql");
+const SLOT_REPEAT_ID_COLLISION: &str =
+    include_str!("../../../fixtures/sql/invalid/slot_repeat_id_collision.sql");
 const SLOT_DUPLICATE_TARGET: &str =
     include_str!("../../../fixtures/sql/invalid/slot_duplicate_target.sql");
 const SLOT_EMPTY_TARGETS: &str =
@@ -88,6 +125,9 @@ const SLOT_VARIANT_LIMIT_EXCEEDED: &str =
 const TOP_LEVEL_PARAM: &str = include_str!("../../../fixtures/sql/invalid/top_level_param.sql");
 const TOP_LEVEL_PARAM_END: &str =
     include_str!("../../../fixtures/sql/invalid/top_level_param_end.sql");
+const TOP_LEVEL_REPEAT: &str = include_str!("../../../fixtures/sql/invalid/top_level_repeat.sql");
+const TOP_LEVEL_REPEAT_END: &str =
+    include_str!("../../../fixtures/sql/invalid/top_level_repeat_end.sql");
 const TOP_LEVEL_SLOT: &str = include_str!("../../../fixtures/sql/invalid/top_level_slot.sql");
 
 #[test]
@@ -317,6 +357,118 @@ fn invalid_slot_fragment_compile_fixtures_fail_before_metadata_lookup() {
         SLOT_VARIANT_INVALID_SELECTED_FRAGMENT,
         "while validating Slot expansion variant for query `slotVariantInvalidSelectedFragment` with selections: filter=invalidPredicate",
     );
+}
+
+#[test]
+fn invalid_repeat_source_fixtures_fail_during_source_intake() {
+    let cases = [
+        (
+            REPEAT_MISSING_END,
+            "`repeat` marker is missing a matching `repeatEnd` marker",
+        ),
+        (
+            REPEAT_END_WITHOUT_START,
+            "`repeatEnd` marker has no matching `repeat` marker",
+        ),
+        (
+            REPEAT_NESTED_RANGES,
+            "nested Repeat ranges are not supported",
+        ),
+        (
+            REPEAT_INSIDE_PARAM_RANGE,
+            "Repeat markers are not supported inside Param ranges",
+        ),
+        (
+            SLOT_INSIDE_REPEAT_RANGE,
+            "Slot markers are not supported inside Repeat ranges",
+        ),
+        (
+            REPEAT_WITHOUT_PARAM,
+            "Repeat ranges must contain at least one Param marker",
+        ),
+        (
+            REPEAT_INVALID_ID,
+            "invalid Repeat id `1bad`; must match `^[A-Za-z_][A-Za-z0-9_]*$`",
+        ),
+        (
+            REPEAT_MISSING_SEPARATOR,
+            "missing required `repeat` metadata field `separator`",
+        ),
+        (
+            REPEAT_NON_STRING_SEPARATOR,
+            "`repeat` metadata field `separator` must be a string",
+        ),
+        (
+            REPEAT_UNKNOWN_METADATA_FIELD,
+            "unknown `repeat` metadata field `minItems`",
+        ),
+        (
+            REPEAT_END_UNKNOWN_METADATA_FIELD,
+            "unknown `repeatEnd` metadata field `id`",
+        ),
+        (
+            TOP_LEVEL_REPEAT,
+            "`repeat` markers must appear inside a query, mutation, or fragment body; top-level Repeat markers are not supported",
+        ),
+        (
+            TOP_LEVEL_REPEAT_END,
+            "`repeatEnd` markers must appear inside a query, mutation, or fragment body; top-level repeatEnd markers are not supported",
+        ),
+    ];
+
+    for (source, expected) in cases {
+        assert_source_error_contains(source, expected);
+    }
+}
+
+#[test]
+fn invalid_repeat_compile_fixtures_fail_before_metadata_lookup() {
+    let cases = [
+        (
+            "direct_param_repeat_id_collision.sql",
+            DIRECT_PARAM_REPEAT_ID_COLLISION,
+            "Repeat `filter` in query `directParamRepeatIdCollision` conflicts with query direct Param `filter`",
+        ),
+        (
+            "slot_repeat_id_collision.sql",
+            SLOT_REPEAT_ID_COLLISION,
+            "Repeat `filter` in query `slotRepeatIdCollision` conflicts with Slot `filter`",
+        ),
+        (
+            "fragment_param_repeat_branch_collision.sql",
+            FRAGMENT_PARAM_REPEAT_BRANCH_COLLISION,
+            "Repeat `filter` in Fragment `repeatBranchCollisionFilter` selected by Slot `filter` in query `fragmentParamRepeatBranchCollision` conflicts with Fragment direct Param `filter`",
+        ),
+        (
+            "repeated_repeat_item_shape_conflict.sql",
+            REPEATED_REPEAT_ITEM_SHAPE_CONFLICT,
+            "conflicting Repeat `items` item shape in query `repeatedRepeatItemShapeConflict`: first occurrence uses fields [id] but conflicting occurrence uses [id, label]",
+        ),
+        (
+            "repeated_repeat_item_type_conflict.sql",
+            REPEATED_REPEAT_ITEM_TYPE_CONFLICT,
+            "conflicting Repeat `items` item shape in query `repeatedRepeatItemTypeConflict` item Param `id` type conflict",
+        ),
+        (
+            "repeated_repeat_item_nullability_conflict.sql",
+            REPEATED_REPEAT_ITEM_NULLABILITY_CONFLICT,
+            "conflicting Repeat `items` item shape in query `repeatedRepeatItemNullabilityConflict` item Param `id` nullability conflict",
+        ),
+        (
+            "repeat_representative_invalid_sql.sql",
+            REPEAT_REPRESENTATIVE_INVALID_SQL,
+            "failed to parse MySQL SQL",
+        ),
+        (
+            "repeat_validation_case_limit_exceeded.sql",
+            REPEAT_VALIDATION_CASE_LIMIT_EXCEEDED,
+            "Dynamic SQL validation for query `repeatValidationCaseLimitExceeded` would produce 625 validation cases, exceeding the 256 validation case limit",
+        ),
+    ];
+
+    for (file_name, source, expected) in cases {
+        assert_check_error_contains(file_name, source, expected);
+    }
 }
 
 #[test]

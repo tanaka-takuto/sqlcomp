@@ -40,6 +40,11 @@ pub(super) const PARAM_CONFLICTING_REPEATED_TYPE: &str =
     include_str!("../../../../../fixtures/sql/invalid/param_conflicting_repeated_type.sql");
 pub(super) const PARAM_UNSUPPORTED_INFERENCE_CONTEXT: &str =
     include_str!("../../../../../fixtures/sql/invalid/param_unsupported_inference_context.sql");
+pub(super) const REPEAT_PARAM_INFERENCE_FAILURE: &str =
+    include_str!("../../../../../fixtures/sql/invalid/repeat_param_inference_failure.sql");
+pub(super) const REPEATED_REPEAT_ITEM_INFERRED_TYPE_CONFLICT: &str = include_str!(
+    "../../../../../fixtures/sql/invalid/repeated_repeat_item_inferred_type_conflict.sql"
+);
 pub(super) const REPEATED_SLOT_FRAGMENT_PARAM_TYPE_CONFLICT: &str = include_str!(
     "../../../../../fixtures/sql/invalid/repeated_slot_fragment_param_type_conflict.sql"
 );
