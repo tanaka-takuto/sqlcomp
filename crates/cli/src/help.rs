@@ -34,6 +34,7 @@ Directive boundary:
   Similar ordinary SQL comments such as /* @param tenantKey */ are ignored as SQL comments.
   Do not write raw `?` placeholders in source SQL; use paired @sqlay Param markers around a sample expression.
   Slot and Fragment composition is available for optional single-select query-local slots.
+  Repeat ranges are available for variable-length SQL repetition inside queries, mutations, and fragments.
 
 Config path boundary:
   source.include paths must stay inside the config directory.
@@ -102,7 +103,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, variant counts, output.dir, and per-query/per-mutation Param, Slot, and variant counts.
+  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, Repeat, validation case counts, output.dir, and per-query/per-mutation Param, Slot, Repeat, and validation case counts.
 
 Param marker example:
   /* @sqlay
@@ -159,7 +160,7 @@ Behavior:
   Generated TypeScript preserves each input SQL path relative to the config directory under output.dir.
   source.include paths must stay inside the config directory.
   Place sqlay.config.json at the project root when SQL lives in sibling directories.
-  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, variant counts, generated file paths, stale-file cleanup, and per-query/per-mutation Param, Slot, and variant counts.
+  The success summary reports matched SQL files, compiled builders with query and mutation counts, Fragment, Slot, Repeat, validation case counts, generated file paths, stale-file cleanup, and per-query/per-mutation Param, Slot, Repeat, and validation case counts.
   TypeScript type mapping is conservative: BIGINT, DECIMAL, date/time, and enum values map conservatively to string; bytes map to Uint8Array; JSON and unknown types map to unknown; nullable metadata adds | null.
 
 Param marker example:

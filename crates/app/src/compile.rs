@@ -20,7 +20,9 @@ mod variant_validation;
 mod tests;
 
 use generation::generate_files;
-pub use outcomes::{CheckOutcome, CompileOutcome, MutationSummary, QuerySummary};
+pub use outcomes::{
+    BuilderSummaryCounts, CheckOutcome, CompileOutcome, MutationSummary, QuerySummary,
+};
 
 /// Application service for compile-like CLI commands.
 #[derive(Clone, Copy, Debug, Default)]

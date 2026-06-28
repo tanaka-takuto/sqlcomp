@@ -129,7 +129,12 @@ where
         pipeline.dialect_analyzer,
     )?;
     let unique_slot_count = analyzed_variants.unique_slot_count;
-    let variant_count = analyzed_variants.variants.len();
+    let repeat_count = unique_repeat_count_for_builder(
+        query.repeat_usages(),
+        &analyzed_variants.slot_specs,
+        fragments_by_id,
+    );
+    let validation_case_count = analyzed_variants.variants.len();
     let Some(base_variant) = analyzed_variants.variants.first() else {
         return Err(query_error(
             query,
@@ -173,7 +178,12 @@ where
             &scoped_param_bindings,
         )?)
     };
-    let summary = QuerySummary::from_compiled_query(&compiled, unique_slot_count, variant_count);
+    let summary = QuerySummary::from_compiled_query(
+        &compiled,
+        unique_slot_count,
+        repeat_count,
+        validation_case_count,
+    );
 
     Ok((compiled, summary))
 }
@@ -200,7 +210,12 @@ where
         pipeline.dialect_analyzer,
     )?;
     let unique_slot_count = analyzed_variants.unique_slot_count;
-    let variant_count = analyzed_variants.variants.len();
+    let repeat_count = unique_repeat_count_for_builder(
+        mutation.repeat_usages(),
+        &analyzed_variants.slot_specs,
+        fragments_by_id,
+    );
+    let validation_case_count = analyzed_variants.variants.len();
     let Some(base_variant) = analyzed_variants.variants.first() else {
         return Err(super::diagnostics::mutation_error(
             mutation,
@@ -248,8 +263,12 @@ where
             &scoped_param_bindings,
         )?)
     };
-    let summary =
-        MutationSummary::from_compiled_mutation(&compiled, unique_slot_count, variant_count);
+    let summary = MutationSummary::from_compiled_mutation(
+        &compiled,
+        unique_slot_count,
+        repeat_count,
+        validation_case_count,
+    );
 
     Ok((compiled, summary))
 }
@@ -271,6 +290,33 @@ fn source_units_or_fallback(
         .chain(mutations.iter().cloned().map(core::RawSourceUnit::Mutation))
         .chain(fragments.iter().cloned().map(core::RawSourceUnit::Fragment))
         .collect()
+}
+
+fn unique_repeat_count_for_builder(
+    builder_repeats: &[core::RepeatUsage],
+    slot_specs: &[super::slot_variants::SlotSpec],
+    fragments_by_id: &HashMap<&str, &core::RawFragment>,
+) -> usize {
+    let direct_repeat_count = unique_repeat_usage_count(builder_repeats);
+    let fragment_repeat_count = slot_specs
+        .iter()
+        .flat_map(|slot| {
+            slot.targets
+                .iter()
+                .filter_map(|target| fragments_by_id.get(target.as_str()).copied())
+        })
+        .map(|fragment| unique_repeat_usage_count(fragment.repeat_usages()))
+        .sum::<usize>();
+
+    direct_repeat_count + fragment_repeat_count
+}
+
+fn unique_repeat_usage_count(repeat_usages: &[core::RepeatUsage]) -> usize {
+    repeat_usages
+        .iter()
+        .map(core::RepeatUsage::id)
+        .collect::<HashSet<_>>()
+        .len()
 }
 
 fn push_unused_fragment_warnings(

@@ -102,18 +102,38 @@ impl CheckOutcome {
                 .sum::<usize>()
     }
 
-    /// Number of SQL variants validated across compiled builders.
+    /// Number of unique Repeats resolved across compiled builders.
     #[must_use]
-    pub fn variant_count(&self) -> usize {
+    pub fn unique_repeat_count(&self) -> usize {
         self.query_summaries
             .iter()
-            .map(QuerySummary::variant_count)
+            .map(QuerySummary::repeat_count)
             .sum::<usize>()
             + self
                 .mutation_summaries
                 .iter()
-                .map(MutationSummary::variant_count)
+                .map(MutationSummary::repeat_count)
                 .sum::<usize>()
+    }
+
+    /// Number of SQL validation cases checked across compiled builders.
+    #[must_use]
+    pub fn validation_case_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::validation_case_count)
+            .sum::<usize>()
+            + self
+                .mutation_summaries
+                .iter()
+                .map(MutationSummary::validation_case_count)
+                .sum::<usize>()
+    }
+
+    /// Number of SQL validation cases checked across compiled builders.
+    #[must_use]
+    pub fn variant_count(&self) -> usize {
+        self.validation_case_count()
     }
 }
 
@@ -250,18 +270,104 @@ impl CompileOutcome {
                 .sum::<usize>()
     }
 
-    /// Number of SQL variants validated across compiled builders.
+    /// Number of unique Repeats resolved across compiled builders.
     #[must_use]
-    pub fn variant_count(&self) -> usize {
+    pub fn unique_repeat_count(&self) -> usize {
         self.query_summaries
             .iter()
-            .map(QuerySummary::variant_count)
+            .map(QuerySummary::repeat_count)
             .sum::<usize>()
             + self
                 .mutation_summaries
                 .iter()
-                .map(MutationSummary::variant_count)
+                .map(MutationSummary::repeat_count)
                 .sum::<usize>()
+    }
+
+    /// Number of SQL validation cases checked across compiled builders.
+    #[must_use]
+    pub fn validation_case_count(&self) -> usize {
+        self.query_summaries
+            .iter()
+            .map(QuerySummary::validation_case_count)
+            .sum::<usize>()
+            + self
+                .mutation_summaries
+                .iter()
+                .map(MutationSummary::validation_case_count)
+                .sum::<usize>()
+    }
+
+    /// Number of SQL validation cases checked across compiled builders.
+    #[must_use]
+    pub fn variant_count(&self) -> usize {
+        self.validation_case_count()
+    }
+}
+
+/// Shared builder-level summary counts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BuilderSummaryCounts {
+    params: usize,
+    input_fields: usize,
+    slots: usize,
+    repeats: usize,
+    validation_cases: usize,
+}
+
+impl BuilderSummaryCounts {
+    /// Build shared builder-level summary counts.
+    #[must_use]
+    pub const fn new(
+        param_count: usize,
+        input_field_count: usize,
+        slot_count: usize,
+        repeat_count: usize,
+        validation_case_count: usize,
+    ) -> Self {
+        Self {
+            params: param_count,
+            input_fields: input_field_count,
+            slots: slot_count,
+            repeats: repeat_count,
+            validation_cases: validation_case_count,
+        }
+    }
+
+    /// Number of generated parameter bindings, matching SQL placeholder occurrences.
+    #[must_use]
+    pub const fn param_count(&self) -> usize {
+        self.params
+    }
+
+    /// Number of public input fields generated for this query.
+    #[must_use]
+    pub const fn input_field_count(&self) -> usize {
+        self.input_fields
+    }
+
+    /// Number of unique query-local Slots resolved for this query.
+    #[must_use]
+    pub const fn slot_count(&self) -> usize {
+        self.slots
+    }
+
+    /// Number of unique Repeats resolved for this query.
+    #[must_use]
+    pub const fn repeat_count(&self) -> usize {
+        self.repeats
+    }
+
+    /// Number of SQL validation cases checked for this query.
+    #[must_use]
+    pub const fn validation_case_count(&self) -> usize {
+        self.validation_cases
+    }
+
+    /// Number of SQL validation cases checked for this query.
+    #[must_use]
+    pub const fn variant_count(&self) -> usize {
+        self.validation_case_count()
     }
 }
 
@@ -270,10 +376,7 @@ impl CompileOutcome {
 pub struct QuerySummary {
     id: String,
     source_path: Option<PathBuf>,
-    param_count: usize,
-    input_field_count: usize,
-    slot_count: usize,
-    variant_count: usize,
+    counts: BuilderSummaryCounts,
 }
 
 impl QuerySummary {
@@ -282,18 +385,12 @@ impl QuerySummary {
     pub const fn new(
         id: String,
         source_path: Option<PathBuf>,
-        param_count: usize,
-        input_field_count: usize,
-        slot_count: usize,
-        variant_count: usize,
+        counts: BuilderSummaryCounts,
     ) -> Self {
         Self {
             id,
             source_path,
-            param_count,
-            input_field_count,
-            slot_count,
-            variant_count,
+            counts,
         }
     }
 
@@ -312,39 +409,55 @@ impl QuerySummary {
     /// Number of generated parameter bindings, matching SQL placeholder occurrences.
     #[must_use]
     pub const fn param_count(&self) -> usize {
-        self.param_count
+        self.counts.param_count()
     }
 
     /// Number of public input fields generated for this query.
     #[must_use]
     pub const fn input_field_count(&self) -> usize {
-        self.input_field_count
+        self.counts.input_field_count()
     }
 
     /// Number of unique query-local Slots resolved for this query.
     #[must_use]
     pub const fn slot_count(&self) -> usize {
-        self.slot_count
+        self.counts.slot_count()
     }
 
-    /// Number of SQL variants validated for this query.
+    /// Number of unique Repeats resolved for this query.
+    #[must_use]
+    pub const fn repeat_count(&self) -> usize {
+        self.counts.repeat_count()
+    }
+
+    /// Number of SQL validation cases checked for this query.
+    #[must_use]
+    pub const fn validation_case_count(&self) -> usize {
+        self.counts.validation_case_count()
+    }
+
+    /// Number of SQL validation cases checked for this query.
     #[must_use]
     pub const fn variant_count(&self) -> usize {
-        self.variant_count
+        self.counts.variant_count()
     }
 
     pub(super) fn from_compiled_query(
         query: &core::CompiledQuery,
         slot_count: usize,
-        variant_count: usize,
+        repeat_count: usize,
+        validation_case_count: usize,
     ) -> Self {
         Self::new(
             query.id().as_str().to_owned(),
             query.source_path().map(Path::to_path_buf),
-            query.params().len(),
-            query.input().len(),
-            slot_count,
-            variant_count,
+            BuilderSummaryCounts::new(
+                query.params().len(),
+                query.input().len(),
+                slot_count,
+                repeat_count,
+                validation_case_count,
+            ),
         )
     }
 }
@@ -355,10 +468,7 @@ pub struct MutationSummary {
     id: String,
     source_path: Option<PathBuf>,
     kind: core::MutationKind,
-    param_count: usize,
-    input_field_count: usize,
-    slot_count: usize,
-    variant_count: usize,
+    counts: BuilderSummaryCounts,
 }
 
 impl MutationSummary {
@@ -368,19 +478,13 @@ impl MutationSummary {
         id: String,
         source_path: Option<PathBuf>,
         kind: core::MutationKind,
-        param_count: usize,
-        input_field_count: usize,
-        slot_count: usize,
-        variant_count: usize,
+        counts: BuilderSummaryCounts,
     ) -> Self {
         Self {
             id,
             source_path,
             kind,
-            param_count,
-            input_field_count,
-            slot_count,
-            variant_count,
+            counts,
         }
     }
 
@@ -405,40 +509,56 @@ impl MutationSummary {
     /// Number of generated parameter bindings, matching SQL placeholder occurrences.
     #[must_use]
     pub const fn param_count(&self) -> usize {
-        self.param_count
+        self.counts.param_count()
     }
 
     /// Number of public input fields generated for this mutation.
     #[must_use]
     pub const fn input_field_count(&self) -> usize {
-        self.input_field_count
+        self.counts.input_field_count()
     }
 
     /// Number of unique mutation-local Slots resolved for this mutation.
     #[must_use]
     pub const fn slot_count(&self) -> usize {
-        self.slot_count
+        self.counts.slot_count()
     }
 
-    /// Number of SQL variants validated for this mutation.
+    /// Number of unique Repeats resolved for this mutation.
+    #[must_use]
+    pub const fn repeat_count(&self) -> usize {
+        self.counts.repeat_count()
+    }
+
+    /// Number of SQL validation cases checked for this mutation.
+    #[must_use]
+    pub const fn validation_case_count(&self) -> usize {
+        self.counts.validation_case_count()
+    }
+
+    /// Number of SQL validation cases checked for this mutation.
     #[must_use]
     pub const fn variant_count(&self) -> usize {
-        self.variant_count
+        self.counts.variant_count()
     }
 
     pub(super) fn from_compiled_mutation(
         mutation: &core::CompiledMutation,
         slot_count: usize,
-        variant_count: usize,
+        repeat_count: usize,
+        validation_case_count: usize,
     ) -> Self {
         Self::new(
             mutation.id().as_str().to_owned(),
             mutation.source_path().map(Path::to_path_buf),
             mutation.kind(),
-            mutation.params().len(),
-            mutation.input().len(),
-            slot_count,
-            variant_count,
+            BuilderSummaryCounts::new(
+                mutation.params().len(),
+                mutation.input().len(),
+                slot_count,
+                repeat_count,
+                validation_case_count,
+            ),
         )
     }
 }

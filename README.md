@@ -245,8 +245,9 @@ listAvailableBooks({
 listAvailableBooks();
 ```
 
-During `check` and `compile`, sqlay validates every Slot expansion variant up to
-the 256 variant limit. All variants must keep the same result row shape and
+During `check` and `compile`, sqlay validates dynamic SQL up to the 256 validation
+case limit. Slot expansion variants and Repeat representative cases both
+contribute to that count. All Slot variants must keep the same result row shape and
 effective cardinality as the all-slots-unselected base variant. Fragment-local
 slots and required slots are reserved for future work.
 

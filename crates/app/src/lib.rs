@@ -14,8 +14,8 @@ mod query_compiler;
 mod tests;
 
 pub use compile::{
-    CheckOutcome, CompileOutcome, CompilePipeline, CompileUseCasePorts, DefaultCompileUseCase,
-    MutationSummary, QuerySummary,
+    BuilderSummaryCounts, CheckOutcome, CompileOutcome, CompilePipeline, CompileUseCasePorts,
+    DefaultCompileUseCase, MutationSummary, QuerySummary,
 };
 pub use constants::{CONFIG_FILE_NAME, STARTER_CONFIG_TEMPLATE};
 pub use init::DefaultProjectInitializer;

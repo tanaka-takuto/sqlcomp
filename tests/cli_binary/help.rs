@@ -163,7 +163,7 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("Fragment, Slot, variant counts"),
+        stdout.contains("Fragment, Slot, Repeat, validation case counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -171,7 +171,7 @@ fn check_help_describes_config_discovery_and_database_url() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("per-query/per-mutation Param, Slot, and variant counts"),
+        stdout.contains("per-query/per-mutation Param, Slot, Repeat, and validation case counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -245,7 +245,7 @@ fn compile_help_describes_output_writing_and_clean() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("Fragment, Slot, variant counts"),
+        stdout.contains("Fragment, Slot, Repeat, validation case counts"),
         "stdout: {stdout}"
     );
     assert!(
@@ -253,7 +253,7 @@ fn compile_help_describes_output_writing_and_clean() {
         "stdout: {stdout}"
     );
     assert!(
-        stdout.contains("per-query/per-mutation Param, Slot, and variant counts"),
+        stdout.contains("per-query/per-mutation Param, Slot, Repeat, and validation case counts"),
         "stdout: {stdout}"
     );
     assert!(

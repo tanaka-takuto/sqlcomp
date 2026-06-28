@@ -29,7 +29,7 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
         ConfiguredCommandOutcome::Check(outcome) => {
             writeln!(
                 &mut output,
-                "Check passed. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Validated {} {}. Output dir: {}. No files written.",
+                "Check passed. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Resolved {} unique {}. Validated {} {}. Output dir: {}. No files written.",
                 outcome.source_file_count(),
                 pluralize(outcome.source_file_count(), "file", "files"),
                 outcome.builder_count(),
@@ -38,8 +38,14 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
                 pluralize(outcome.fragment_count(), "fragment", "fragments"),
                 outcome.unique_slot_count(),
                 pluralize(outcome.unique_slot_count(), "slot", "slots"),
-                outcome.variant_count(),
-                pluralize(outcome.variant_count(), "variant", "variants"),
+                outcome.unique_repeat_count(),
+                pluralize(outcome.unique_repeat_count(), "repeat", "repeats"),
+                outcome.validation_case_count(),
+                pluralize(
+                    outcome.validation_case_count(),
+                    "validation case",
+                    "validation cases"
+                ),
                 outcome.output_dir().display()
             )
             .expect("writing to String cannot fail");
@@ -49,7 +55,7 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
         ConfiguredCommandOutcome::Compile(outcome) => {
             write!(
                 &mut output,
-                "Compile succeeded. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Validated {} {}. Generated or updated {} {}.",
+                "Compile succeeded. Matched {} SQL {}. Compiled {} {}. Resolved {} {}. Resolved {} unique {}. Resolved {} unique {}. Validated {} {}. Generated or updated {} {}.",
                 outcome.source_file_count(),
                 pluralize(outcome.source_file_count(), "file", "files"),
                 outcome.builder_count(),
@@ -58,8 +64,14 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
                 pluralize(outcome.fragment_count(), "fragment", "fragments"),
                 outcome.unique_slot_count(),
                 pluralize(outcome.unique_slot_count(), "slot", "slots"),
-                outcome.variant_count(),
-                pluralize(outcome.variant_count(), "variant", "variants"),
+                outcome.unique_repeat_count(),
+                pluralize(outcome.unique_repeat_count(), "repeat", "repeats"),
+                outcome.validation_case_count(),
+                pluralize(
+                    outcome.validation_case_count(),
+                    "validation case",
+                    "validation cases"
+                ),
                 outcome.generated_file_count(),
                 pluralize(outcome.generated_file_count(), "file", "files")
             )
@@ -173,11 +185,17 @@ fn format_query_detail_summary(summary: &app::QuerySummary) -> String {
     };
 
     format!(
-        "{parameter_summary}, {} {}, {} {}",
+        "{parameter_summary}, {} {}, {} {}, {} {}",
         summary.slot_count(),
         pluralize(summary.slot_count(), "slot", "slots"),
-        summary.variant_count(),
-        pluralize(summary.variant_count(), "variant", "variants")
+        summary.repeat_count(),
+        pluralize(summary.repeat_count(), "repeat", "repeats"),
+        summary.validation_case_count(),
+        pluralize(
+            summary.validation_case_count(),
+            "validation case",
+            "validation cases"
+        )
     )
 }
 
@@ -199,12 +217,18 @@ fn format_mutation_detail_summary(summary: &app::MutationSummary) -> String {
     };
 
     format!(
-        "{}, {parameter_summary}, {} {}, {} {}",
+        "{}, {parameter_summary}, {} {}, {} {}, {} {}",
         mutation_kind_name(summary.kind()),
         summary.slot_count(),
         pluralize(summary.slot_count(), "slot", "slots"),
-        summary.variant_count(),
-        pluralize(summary.variant_count(), "variant", "variants")
+        summary.repeat_count(),
+        pluralize(summary.repeat_count(), "repeat", "repeats"),
+        summary.validation_case_count(),
+        pluralize(
+            summary.validation_case_count(),
+            "validation case",
+            "validation cases"
+        )
     )
 }
 
@@ -240,21 +264,20 @@ mod tests {
                 app::QuerySummary::new(
                     "listUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
-                    0,
-                    0,
-                    0,
-                    1,
+                    app::BuilderSummaryCounts::new(0, 0, 0, 0, 1),
                 ),
                 app::QuerySummary::new(
                     "filterUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
-                    3,
-                    2,
-                    0,
-                    1,
+                    app::BuilderSummaryCounts::new(3, 2, 0, 1, 1),
                 ),
             ],
-            Vec::new(),
+            vec![app::MutationSummary::new(
+                "bulkCreateUsers".to_owned(),
+                Some(PathBuf::from("sql/users.sql")),
+                core::MutationKind::Insert,
+                app::BuilderSummaryCounts::new(2, 1, 0, 1, 1),
+            )],
             0,
         ));
 
@@ -262,19 +285,26 @@ mod tests {
 
         assert!(summary.contains("Check passed."));
         assert!(summary.contains("Matched 2 SQL files."));
-        assert!(summary.contains("Compiled 2 builders: 2 queries, 0 mutations."));
+        assert!(summary.contains("Compiled 3 builders: 2 queries, 1 mutation."));
         assert!(summary.contains("Resolved 0 fragments."));
         assert!(summary.contains("Resolved 0 unique slots."));
-        assert!(summary.contains("Validated 2 variants."));
+        assert!(summary.contains("Resolved 2 unique repeats."));
+        assert!(summary.contains("Validated 3 validation cases."));
         assert!(summary.contains("Output dir: /tmp/project/src/generated/sqlay"));
         assert!(summary.contains("No files written."));
-        assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
+        assert!(summary.contains(
+            "- listUsers (sql/users.sql): no parameters, 0 slots, 0 repeats, 1 validation case"
+        ));
         assert!(
             summary.contains(
-                "- filterUsers (sql/users.sql): 3 parameter placeholders, 2 input fields, 0 slots, 1 variant"
+                "- filterUsers (sql/users.sql): 3 parameter placeholders, 2 input fields, 0 slots, 1 repeat, 1 validation case"
             )
         );
-        assert!(summary.contains("Mutations: none."));
+        assert!(
+            summary.contains(
+                "- bulkCreateUsers (sql/users.sql): insert, 2 parameter placeholders, 1 input field, 0 slots, 1 repeat, 1 validation case"
+            )
+        );
     }
 
     #[test]
@@ -287,10 +317,7 @@ mod tests {
                 vec![app::QuerySummary::new(
                     "listUsers".to_owned(),
                     Some(PathBuf::from("sql/users.sql")),
-                    0,
-                    0,
-                    0,
-                    1,
+                    app::BuilderSummaryCounts::new(0, 0, 0, 0, 1),
                 )],
                 Vec::new(),
                 vec![PathBuf::from(
@@ -308,12 +335,15 @@ mod tests {
         assert!(summary.contains("Compiled 1 builder: 1 query, 0 mutations."));
         assert!(summary.contains("Resolved 0 fragments."));
         assert!(summary.contains("Resolved 0 unique slots."));
-        assert!(summary.contains("Validated 1 variant."));
+        assert!(summary.contains("Resolved 0 unique repeats."));
+        assert!(summary.contains("Validated 1 validation case."));
         assert!(summary.contains("Generated or updated 1 file."));
         assert!(summary.contains("Removed 1 stale generated file."));
         assert!(summary.contains("Generated files:"));
         assert!(summary.contains("- /tmp/project/src/generated/sqlay/sql/users.ts"));
-        assert!(summary.contains("- listUsers (sql/users.sql): no parameters, 0 slots, 1 variant"));
+        assert!(summary.contains(
+            "- listUsers (sql/users.sql): no parameters, 0 slots, 0 repeats, 1 validation case"
+        ));
         assert!(summary.contains("Mutations: none."));
     }
 }

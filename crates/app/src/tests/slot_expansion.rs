@@ -54,10 +54,7 @@ fn check_validates_slot_sql_with_empty_and_selected_fragment_replacements() {
         [crate::QuerySummary::new(
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
-            0,
-            0,
-            1,
-            2
+            crate::BuilderSummaryCounts::new(0, 0, 1, 0, 2)
         )]
     );
     assert_eq!(

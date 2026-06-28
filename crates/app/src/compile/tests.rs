@@ -30,14 +30,16 @@ fn query_summary_counts_param_placeholders_and_input_fields_separately() {
         core::ParamBinding::new("email".to_owned(), core::CoreType::String, false),
     ]);
 
-    let summary = QuerySummary::from_compiled_query(&query, 2, 6);
+    let summary = QuerySummary::from_compiled_query(&query, 2, 3, 6);
 
     assert_eq!(summary.id(), "filterUsers");
     assert_eq!(summary.source_path(), Some(Path::new("sql/users.sql")));
     assert_eq!(summary.param_count(), 3);
     assert_eq!(summary.input_field_count(), 2);
     assert_eq!(summary.slot_count(), 2);
+    assert_eq!(summary.repeat_count(), 3);
     assert_eq!(summary.variant_count(), 6);
+    assert_eq!(summary.validation_case_count(), 6);
 }
 
 #[test]
@@ -57,7 +59,7 @@ fn mutation_summary_counts_param_placeholders_and_input_fields_separately() {
         core::ParamBinding::new("name".to_owned(), core::CoreType::String, true),
     ]);
 
-    let summary = MutationSummary::from_compiled_mutation(&mutation, 0, 1);
+    let summary = MutationSummary::from_compiled_mutation(&mutation, 0, 1, 1);
 
     assert_eq!(summary.id(), "createUser");
     assert_eq!(summary.source_path(), Some(Path::new("sql/users.sql")));
@@ -65,7 +67,9 @@ fn mutation_summary_counts_param_placeholders_and_input_fields_separately() {
     assert_eq!(summary.param_count(), 2);
     assert_eq!(summary.input_field_count(), 2);
     assert_eq!(summary.slot_count(), 0);
+    assert_eq!(summary.repeat_count(), 1);
     assert_eq!(summary.variant_count(), 1);
+    assert_eq!(summary.validation_case_count(), 1);
 }
 
 #[test]

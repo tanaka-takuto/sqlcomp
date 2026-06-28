@@ -108,10 +108,7 @@ fn check_applies_explicit_cardinality_override_before_slot_variant_comparison() 
         [crate::QuerySummary::new(
             "listUsers".to_owned(),
             Some(PathBuf::from("sql/users.sql")),
-            0,
-            0,
-            1,
-            2,
+            crate::BuilderSummaryCounts::new(0, 0, 1, 0, 2),
         )]
     );
 }

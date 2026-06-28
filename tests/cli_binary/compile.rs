@@ -39,7 +39,14 @@ fn compile_prints_generated_or_updated_file_count() {
         stdout.contains("Resolved 0 unique slots."),
         "stdout: {stdout}"
     );
-    assert!(stdout.contains("Validated 0 variants."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Resolved 0 unique repeats."),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("Validated 0 validation cases."),
+        "stdout: {stdout}"
+    );
     assert!(
         stdout.contains("Generated or updated 0 files."),
         "stdout: {stdout}"

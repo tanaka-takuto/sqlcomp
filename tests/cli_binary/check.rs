@@ -105,7 +105,14 @@ fn check_prints_success_summary_without_implying_writes() {
         stdout.contains("Resolved 0 unique slots."),
         "stdout: {stdout}"
     );
-    assert!(stdout.contains("Validated 0 variants."), "stdout: {stdout}");
+    assert!(
+        stdout.contains("Resolved 0 unique repeats."),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("Validated 0 validation cases."),
+        "stdout: {stdout}"
+    );
     assert!(
         stdout.contains(&format!(
             "Output dir: {}",

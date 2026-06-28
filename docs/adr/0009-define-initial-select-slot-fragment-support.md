@@ -160,8 +160,9 @@ type SqlParam = unknown;
 Fragment-only SQL files do not generate TypeScript output files. Cross-file
 fragments are embedded into the generated query file that uses them.
 
-CLI summaries include query, fragment, slot, and variant counts. Per-query summaries
-include Param, slot, and variant counts.
+Initial Slot-only CLI summaries included query, fragment, slot, and variant counts.
+[ADR 0011](./0011-define-repeat-for-variable-length-sql-repetition.md) generalizes
+current dynamic SQL summaries to validation case counts and adds Repeat counts.
 
 ## Consequences
 
