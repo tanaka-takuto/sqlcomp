@@ -140,6 +140,8 @@ Responsibilities:
   `--config` is not provided.
 - parse JSON with comments and trailing commas allowed.
 - validate the supported values for source, output, database, and target settings.
+- validate TypeScript target type mapping override settings when
+  `target.language` is `typescript`.
 - resolve source and output paths relative to the configuration file directory.
 - require matched source files to remain inside the configuration directory, so
   output paths can be derived relative to one stable project root.
@@ -317,14 +319,20 @@ Query metadata responsibilities:
 - connect to the configured database.
 - describe a SELECT query without fetching user data rows.
 - return database-native column names, database types, and nullability metadata.
-- read current-database `information_schema.columns` metadata used for direct
-  column-context input type inference.
+- read `information_schema.columns` metadata used for direct column-context input
+  type inference and schema-backed type mapping.
+- preserve enough schema identity to distinguish current-database `table.column`
+  references from explicit MySQL `database.table.column` references.
+- read native column declarations such as `COLUMN_TYPE` when Core type metadata
+  needs details beyond a broad database type name, including MySQL `ENUM` values.
 
 Mutation metadata responsibilities:
 
 - connect to the configured database only for schema metadata.
-- read current-database `information_schema.columns` metadata used for supported
-  direct column-context input type inference.
+- read `information_schema.columns` metadata used for supported direct
+  column-context input type inference and schema-backed type mapping.
+- preserve enough schema identity to distinguish current-database `table.column`
+  references from explicit MySQL `database.table.column` references.
 - never execute mutation SQL.
 - never rely on rollback-based execution to infer mutation behavior.
 
@@ -405,6 +413,7 @@ Database-specific type mapping should stop at Core IR:
 ```text
 MySQL BIGINT -> CoreType::Int64
 PostgreSQL int8 -> CoreType::Int64
+MySQL ENUM('draft', 'paid') -> Enum value type ['draft', 'paid']
 ```
 
 Target-language type mapping should start from Core IR:
@@ -412,6 +421,7 @@ Target-language type mapping should start from Core IR:
 ```text
 CoreType::Int64 -> TypeScript string
 CoreType::Int64 -> Go int64
+Enum value type ['draft', 'paid'] -> TypeScript "draft" | "paid"
 ```
 
 This keeps MySQL-to-TypeScript, PostgreSQL-to-TypeScript, MySQL-to-Go, and
@@ -423,6 +433,8 @@ Core metadata should be conservative:
 - unknown nullability maps to nullable output for SELECT result rows.
 - precision-sensitive types such as `BIGINT`, `DECIMAL`, and date/time values
   should avoid lossy JavaScript conversions in the TypeScript target generator.
+- schema-backed MySQL `ENUM` values should be represented in language-neutral Core
+  metadata, not as TypeScript-only generator state.
 
 ## Target Generator
 
@@ -433,6 +445,12 @@ as validated text carried by the Core IR.
 
 The supported target generator emits TypeScript SQL builder code. Generated code
 returns SQL text and parameter arrays, not database execution behavior.
+
+TypeScript type mapping overrides change generated type annotations only. They do
+not add runtime result parsing, input validation, driver configuration, or SQL
+rewrites. The generator resolves the configured TypeScript type surface from Core
+metadata, schema-backed enum defaults, and ordered override rules defined by
+[ADR 0012](./adr/0012-define-configurable-typescript-type-mapping-overrides.md).
 
 Generated TypeScript is emitted per SQL file while preserving the input path
 relative to the directory containing `sqlay.config.json`. If one SQL file contains
@@ -500,6 +518,17 @@ exported. A single-Param Repeat item still uses an object item, such as
 with any Repeat return `params: readonly SqlParam[]`, because runtime input length
 changes the number of placeholders. Generated builders check each emitted Repeat
 input for an empty array before expanding it.
+
+Configured type annotation overrides apply to result row fields, direct Param input
+fields, Repeat item fields, and fixed params tuple element types. They preserve
+nullability and do not make dynamic Slot or Repeat params arrays more precise:
+builders with dynamic params continue to return `readonly SqlParam[]` with a
+private `type SqlParam = unknown`.
+
+Custom project types may be imported with type-only imports from non-relative
+module specifiers. The generator de-duplicates identical imports per generated
+file, rejects same-name imports from different modules, and does not create
+automatic import aliases.
 
 Repeat SQL generation uses the same `sqlParts` and `params` append model as Slot
 generation. A loop emits each item, pushes the Repeat separator before every item

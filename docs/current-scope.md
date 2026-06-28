@@ -145,10 +145,45 @@ Repeat is accepted for SELECT queries, mutations, and fragments used by
 Slot/Fragment composition. Repeat may contain Params, but it may not contain Slots
 or nested Repeat ranges.
 
+## Accepted Type Mapping Override Direction
+
+[ADR 0012](./adr/0012-define-configurable-typescript-type-mapping-overrides.md)
+defines the accepted direction for configurable TypeScript type annotation
+overrides.
+
+Type mapping overrides are a TypeScript target feature. They change generated
+TypeScript type annotations for result rows, input fields, Repeat item fields, and
+fixed params tuples. They do not parse database result values, validate input values
+at runtime, configure a database driver, or change generated SQL.
+
+The accepted configuration shape lives under `target.typescript.typeMapping` and
+supports these initial override targets:
+
+- `core.<core-type>` for broad Core type mapping, such as mapping `decimal` or
+  `int64` to `number` when a project accepts precision risk.
+- `columns.<table.column>` and `columns.<database.table.column>` for schema-backed
+  column mapping.
+- `builders.<id>.fields.<field>` and `builders.<id>.params.<param>` for the
+  narrowest generated builder-local overrides.
+
+Overrides apply narrowest-first: builder-local overrides, column overrides,
+schema-backed MySQL `ENUM` literal union defaults, Core type overrides, and then
+sqlay's built-in conservative TypeScript mapping.
+
+MySQL `ENUM` columns that resolve to schema-backed real columns generate inline
+TypeScript literal unions by default. MySQL `SET` columns remain plain strings in
+the initial design because TypeScript MySQL drivers return SET values as strings,
+including comma-separated combinations and the empty string.
+
+Column overrides support both current-database `table.column` references and
+explicit `database.table.column` references. SQL table-source resolution for this
+feature should therefore support current-database tables and explicit MySQL
+`database.table` references as schema-backed sources.
+
 ## Near-Term Direction
 
 The near-term direction is to stabilize the current SELECT builder workflow while
-implementing ADR 0010 and then ADR 0011 in focused slices:
+implementing ADR 0010, ADR 0011, and ADR 0012 in focused slices:
 
 - keep contributor and user documentation aligned with the supported and accepted
   post-MVP scope.
@@ -156,6 +191,8 @@ implementing ADR 0010 and then ADR 0011 in focused slices:
   kinds, target languages, and Param syntax.
 - preserve generated-code driver independence while documenting practical
   `mysql2/promise` execution patterns for mutation builders.
+- preserve the annotation-only boundary for TypeScript type mapping overrides:
+  runtime conversion and driver configuration remain user responsibilities.
 - maintain examples, fixtures, and generated TypeScript artifacts as executable
   coverage for the supported workflow.
 
@@ -181,6 +218,7 @@ The current scope is defined by these accepted ADRs:
 - [ADR 0009: Define Initial SELECT Slot/Fragment Support](./adr/0009-define-initial-select-slot-fragment-support.md)
 - [ADR 0010: Define Initial MySQL Mutation Builder Support](./adr/0010-define-initial-mysql-mutation-builder-support.md)
 - [ADR 0011: Define Repeat for Variable-Length SQL Repetition](./adr/0011-define-repeat-for-variable-length-sql-repetition.md)
+- [ADR 0012: Define Configurable TypeScript Type Mapping Overrides](./adr/0012-define-configurable-typescript-type-mapping-overrides.md)
 
 ## Out Of Scope
 
@@ -194,6 +232,11 @@ The following remain intentionally unsupported:
   `maxItems` or `minItems`, scalar array inputs, exported Repeat item type aliases,
   nested Repeat ranges, Slot markers inside Repeat ranges, and Param-less
   count-based SQL duplication.
+- TypeScript type mapping behavior outside ADR 0012, including runtime result
+  parsing, generated driver configuration, arbitrary TypeScript type expressions in
+  config, relative custom type import paths, generated import aliases, generated
+  enum type aliases, SET string unions, expression-result enum value inference, and
+  separate input-versus-result mapping policies.
 - mutation forms outside ADR 0010, including multi-table `UPDATE` and `DELETE`,
   `INSERT ... SELECT`, `REPLACE ... SELECT`, top-level CTE mutations, `CALL`,
   `LOAD DATA`, `TRUNCATE`, DDL, transaction control, and administrative

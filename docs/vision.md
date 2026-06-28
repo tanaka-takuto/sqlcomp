@@ -37,6 +37,14 @@ For SELECT query builders, the current supported target generates TypeScript res
 row types and typed input values for supported `Param` markers. When result
 metadata is uncertain, generated types should be conservative rather than
 overconfident. For example, unknown nullability should be treated as nullable.
+When schema-backed metadata is precise, generated types may be more specific, such
+as inline literal unions for MySQL `ENUM` values.
+
+Projects may explicitly override generated TypeScript type annotations when the
+default conservative mapping does not match their domain model or driver
+configuration. Those overrides are still static type annotations. They must not
+imply runtime result parsing, input validation, generated driver configuration, or
+SQL execution behavior.
 
 For mutation builders, sqlay should generate typed inputs and parameter arrays, but
 it should not claim to know driver execution results such as affected row counts,
@@ -73,6 +81,11 @@ code.
 the accepted direction for `Repeat`, which repeats one SQL list item template for
 dynamic `IN` lists and bulk `VALUES` rows while keeping generated code as SQL
 builder output only.
+
+[ADR 0012](./adr/0012-define-configurable-typescript-type-mapping-overrides.md)
+defines the accepted direction for configurable TypeScript type annotation
+overrides, including schema-backed MySQL enum literal unions and explicit project
+type mappings.
 
 Additional SQL dialects and additional target generators require separate design
 decisions before implementation.
