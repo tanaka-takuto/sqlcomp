@@ -8,13 +8,13 @@ use crate::{
     MutationCompiler, MutationMetadataProvider, QueryCompiler, SourceReader, TargetGenerator,
 };
 
-use super::diagnostics::{query_error, with_slot_variant_context};
+use super::diagnostics::{mutation_error, query_error, with_slot_variant_context};
 use super::dynamic_ir::{compile_dynamic_mutation_body, compile_dynamic_query_body};
 use super::param_validation::{
     ScopedParamBinding, validate_expanded_mutation_variant_param_bindings,
     validate_expanded_variant_param_bindings,
 };
-use super::slot_variants::{analyze_mutation_variants, analyze_query_variants};
+use super::slot_variants::{ExpandedParamScope, analyze_mutation_variants, analyze_query_variants};
 use super::variant_validation::{
     validate_mutation_variant_kind, validate_variant_cardinality, validate_variant_row_shape,
 };
@@ -157,11 +157,12 @@ where
         validate_expanded_variant_param_bindings(variant, &metadata, &mut scoped_param_bindings)
             .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
     }
-    let compiled = pipeline.query_compiler.compile(
-        &base_variant.query,
-        &base_variant.analysis,
-        &base_metadata,
-    )?;
+    let base_compile_metadata =
+        direct_query_param_metadata(query, &base_metadata, &base_variant.param_scopes)?;
+    let compiled =
+        pipeline
+            .query_compiler
+            .compile(query, &base_variant.analysis, &base_compile_metadata)?;
     let compiled = if analyzed_variants.slot_specs.is_empty() {
         compiled
     } else {
@@ -230,10 +231,12 @@ where
         )
         .map_err(|report| with_slot_variant_context(report, variant.context.as_ref()))?;
     }
+    let base_compile_metadata =
+        direct_mutation_param_metadata(mutation, &base_metadata, &base_variant.param_scopes)?;
     let compiled = pipeline.query_compiler.compile_mutation(
-        &base_variant.mutation,
+        mutation,
         &base_variant.analysis,
-        &base_metadata,
+        &base_compile_metadata,
     )?;
     let compiled = if analyzed_variants.slot_specs.is_empty() {
         compiled
@@ -289,4 +292,57 @@ fn push_unused_fragment_warnings(
         }
         diagnostics.push(diagnostic);
     }
+}
+
+fn direct_query_param_metadata(
+    query: &core::RawQuery,
+    metadata: &core::DbQueryMetadata,
+    param_scopes: &[ExpandedParamScope],
+) -> core::DiagnosticResult<core::DbQueryMetadata> {
+    if metadata.param_usages().len() != param_scopes.len() {
+        return Err(query_error(
+            query,
+            format!(
+                "resolved Param usage count {} does not match expanded Param scope count {}",
+                metadata.param_usages().len(),
+                param_scopes.len()
+            ),
+        ));
+    }
+
+    Ok(core::DbQueryMetadata::new(metadata.columns().to_vec())
+        .with_param_usages(direct_param_usages(metadata.param_usages(), param_scopes)))
+}
+
+fn direct_mutation_param_metadata(
+    mutation: &core::RawMutation,
+    metadata: &core::DbMutationMetadata,
+    param_scopes: &[ExpandedParamScope],
+) -> core::DiagnosticResult<core::DbMutationMetadata> {
+    if metadata.param_usages().len() != param_scopes.len() {
+        return Err(mutation_error(
+            mutation,
+            format!(
+                "resolved Param usage count {} does not match expanded Param scope count {}",
+                metadata.param_usages().len(),
+                param_scopes.len()
+            ),
+        ));
+    }
+
+    Ok(core::DbMutationMetadata::new()
+        .with_param_usages(direct_param_usages(metadata.param_usages(), param_scopes)))
+}
+
+fn direct_param_usages(
+    param_usages: &[core::DbParamUsage],
+    param_scopes: &[ExpandedParamScope],
+) -> Vec<core::DbParamUsage> {
+    param_usages
+        .iter()
+        .zip(param_scopes)
+        .filter_map(|(usage, scope)| {
+            matches!(scope, ExpandedParamScope::QueryDirect).then_some(usage.clone())
+        })
+        .collect()
 }
