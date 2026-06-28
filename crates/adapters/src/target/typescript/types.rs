@@ -25,26 +25,25 @@ pub(super) fn render_dynamic_input_type_alias(
     input: &[core::InputField],
     dynamic_body: Option<&core::CompiledDynamicQuery>,
 ) {
-    let has_slot_inputs = dynamic_body.is_some_and(|body| !body.slots().is_empty());
-    if !has_slot_inputs {
+    let Some(dynamic_body) = dynamic_body else {
+        render_static_input_type_alias(output, input_type_name, input);
+        return;
+    };
+
+    if dynamic_body.slots().is_empty() && dynamic_body.repeats().is_empty() {
         render_static_input_type_alias(output, input_type_name, input);
         return;
     }
 
     writeln!(output, "export type {input_type_name} = {{").expect("writing to String cannot fail");
     for field in input {
-        writeln!(
-            output,
-            "  {}: {};",
-            typescript_property_name(field.name()),
-            typescript_input_field_type(field)
-        )
-        .expect("writing to String cannot fail");
+        render_input_field(output, "  ", field);
     }
-    if let Some(dynamic_body) = dynamic_body {
-        for slot in dynamic_body.slots() {
-            render_slot_input_field(output, slot);
-        }
+    for repeat in dynamic_body.repeats() {
+        render_repeat_input_field(output, "  ", repeat);
+    }
+    for slot in dynamic_body.slots() {
+        render_slot_input_field(output, slot);
     }
     output.push_str("};\n");
 }
@@ -65,13 +64,7 @@ pub(super) fn render_static_input_type_alias(
 
     writeln!(output, "export type {input_type_name} = {{").expect("writing to String cannot fail");
     for field in input {
-        writeln!(
-            output,
-            "  {}: {};",
-            typescript_property_name(field.name()),
-            typescript_input_field_type(field)
-        )
-        .expect("writing to String cannot fail");
+        render_input_field(output, "  ", field);
     }
     output.push_str("};\n");
 }
@@ -81,15 +74,21 @@ pub(super) fn render_function_input_parameter(
     query: &core::CompiledQuery,
     symbols: &QuerySymbols,
 ) {
-    render_static_function_input_parameter(output, symbols.input_type_name(), query.input());
+    render_dynamic_function_input_parameter(
+        output,
+        symbols.input_type_name(),
+        query.input(),
+        query.dynamic_body(),
+    );
 }
 
-pub(super) fn render_static_function_input_parameter(
+pub(super) fn render_dynamic_function_input_parameter(
     output: &mut String,
     input_type_name: &str,
     input: &[core::InputField],
+    dynamic_body: Option<&core::CompiledDynamicQuery>,
 ) {
-    let (input_name, default) = if input.is_empty() {
+    let (input_name, default) = if input.is_empty() && !dynamic_body_requires_input(dynamic_body) {
         ("_input", " = {}")
     } else {
         ("input", "")
@@ -99,11 +98,18 @@ pub(super) fn render_static_function_input_parameter(
 }
 
 pub(super) fn function_input_name(query: &core::CompiledQuery) -> &'static str {
-    function_input_name_for_input(query.input())
+    function_input_name_for_dynamic_body(query.input(), query.dynamic_body())
 }
 
-pub(super) const fn function_input_name_for_input(input: &[core::InputField]) -> &'static str {
-    if input.is_empty() { "_input" } else { "input" }
+pub(super) fn function_input_name_for_dynamic_body(
+    input: &[core::InputField],
+    dynamic_body: Option<&core::CompiledDynamicQuery>,
+) -> &'static str {
+    if input.is_empty() && !dynamic_body_requires_input(dynamic_body) {
+        "_input"
+    } else {
+        "input"
+    }
 }
 
 pub(super) fn typescript_output_type(
@@ -126,6 +132,20 @@ pub(super) fn typescript_param_binding_type(param: &core::ParamBinding) -> Strin
     typescript_nullable_type(param.ty(), param.is_nullable())
 }
 
+pub(super) fn render_repeat_input_field(
+    output: &mut String,
+    indent: &str,
+    repeat: &core::CompiledRepeatDefinition,
+) {
+    writeln!(
+        output,
+        "{indent}{}: {};",
+        typescript_property_name(repeat.id()),
+        typescript_repeat_input_type(repeat)
+    )
+    .expect("writing to String cannot fail");
+}
+
 pub(super) fn typescript_result_type(column: &core::ResultColumn) -> String {
     typescript_nullable_type(column.ty(), column.is_nullable())
 }
@@ -138,6 +158,63 @@ fn typescript_nullable_type(ty: core::CoreType, nullable: bool) -> String {
     } else {
         base_type.to_owned()
     }
+}
+
+fn render_input_field(output: &mut String, indent: &str, field: &core::InputField) {
+    writeln!(
+        output,
+        "{indent}{}: {};",
+        typescript_property_name(field.name()),
+        typescript_input_field_type(field)
+    )
+    .expect("writing to String cannot fail");
+}
+
+pub(super) fn render_param_binding_input_field(
+    output: &mut String,
+    indent: &str,
+    param: &core::ParamBinding,
+) {
+    writeln!(
+        output,
+        "{indent}{}: {};",
+        typescript_property_name(param.input_name()),
+        typescript_param_binding_type(param)
+    )
+    .expect("writing to String cannot fail");
+}
+
+fn typescript_repeat_input_type(repeat: &core::CompiledRepeatDefinition) -> String {
+    let item_type = typescript_repeat_item_type(repeat.fields());
+    format!("readonly [{item_type}, ...{item_type}[]]")
+}
+
+fn typescript_repeat_item_type(fields: &[core::ParamBinding]) -> String {
+    let fields = fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{}: {}",
+                typescript_property_name(field.input_name()),
+                typescript_param_binding_type(field)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("{{ {fields} }}")
+}
+
+fn dynamic_body_requires_input(dynamic_body: Option<&core::CompiledDynamicQuery>) -> bool {
+    let Some(dynamic_body) = dynamic_body else {
+        return false;
+    };
+
+    !dynamic_body.repeats().is_empty()
+        || dynamic_body.slots().iter().any(|slot| {
+            slot.branches()
+                .iter()
+                .any(|branch| !branch.repeats().is_empty())
+        })
 }
 
 const fn typescript_core_type(ty: core::CoreType) -> &'static str {

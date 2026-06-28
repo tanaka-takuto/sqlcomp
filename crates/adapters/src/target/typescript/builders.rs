@@ -4,15 +4,16 @@ use sqlay_core as core;
 
 use super::literals::typescript_string_literal;
 use super::slots::{
-    is_slot_mutation, is_slot_query, render_dynamic_sql_segment, render_slot_switch,
+    is_slot_mutation, is_slot_query, render_dynamic_sql_body, render_repeat_guards,
+    render_slot_switch,
 };
 use super::symbols::{MutationSymbols, QuerySymbols};
 use super::types::{
-    function_input_name, function_input_name_for_input, input_param_access,
-    render_dynamic_input_type_alias, render_function_input_parameter, render_input_type_alias,
-    render_static_function_input_parameter, typescript_dynamic_params_type, typescript_output_type,
-    typescript_params_expression, typescript_params_type, typescript_property_name,
-    typescript_result_type,
+    function_input_name, function_input_name_for_dynamic_body, input_param_access,
+    render_dynamic_function_input_parameter, render_dynamic_input_type_alias,
+    render_function_input_parameter, render_input_type_alias, typescript_dynamic_params_type,
+    typescript_output_type, typescript_params_expression, typescript_params_type,
+    typescript_property_name, typescript_result_type,
 };
 
 /// Render a generated query builder `sql` property.
@@ -156,10 +157,11 @@ pub fn render_mutation(mutation: &core::CompiledMutation) -> String {
 
     writeln!(&mut output, "export function {}(", symbols.function_name())
         .expect("writing to String cannot fail");
-    render_static_function_input_parameter(
+    render_dynamic_function_input_parameter(
         &mut output,
         symbols.input_type_name(),
         mutation.input(),
+        mutation.dynamic_body(),
     );
     writeln!(
         &mut output,
@@ -170,7 +172,7 @@ pub fn render_mutation(mutation: &core::CompiledMutation) -> String {
     if let Some(dynamic_body) = mutation.dynamic_body() {
         render_dynamic_sql_builder_body(
             &mut output,
-            function_input_name_for_input(mutation.input()),
+            function_input_name_for_dynamic_body(mutation.input(), mutation.dynamic_body()),
             dynamic_body,
         );
     } else {
@@ -214,10 +216,22 @@ fn render_dynamic_sql_builder_body(
     output.push_str("  const sqlParts: string[] = [];\n");
     output.push_str("  const params: SqlParam[] = [];\n\n");
 
-    for (index, segment) in dynamic_body.base_segments().iter().enumerate() {
-        render_dynamic_sql_segment(output, "  ", segment, |param| {
-            input_param_access(input_name, param.input_name())
-        });
+    render_repeat_guards(
+        output,
+        "  ",
+        dynamic_body.repeats(),
+        |repeat_id| input_param_access(input_name, repeat_id),
+        true,
+    );
+
+    for (index, body) in dynamic_body.base_bodies().iter().enumerate() {
+        render_dynamic_sql_body(
+            output,
+            "  ",
+            body,
+            |param| input_param_access(input_name, param.input_name()),
+            |repeat_id| input_param_access(input_name, repeat_id),
+        );
 
         if let Some(occurrence) = dynamic_body.slot_occurrences().get(index) {
             let slot = dynamic_body
