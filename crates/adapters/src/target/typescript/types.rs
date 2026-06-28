@@ -36,15 +36,7 @@ pub(super) fn render_dynamic_input_type_alias(
     }
 
     writeln!(output, "export type {input_type_name} = {{").expect("writing to String cannot fail");
-    for field in input {
-        render_input_field(output, "  ", field);
-    }
-    for repeat in dynamic_body.repeats() {
-        render_repeat_input_field(output, "  ", repeat);
-    }
-    for slot in dynamic_body.slots() {
-        render_slot_input_field(output, slot);
-    }
+    render_dynamic_input_fields(output, input, dynamic_body);
     output.push_str("};\n");
 }
 
@@ -168,6 +160,115 @@ fn render_input_field(output: &mut String, indent: &str, field: &core::InputFiel
         typescript_input_field_type(field)
     )
     .expect("writing to String cannot fail");
+}
+
+fn render_dynamic_input_fields(
+    output: &mut String,
+    input: &[core::InputField],
+    dynamic_body: &core::CompiledDynamicQuery,
+) {
+    let mut rendered_fields = Vec::new();
+    let mut rendered_repeats = Vec::new();
+    let mut rendered_slots = Vec::new();
+
+    for (body_index, body) in dynamic_body.base_bodies().iter().enumerate() {
+        for (segment_index, segment) in body.base_segments().iter().enumerate() {
+            for param in segment.params() {
+                render_dynamic_direct_input_field(
+                    output,
+                    input,
+                    param.input_name(),
+                    &mut rendered_fields,
+                );
+            }
+
+            if let Some(repeat) = body.repeat_occurrences().get(segment_index) {
+                render_dynamic_repeat_input_field(
+                    output,
+                    dynamic_body.repeats(),
+                    repeat.repeat_id(),
+                    &mut rendered_repeats,
+                );
+            }
+        }
+
+        if let Some(slot) = dynamic_body.slot_occurrences().get(body_index) {
+            render_dynamic_slot_input_field(
+                output,
+                dynamic_body.slots(),
+                slot.slot_id(),
+                &mut rendered_slots,
+            );
+        }
+    }
+
+    for field in input {
+        render_dynamic_direct_input_field(output, input, field.name(), &mut rendered_fields);
+    }
+    for repeat in dynamic_body.repeats() {
+        render_dynamic_repeat_input_field(
+            output,
+            dynamic_body.repeats(),
+            repeat.id(),
+            &mut rendered_repeats,
+        );
+    }
+    for slot in dynamic_body.slots() {
+        render_dynamic_slot_input_field(
+            output,
+            dynamic_body.slots(),
+            slot.id(),
+            &mut rendered_slots,
+        );
+    }
+}
+
+fn render_dynamic_direct_input_field(
+    output: &mut String,
+    input: &[core::InputField],
+    name: &str,
+    rendered_fields: &mut Vec<String>,
+) {
+    if rendered_fields.iter().any(|rendered| rendered == name) {
+        return;
+    }
+
+    if let Some(field) = input.iter().find(|field| field.name() == name) {
+        render_input_field(output, "  ", field);
+        rendered_fields.push(field.name().to_owned());
+    }
+}
+
+fn render_dynamic_repeat_input_field(
+    output: &mut String,
+    repeats: &[core::CompiledRepeatDefinition],
+    id: &str,
+    rendered_repeats: &mut Vec<String>,
+) {
+    if rendered_repeats.iter().any(|rendered| rendered == id) {
+        return;
+    }
+
+    if let Some(repeat) = repeats.iter().find(|repeat| repeat.id() == id) {
+        render_repeat_input_field(output, "  ", repeat);
+        rendered_repeats.push(repeat.id().to_owned());
+    }
+}
+
+fn render_dynamic_slot_input_field(
+    output: &mut String,
+    slots: &[core::CompiledSlotDefinition],
+    id: &str,
+    rendered_slots: &mut Vec<String>,
+) {
+    if rendered_slots.iter().any(|rendered| rendered == id) {
+        return;
+    }
+
+    if let Some(slot) = slots.iter().find(|slot| slot.id() == id) {
+        render_slot_input_field(output, slot);
+        rendered_slots.push(slot.id().to_owned());
+    }
 }
 
 pub(super) fn render_param_binding_input_field(

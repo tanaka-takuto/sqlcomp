@@ -243,6 +243,126 @@ export function findUsers(
 }
 
 #[test]
+fn renders_dynamic_query_input_fields_in_source_order() {
+    let dynamic_body = core::CompiledDynamicQuery::new_with_bodies(
+        vec![
+            core::CompiledSqlBody::new(
+                vec![
+                    sql_segment(
+                        "SELECT id FROM users WHERE tenant_id = ? AND id IN (",
+                        vec![param("tenantId", core::CoreType::String, false)],
+                    ),
+                    sql_segment(")", Vec::new()),
+                ],
+                vec![core::CompiledRepeatOccurrence::new(
+                    "ids".to_owned(),
+                    ",".to_owned(),
+                    sql_segment("?", vec![param("id", core::CoreType::Int64, false)]),
+                )],
+            ),
+            core::CompiledSqlBody::from_segment(sql_segment(
+                " AND status = ?;",
+                vec![param("status", core::CoreType::String, false)],
+            )),
+        ],
+        vec![core::CompiledSlotOccurrence::new("filter".to_owned())],
+        vec![slot_definition(
+            "filter",
+            vec![core::CompiledSlotBranch::new(
+                "activeOnly".to_owned(),
+                vec![sql_segment(" AND active = 1", Vec::new())],
+            )],
+        )],
+        vec![core::CompiledRepeatDefinition::new(
+            "ids".to_owned(),
+            vec![param("id", core::CoreType::Int64, false)],
+        )],
+    );
+    let query = core::CompiledQuery::new(
+        core::QueryId::new("findUsers".to_owned()),
+        "SELECT id FROM users WHERE tenant_id = ?;".to_owned(),
+        core::Cardinality::Many,
+        vec![
+            core::InputField::new("tenantId".to_owned(), core::CoreType::String, false),
+            core::InputField::new("status".to_owned(), core::CoreType::String, false),
+        ],
+        vec![core::ResultColumn::new(
+            "id".to_owned(),
+            core::CoreType::Int32,
+            false,
+        )],
+    )
+    .with_params(vec![
+        param("tenantId", core::CoreType::String, false),
+        param("status", core::CoreType::String, false),
+    ])
+    .with_dynamic_body(dynamic_body);
+
+    assert!(render_query(&query).starts_with(
+        r#"export type findUsers_Input = {
+  tenantId: string;
+  ids: readonly [{ id: string }, ...{ id: string }[]];
+  filter?: { $fragment: "activeOnly" };
+  status: string;
+};
+"#
+    ));
+}
+
+#[test]
+fn renders_slot_branch_input_fields_in_source_order() {
+    let branch_body = core::CompiledSqlBody::new(
+        vec![
+            sql_segment(" AND id IN (", Vec::new()),
+            sql_segment(
+                ") AND role = ?",
+                vec![param("role", core::CoreType::String, false)],
+            ),
+        ],
+        vec![core::CompiledRepeatOccurrence::new(
+            "ids".to_owned(),
+            ",".to_owned(),
+            sql_segment("?", vec![param("id", core::CoreType::Int64, false)]),
+        )],
+    );
+    let dynamic_body = core::CompiledDynamicQuery::new_with_bodies(
+        vec![
+            core::CompiledSqlBody::from_segment(sql_segment(
+                "SELECT id FROM users WHERE 1 = 1",
+                Vec::new(),
+            )),
+            core::CompiledSqlBody::from_segment(sql_segment(";", Vec::new())),
+        ],
+        vec![core::CompiledSlotOccurrence::new("filter".to_owned())],
+        vec![slot_definition(
+            "filter",
+            vec![core::CompiledSlotBranch::new_with_body(
+                "byIdsAndRole".to_owned(),
+                branch_body,
+                vec![core::CompiledRepeatDefinition::new(
+                    "ids".to_owned(),
+                    vec![param("id", core::CoreType::Int64, false)],
+                )],
+            )],
+        )],
+        Vec::new(),
+    );
+    let query = compiled_query("findUsers", "SELECT id FROM users WHERE 1 = 1;")
+        .with_dynamic_body(dynamic_body);
+
+    assert!(render_query(&query).starts_with(
+        r#"export type findUsers_Input = {
+  filter?: {
+    $fragment: "byIdsAndRole";
+    ids: readonly [{ id: string }, ...{ id: string }[]];
+    role: string;
+  };
+};
+"#
+    ));
+}
+
+#[test]
 fn generated_file_with_repeat_query_includes_private_sql_param_alias() {
     let dynamic_body = core::CompiledDynamicQuery::new_with_bodies(
         vec![core::CompiledSqlBody::new(

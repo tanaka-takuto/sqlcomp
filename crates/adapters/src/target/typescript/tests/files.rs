@@ -319,11 +319,11 @@ fn generator_generates_slot_mutation_builders_with_runtime_branches() {
     assert!(users_contents.contains(
         r#"export type renameUser_Input = {
   name: string;
-  id: string;
   assignment?: {
     $fragment: "touchUpdatedAt";
     updatedAt: string;
   };
+  id: string;
 };"#
     ));
     assert!(users_contents.contains(

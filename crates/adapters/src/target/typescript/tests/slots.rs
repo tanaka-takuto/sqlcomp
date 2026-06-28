@@ -170,11 +170,11 @@ fn renders_repeated_slot_runtime_branches_from_one_slot_input() {
         render_query(&query),
         r#"export type searchUsers_Input = {
   tenantId: string;
-  status: string;
   filter?: {
     $fragment: "byRole";
     roleId: string;
   };
+  status: string;
 };
 
 export type searchUsers_Row = {

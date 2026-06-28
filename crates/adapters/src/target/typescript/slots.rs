@@ -187,23 +187,85 @@ pub(super) fn render_slot_input_field(output: &mut String, slot: &core::Compiled
 
 fn render_slot_branch_input_type(branch: &core::CompiledSlotBranch) -> String {
     let fragment = typescript_string_literal(branch.target_id());
-    let params = unique_branch_params(branch);
 
-    if params.is_empty() && branch.repeats().is_empty() {
+    let mut fields = String::new();
+    render_slot_branch_input_fields(&mut fields, branch);
+
+    if fields.is_empty() {
         return format!("{{ $fragment: {fragment} }}");
     }
 
     let mut output = String::new();
     writeln!(&mut output, "{{").expect("writing to String cannot fail");
     writeln!(&mut output, "    $fragment: {fragment};").expect("writing to String cannot fail");
-    for param in params {
-        render_param_binding_input_field(&mut output, "    ", param);
-    }
-    for repeat in branch.repeats() {
-        render_repeat_input_field(&mut output, "    ", repeat);
-    }
+    output.push_str(&fields);
     output.push_str("  }");
     output
+}
+
+fn render_slot_branch_input_fields(output: &mut String, branch: &core::CompiledSlotBranch) {
+    let params = unique_branch_params(branch);
+    let mut rendered_params = Vec::new();
+    let mut rendered_repeats = Vec::new();
+
+    for (index, segment) in branch.body().base_segments().iter().enumerate() {
+        for param in segment.params() {
+            render_branch_param_input_field(
+                output,
+                &params,
+                param.input_name(),
+                &mut rendered_params,
+            );
+        }
+
+        if let Some(repeat) = branch.body().repeat_occurrences().get(index) {
+            render_branch_repeat_input_field(
+                output,
+                branch,
+                repeat.repeat_id(),
+                &mut rendered_repeats,
+            );
+        }
+    }
+
+    for param in &params {
+        render_branch_param_input_field(output, &params, param.input_name(), &mut rendered_params);
+    }
+    for repeat in branch.repeats() {
+        render_branch_repeat_input_field(output, branch, repeat.id(), &mut rendered_repeats);
+    }
+}
+
+fn render_branch_param_input_field(
+    output: &mut String,
+    params: &[&core::ParamBinding],
+    name: &str,
+    rendered_params: &mut Vec<String>,
+) {
+    if rendered_params.iter().any(|rendered| rendered == name) {
+        return;
+    }
+
+    if let Some(param) = params.iter().find(|param| param.input_name() == name) {
+        render_param_binding_input_field(output, "    ", param);
+        rendered_params.push(param.input_name().to_owned());
+    }
+}
+
+fn render_branch_repeat_input_field(
+    output: &mut String,
+    branch: &core::CompiledSlotBranch,
+    id: &str,
+    rendered_repeats: &mut Vec<String>,
+) {
+    if rendered_repeats.iter().any(|rendered| rendered == id) {
+        return;
+    }
+
+    if let Some(repeat) = branch.repeats().iter().find(|repeat| repeat.id() == id) {
+        render_repeat_input_field(output, "    ", repeat);
+        rendered_repeats.push(repeat.id().to_owned());
+    }
 }
 
 fn unique_branch_params(branch: &core::CompiledSlotBranch) -> Vec<&core::ParamBinding> {
