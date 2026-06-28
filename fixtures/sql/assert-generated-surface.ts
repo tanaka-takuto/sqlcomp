@@ -95,6 +95,95 @@ import {
   typeMetadataSingleRow,
 } from "./generated/valid/type_metadata_matrix";
 
+type Assert<T extends true> = T;
+type IsExact<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? (<T>() => T extends B ? 1 : 2) extends <T>() => T extends A ? 1 : 2
+      ? true
+      : false
+    : false;
+
+type RepeatDynamicInListInputContract = Assert<
+  IsExact<
+    repeatDynamicInList_Input,
+    {
+      states: readonly [{ state: string }, ...{ state: string }[]];
+    }
+  >
+>;
+type RepeatDynamicInListReturnContract = Assert<
+  IsExact<
+    ReturnType<typeof repeatDynamicInList>,
+    { sql: string; params: readonly unknown[] }
+  >
+>;
+
+type RepeatBulkInsertRowsInputContract = Assert<
+  IsExact<
+    repeatBulkInsertRows_Input,
+    {
+      rows: readonly [
+        {
+          childId: string;
+          parentId: string;
+          childLabel: string;
+          childAmount: string;
+        },
+        ...{
+          childId: string;
+          parentId: string;
+          childLabel: string;
+          childAmount: string;
+        }[],
+      ];
+    }
+  >
+>;
+type RepeatBulkInsertRowsReturnContract = Assert<
+  IsExact<
+    ReturnType<typeof repeatBulkInsertRows>,
+    { sql: string; params: readonly unknown[] }
+  >
+>;
+
+type RepeatRepeatedIdEmissionInputContract = Assert<
+  IsExact<
+    repeatRepeatedIdEmission_Input,
+    {
+      childPairs: readonly [
+        { childId: string; parentId: string },
+        ...{ childId: string; parentId: string }[],
+      ];
+    }
+  >
+>;
+type RepeatRepeatedIdEmissionReturnContract = Assert<
+  IsExact<
+    ReturnType<typeof repeatRepeatedIdEmission>,
+    { sql: string; params: readonly unknown[] }
+  >
+>;
+
+type RepeatFixtureChildIdsBranch = {
+  $fragment: "repeatFixtureChildIds";
+  childIds: readonly [{ childId: string }, ...{ childId: string }[]];
+};
+type RepeatFragmentSlotSearchInputContract = Assert<
+  IsExact<
+    repeatFragmentSlotSearch_Input,
+    {
+      requiredChildFilter?: RepeatFixtureChildIdsBranch;
+      optionalChildFilter?: RepeatFixtureChildIdsBranch;
+    }
+  >
+>;
+type RepeatFragmentSlotSearchReturnContract = Assert<
+  IsExact<
+    ReturnType<typeof repeatFragmentSlotSearch>,
+    { sql: string; params: readonly unknown[] }
+  >
+>;
+
 const directColumnsQuery = typeMetadataDirectColumns();
 const directColumnsOutput: typeMetadataDirectColumns_Output = [];
 

@@ -159,49 +159,49 @@ export function repeatFragmentSlotSearch(
   const sqlParts: string[] = [];
   const params: SqlParam[] = [];
 
-  sqlParts.push("\nSELECT\n  p.bigint_nn_col AS bigintNnCol,\n  p.varchar_320_nn_col AS varchar320NnCol\nFROM fixture_all_column_type AS p\nWHERE EXISTS (\n  SELECT 1\n  FROM fixture_child AS c\n  WHERE c.parent_bigint_nn_col = p.bigint_nn_col\n");
+  sqlParts.push("\nSELECT\n  p.bigint_nn_col AS bigintNnCol,\n  p.varchar_320_nn_col AS varchar320NnCol\nFROM fixture_all_column_type AS p\nWHERE p.bigint_nn_col IS NOT NULL\n");
   switch (input.requiredChildFilter?.$fragment) {
     case "repeatFixtureChildIds":
       if (input.requiredChildFilter.childIds.length === 0) {
         throw new Error("Repeat `childIds` requires at least one item");
       }
-      sqlParts.push("\n  AND c.child_bigint_nn_col IN (\n    ");
+      sqlParts.push("\nAND EXISTS (\n  SELECT 1\n  FROM fixture_child AS c\n  WHERE c.parent_bigint_nn_col = p.bigint_nn_col\n    AND c.child_bigint_nn_col IN (\n      ");
       {
         let repeatIndex = 0;
         for (const repeatItem of input.requiredChildFilter.childIds) {
           if (repeatIndex > 0) {
             sqlParts.push(", ");
           }
-          sqlParts.push("\n    ?\n    ");
+          sqlParts.push("\n      ?\n      ");
           params.push(repeatItem.childId);
           repeatIndex += 1;
         }
       }
-      sqlParts.push("\n  )\n\n");
+      sqlParts.push("\n    )\n)\n\n");
       break;
   }
-  sqlParts.push("\n)\nAND EXISTS (\n  SELECT 1\n  FROM fixture_child AS c\n  WHERE c.parent_bigint_nn_col = p.bigint_nn_col\n");
+  sqlParts.push("\n");
   switch (input.optionalChildFilter?.$fragment) {
     case "repeatFixtureChildIds":
       if (input.optionalChildFilter.childIds.length === 0) {
         throw new Error("Repeat `childIds` requires at least one item");
       }
-      sqlParts.push("\n  AND c.child_bigint_nn_col IN (\n    ");
+      sqlParts.push("\nAND EXISTS (\n  SELECT 1\n  FROM fixture_child AS c\n  WHERE c.parent_bigint_nn_col = p.bigint_nn_col\n    AND c.child_bigint_nn_col IN (\n      ");
       {
         let repeatIndex = 0;
         for (const repeatItem of input.optionalChildFilter.childIds) {
           if (repeatIndex > 0) {
             sqlParts.push(", ");
           }
-          sqlParts.push("\n    ?\n    ");
+          sqlParts.push("\n      ?\n      ");
           params.push(repeatItem.childId);
           repeatIndex += 1;
         }
       }
-      sqlParts.push("\n  )\n\n");
+      sqlParts.push("\n    )\n)\n\n");
       break;
   }
-  sqlParts.push("\n)\nORDER BY p.bigint_nn_col;\n");
+  sqlParts.push("\nORDER BY p.bigint_nn_col;\n");
 
   return {
     sql: sqlParts.join(""),

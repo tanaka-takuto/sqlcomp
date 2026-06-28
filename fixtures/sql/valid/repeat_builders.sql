@@ -95,13 +95,18 @@ ORDER BY p.bigint_nn_col;
   id: repeatFixtureChildIds
 }
 */
-  AND c.child_bigint_nn_col IN (
-    /* @sqlay { type: repeat id: childIds separator: ", " } */
-    /* @sqlay { type: param id: childId valueType: int64 } */
-    100
-    /* @sqlay { type: paramEnd } */
-    /* @sqlay { type: repeatEnd } */
-  )
+AND EXISTS (
+  SELECT 1
+  FROM fixture_child AS c
+  WHERE c.parent_bigint_nn_col = p.bigint_nn_col
+    AND c.child_bigint_nn_col IN (
+      /* @sqlay { type: repeat id: childIds separator: ", " } */
+      /* @sqlay { type: param id: childId valueType: int64 } */
+      100
+      /* @sqlay { type: paramEnd } */
+      /* @sqlay { type: repeatEnd } */
+    )
+)
 
 /* @sqlay
 {
@@ -113,16 +118,7 @@ SELECT
   p.bigint_nn_col AS bigintNnCol,
   p.varchar_320_nn_col AS varchar320NnCol
 FROM fixture_all_column_type AS p
-WHERE EXISTS (
-  SELECT 1
-  FROM fixture_child AS c
-  WHERE c.parent_bigint_nn_col = p.bigint_nn_col
+WHERE p.bigint_nn_col IS NOT NULL
 /* @sqlay { type: slot id: requiredChildFilter targets: [repeatFixtureChildIds] } */
-)
-AND EXISTS (
-  SELECT 1
-  FROM fixture_child AS c
-  WHERE c.parent_bigint_nn_col = p.bigint_nn_col
 /* @sqlay { type: slot id: optionalChildFilter targets: [repeatFixtureChildIds] } */
-)
 ORDER BY p.bigint_nn_col;
