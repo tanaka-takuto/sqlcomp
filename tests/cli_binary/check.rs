@@ -2,7 +2,8 @@ use std::process::Command;
 
 use crate::support::{
     DUPLICATE_IDS_FIXTURE, EXEC_CARDINALITY_FIXTURE, INVALID_SOURCE_CONFIG, TEST_DATABASE_URL_ENV,
-    UNSUPPORTED_CONFIG, UNUSED_DATABASE_URL, VALID_CONFIG, unique_temp_dir,
+    UNSUPPORTED_CONFIG, UNUSED_DATABASE_URL, VALID_CONFIG, assert_empty_source_diagnostic,
+    unique_temp_dir, write_simple_query_project,
 };
 
 #[test]
@@ -61,12 +62,7 @@ fn check_warns_when_source_include_matches_no_sql_files() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning:"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("source.include matched no SQL files after applying source.exclude"),
-        "stderr: {stderr}"
-    );
-    assert!(stderr.contains("source.include"), "stderr: {stderr}");
-    assert!(stderr.contains("source.exclude"), "stderr: {stderr}");
+    assert_empty_source_diagnostic(&stderr, &config_dir);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Matched 0 SQL files."), "stdout: {stdout}");
 
@@ -95,13 +91,41 @@ fn check_fail_on_empty_rejects_empty_source_matches() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("error:"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("source.include matched no SQL files after applying source.exclude"),
-        "stderr: {stderr}"
-    );
+    assert_empty_source_diagnostic(&stderr, &config_dir);
     assert!(
         stderr.contains("disable `--fail-on-empty`"),
         "stderr: {stderr}"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn check_fail_on_empty_reports_empty_source_before_database_url_requirement() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-fail-without-database-url");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["check", "--fail-on-empty"])
+        .current_dir(&config_dir)
+        .env_remove(TEST_DATABASE_URL_ENV)
+        .output()
+        .expect("sqlay check should run");
+
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error:"), "stderr: {stderr}");
+    assert_empty_source_diagnostic(&stderr, &config_dir);
+    assert!(
+        !stderr.contains("database.urlEnv"),
+        "stderr should not require the database URL before empty-source enforcement: {stderr}"
     );
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
@@ -231,9 +255,7 @@ fn check_reports_unsupported_config_before_pipeline_skeleton() {
 #[test]
 fn check_reports_missing_database_url_environment_variable() {
     let config_dir = unique_temp_dir("sqlay-cli-missing-database-url");
-    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
-    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
-        .expect("temp config should be written");
+    write_simple_query_project(&config_dir);
 
     let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
         .arg("check")

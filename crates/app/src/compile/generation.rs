@@ -347,10 +347,7 @@ fn push_unused_fragment_warnings(
 }
 
 pub(super) fn empty_source_set_error_message(plan: &core::CompilationPlan) -> String {
-    format!(
-        "{}; disable `--fail-on-empty` only when an empty source set is intentional",
-        empty_source_set_base_message(plan)
-    )
+    empty_source_set_base_message(plan)
 }
 
 fn empty_source_set_warning_message(plan: &core::CompilationPlan) -> String {

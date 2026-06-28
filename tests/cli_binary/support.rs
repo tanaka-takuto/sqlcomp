@@ -72,6 +72,16 @@ pub const FRAGMENT_ONLY_SQL: &str = r"
 AND u.active = 1
 ";
 
+pub const SIMPLE_QUERY_SQL: &str = r"
+/* @sqlay
+{
+  type: query
+  id: listUsers
+}
+*/
+SELECT id FROM users;
+";
+
 pub const NESTED_CONFIG_WITH_PARENT_INCLUDE: &str = r#"
 {
   "source": {
@@ -90,6 +100,22 @@ pub const NESTED_CONFIG_WITH_PARENT_INCLUDE: &str = r#"
 }
 "#;
 
+pub fn assert_empty_source_diagnostic(stderr: &str, config_dir: &std::path::Path) {
+    let config_dir = std::fs::canonicalize(config_dir).expect("config dir should canonicalize");
+    assert!(
+        stderr.contains("source.include matched no SQL files after applying source.exclude"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!(
+            "source.include: [`{}`]",
+            config_dir.join("sql/**/*.sql").display()
+        )),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("source.exclude: []"), "stderr: {stderr}");
+}
+
 pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -101,6 +127,15 @@ pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
         "{prefix}-{}-{thread_id:?}-{unique}",
         std::process::id()
     ))
+}
+
+pub fn write_simple_query_project(config_dir: &std::path::Path) {
+    let sql_dir = config_dir.join("sql");
+    std::fs::create_dir_all(&sql_dir).expect("temp SQL dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+    std::fs::write(sql_dir.join("users.sql"), SIMPLE_QUERY_SQL)
+        .expect("temp SQL should be written");
 }
 
 /// Writes a config plus one fragment-only SQL source and returns the output SQL dir.

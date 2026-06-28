@@ -25,8 +25,8 @@ where near-term work should point. The original MVP remains documented in
   directory, with matched SQL files required to stay inside that directory.
 - `init`, `check`, and `compile` CLI commands.
 - Empty `source.include` matches are reported as warnings after applying
-  `source.exclude`; `check --fail-on-empty` and `compile --fail-on-empty` promote
-  that condition to a failing diagnostic before generated files are written or
+  `source.exclude`; `check --fail-on-empty` and `compile --fail-on-empty` exit
+  with code 1 and a failing diagnostic before generated files are written or
   cleaned.
 - SELECT value binding with paired inline `Param` markers as defined by
   [ADR 0008](./adr/0008-define-select-param-support.md).
