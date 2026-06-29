@@ -123,7 +123,7 @@ fn compile_fail_on_empty_rejects_empty_source_matches_before_cleaning() {
         .output()
         .expect("sqlay compile should run");
 
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
     assert!(
         output.stdout.is_empty(),
         "stdout: {}",
@@ -154,7 +154,7 @@ fn compile_fail_on_empty_reports_empty_source_before_database_url_requirement() 
         .output()
         .expect("sqlay compile should run");
 
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
     assert!(
         output.stdout.is_empty(),
         "stdout: {}",
