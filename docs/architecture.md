@@ -520,10 +520,12 @@ changes the number of placeholders. Generated builders check each emitted Repeat
 input for an empty array before expanding it.
 
 Configured type annotation overrides apply to result row fields, direct Param input
-fields, Repeat item fields, and fixed params tuple element types. They preserve
-nullability and do not make dynamic Slot or Repeat params arrays more precise:
-builders with dynamic params continue to return `readonly SqlParam[]` with a
-private `type SqlParam = unknown`.
+fields, direct Repeat item fields, and fixed params tuple element types. Direct
+Repeat item field overrides are scoped by builder ID, Repeat ID, and item field
+name so multiple Repeat inputs may reuse the same item field names. Overrides
+preserve nullability and do not make dynamic Slot or Repeat params arrays more
+precise: builders with dynamic params continue to return `readonly SqlParam[]` with
+a private `type SqlParam = unknown`.
 
 Custom project types may be imported with type-only imports from non-relative
 module specifiers. The generator de-duplicates identical imports per generated

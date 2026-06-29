@@ -163,8 +163,10 @@ supports these initial override targets:
   `int64` to `number` when a project accepts precision risk.
 - `columns.<table.column>` and `columns.<database.table.column>` for schema-backed
   column mapping.
-- `builders.<id>.fields.<field>` and `builders.<id>.params.<param>` for the
-  narrowest generated builder-local overrides.
+- `builders.<id>.fields.<field>`, `builders.<id>.params.<param>`, and
+  `builders.<id>.repeats.<repeat>.fields.<field>` for the narrowest generated
+  builder-local overrides. The Repeat-qualified path targets direct Repeat item
+  fields without relying on item field names to be globally unique.
 
 Overrides apply narrowest-first: builder-local overrides, column overrides,
 schema-backed MySQL `ENUM` literal union defaults, Core type overrides, and then

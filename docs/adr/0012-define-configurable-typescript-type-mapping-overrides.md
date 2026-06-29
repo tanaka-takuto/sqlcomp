@@ -62,6 +62,19 @@ Add a TypeScript target configuration section for type annotation overrides:
                 },
               },
             },
+            "repeats": {
+              "lineItems": {
+                "fields": {
+                  "unitPrice": {
+                    "type": "MoneyAmount",
+                    "import": {
+                      "from": "@/domain/money",
+                      "name": "MoneyAmount",
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -77,9 +90,10 @@ project is responsible for accepting precision risk and configuring its executio
 path consistently.
 
 Override values may use a shorthand string when no import is needed, or an object
-with `type` and optional `import`. A custom `type` must be a portable TypeScript
-identifier, not an arbitrary TypeScript type expression. Complex branded or generic
-types should be defined by the user as named type aliases and referenced by name.
+with `type` and optional `import`. A `type` must be either a supported TypeScript
+primitive such as `number` or a portable TypeScript identifier, not an arbitrary
+TypeScript type expression. Complex branded or generic types should be defined by
+the user as named type aliases and referenced by name.
 
 When an import is provided, sqlay emits a type-only import:
 
@@ -102,6 +116,15 @@ Type overrides apply to the whole generated TypeScript type surface:
 - Repeat item fields.
 - fixed params tuple element types.
 
+Builder-local override paths are intentionally scope-qualified:
+
+- `builders.<id>.fields.<field>` targets SELECT result row fields.
+- `builders.<id>.params.<param>` targets direct Param input fields and fixed params
+  tuple entries for that Param in static builders.
+- `builders.<id>.repeats.<repeat>.fields.<field>` targets item fields under one
+  direct Repeat input. The Repeat ID is part of the path because item field names
+  are scoped to Repeat inputs and may repeat across different Repeat ranges.
+
 Nullability is preserved. A nullable database column or `nullable: true` Param
 becomes `CustomType | null` after a base type override. Dynamic builders that use
 Slot or Repeat keep `params: readonly SqlParam[]` with the existing private
@@ -114,7 +137,9 @@ metadata; the TypeScript representation may still be changed by `core.decimal`,
 
 Override priority is narrowest-first:
 
-1. `builders.<id>.fields.<field>` and `builders.<id>.params.<param>`.
+1. Builder-local overrides:
+   `builders.<id>.fields.<field>`, `builders.<id>.params.<param>`, and
+   `builders.<id>.repeats.<repeat>.fields.<field>`.
 2. `columns.<column-reference>`.
 3. schema-backed MySQL `ENUM` default literal unions.
 4. `core.<core-type>`.
@@ -153,8 +178,9 @@ returns SET values as strings, including comma-separated combinations such as
 initial support does not emit arrays or generated SET aliases.
 
 Configured overrides must be applied during `check` or `compile`. Unused overrides,
-unknown builders, unknown fields, unknown Params, and unknown schema columns are
-configuration errors rather than warnings.
+unknown builders, unknown fields, unknown Params, unknown Repeats, unknown Repeat
+item fields, and unknown schema columns are configuration errors rather than
+warnings.
 
 ## Consequences
 
