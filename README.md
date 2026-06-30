@@ -89,7 +89,9 @@ functions, but they do not generate row types, output types, execution functions
 driver-specific result wrappers. Slotless and direct-Param-only builders use
 readonly tuples for fixed parameter shapes; dynamic builders use readonly arrays
 when selected branches can change the parameter shape at runtime. Generated code
-does not execute SQL or depend on a database driver.
+does not execute SQL or depend on a database driver. See
+[`docs/query-execution.md`](./docs/query-execution.md) for a minimal
+`mysql2/promise` SELECT execution example.
 
 Dynamic values are written with paired inline `Param` markers around sample SQL
 expressions:

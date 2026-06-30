@@ -41,7 +41,10 @@ where near-term work should point. The original MVP remains documented in
   including dynamic `IN` lists, bulk `VALUES` rows, and fragments selected by Slots.
 
 Generated TypeScript builders return SQL text and parameter arrays. They do not
-execute queries or mutations and do not depend on a database driver.
+execute queries or mutations and do not depend on a database driver. See
+[Query Execution with mysql2](./query-execution.md) and
+[Mutation Execution with mysql2](./mutation-execution.md) for user-facing
+execution examples that keep generated builders driver-independent.
 
 ## Param Support
 
