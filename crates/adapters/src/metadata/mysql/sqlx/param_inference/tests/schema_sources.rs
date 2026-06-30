@@ -29,6 +29,29 @@ fn resolves_param_types_from_schema_qualified_table_sources() {
 }
 
 #[test]
+fn rejects_ambiguous_bare_select_table_names_without_value_type() {
+    let query = raw_param_query(
+        "SELECT billing.orders.id FROM billing.orders JOIN archive.orders ON archive.orders.id = billing.orders.id WHERE orders.status = ?;",
+        [param_usage("status", None)],
+    );
+    let schema_columns = [
+        schema_column_in_database("billing", "orders", "status", core::CoreType::String),
+        schema_column_in_database("archive", "orders", "status", core::CoreType::Bool),
+    ];
+
+    let report = resolve_param_usage_metadata(&query, &schema_columns)
+        .expect_err("ambiguous bare table names should require valueType");
+
+    assert_eq!(
+        report.diagnostics()[0].message(),
+        param_value_type_required_message(
+            "status",
+            "table alias `orders` does not resolve to a supported schema-backed table"
+        )
+    );
+}
+
+#[test]
 fn schema_table_refs_include_current_and_explicit_database_sources() {
     let query = raw_param_query(
         "SELECT u.id FROM users AS u JOIN billing.orders AS o ON o.user_id = u.id WHERE u.email = ? AND o.status = ?;",
@@ -132,5 +155,28 @@ fn resolves_schema_qualified_mutation_target_param_types() {
             core::DbParamUsage::new("status".to_owned(), core::CoreType::String),
             core::DbParamUsage::new("orderId".to_owned(), core::CoreType::Int64),
         ]
+    );
+}
+
+#[test]
+fn rejects_ambiguous_bare_mutation_table_names_without_value_type() {
+    let mutation = raw_param_mutation(
+        "UPDATE billing.orders JOIN archive.orders ON archive.orders.id = billing.orders.id SET billing.orders.status = ? WHERE orders.id = ?;",
+        [param_usage("status", None), param_usage("orderId", None)],
+    );
+    let schema_columns = [
+        schema_column_in_database("billing", "orders", "status", core::CoreType::String),
+        schema_column_in_database("archive", "orders", "id", core::CoreType::Int64),
+    ];
+
+    let report = resolve_mutation_param_usage_metadata(&mutation, &schema_columns)
+        .expect_err("ambiguous bare mutation table names should require valueType");
+
+    assert_eq!(
+        report.diagnostics()[0].message(),
+        param_value_type_required_message(
+            "orderId",
+            "table alias `orders` does not resolve to a supported schema-backed table"
+        )
     );
 }

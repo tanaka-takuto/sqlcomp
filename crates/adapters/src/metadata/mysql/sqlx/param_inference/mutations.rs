@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use sqlay_core as core;
 use sqlparser::ast::{
@@ -26,16 +26,28 @@ struct MutationTableSources {
 }
 
 impl MutationTableSources {
+    fn insert_resolution(&mut self, key: String, resolution: TableResolution) {
+        match self.by_qualifier.entry(key) {
+            Entry::Vacant(entry) => {
+                entry.insert(resolution);
+            }
+            Entry::Occupied(mut entry) if entry.get() != &resolution => {
+                entry.insert(TableResolution::Unsupported);
+            }
+            Entry::Occupied(_) => {}
+        }
+    }
+
     fn insert_schema_table(&mut self, table_ref: MysqlSchemaTableRef, alias: Option<String>) {
         self.schema_table_refs.insert(table_ref.clone());
-        self.by_qualifier.insert(
+        self.insert_resolution(
             table_ref.table_name().to_owned(),
             TableResolution::SchemaBacked {
                 table_ref: table_ref.clone(),
             },
         );
         if let Some(qualifier_key) = table_ref.qualifier_key() {
-            self.by_qualifier.insert(
+            self.insert_resolution(
                 qualifier_key,
                 TableResolution::SchemaBacked {
                     table_ref: table_ref.clone(),
@@ -43,19 +55,16 @@ impl MutationTableSources {
             );
         }
         if let Some(alias) = alias {
-            self.by_qualifier
-                .insert(alias, TableResolution::SchemaBacked { table_ref });
+            self.insert_resolution(alias, TableResolution::SchemaBacked { table_ref });
         }
     }
 
     fn insert_unsupported_table(&mut self, table_name: Option<String>, alias: Option<String>) {
         if let Some(table_name) = table_name {
-            self.by_qualifier
-                .insert(table_name, TableResolution::Unsupported);
+            self.insert_resolution(table_name, TableResolution::Unsupported);
         }
         if let Some(alias) = alias {
-            self.by_qualifier
-                .insert(alias, TableResolution::Unsupported);
+            self.insert_resolution(alias, TableResolution::Unsupported);
         }
     }
 
