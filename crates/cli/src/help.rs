@@ -261,7 +261,18 @@ Examples:
 
 pub const INIT_NEXT_STEPS: &str = r"
 Next:
+  export DATABASE_URL=...
+  sqlay check
+
+Or run one command with the environment variable set:
   DATABASE_URL=... sqlay check
+
+The starter config uses database.urlEnv = DATABASE_URL. If you change
+database.urlEnv, export that variable instead. sqlay reads the URL from the
+process environment. sqlay does not load .env files automatically.
+
+Run check and compile from your project directory. When --config is omitted,
+sqlay searches from the current working directory upward for sqlay.config.json.
 
 Compiler directives are @sqlay Hjson block comments. Ordinary SQL comments such as
 /* @param tenantKey */ are ignored as SQL comments.

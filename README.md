@@ -21,6 +21,21 @@ and architecture. The completed initial MVP baseline remains in
 
 ## Usage
 
+Make the `sqlay` command available before starting a project. From a local
+checkout, install the binary into Cargo's bin directory with:
+
+```sh
+cargo install --locked --path .
+```
+
+Cargo usually installs binaries into `~/.cargo/bin`; make sure that directory is
+on `PATH`. During local development, you can also run the same CLI through Cargo:
+
+```sh
+cargo run --locked -- init
+cargo run --locked -- check
+```
+
 Create the starter project configuration from the directory that should contain
 `sqlay.config.json`:
 
@@ -55,7 +70,9 @@ output paths are resolved relative to the directory containing
 `sqlay.config.json`. Matched SQL files must remain inside that configuration
 directory so generated paths can be preserved relative to it. Place
 `sqlay.config.json` at the project root when source SQL lives in sibling
-directories such as `sql/` next to `configs/`.
+directories such as `sql/` next to `configs/`. For `check` and `compile`, when
+`--config` is omitted, sqlay starts from the current working directory and searches
+upward for `sqlay.config.json`.
 
 Run a database-backed dry run with:
 
@@ -67,7 +84,9 @@ DATABASE_URL='mysql://user:password@host:3306/database' sqlay check
 queries, resolves inline `Param` inputs, looks up MySQL metadata, and builds
 generated TypeScript in memory without writing files. The database URL is read from
 the process environment variable named by `database.urlEnv`; the CLI does not
-implicitly load `.env` files.
+implicitly load `.env` files. With the starter config, either export
+`DATABASE_URL` before running sqlay commands or prefix a single command with
+`DATABASE_URL='mysql://user:password@host:3306/database'`.
 
 Write generated TypeScript with:
 
