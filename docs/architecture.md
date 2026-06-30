@@ -190,6 +190,10 @@ whether the SQL is valid MySQL, PostgreSQL, or another dialect.
 Responsibilities:
 
 - read `.sql` files.
+- process matched source files in deterministic source order: source files sorted
+  by configuration-relative path after include/exclude expansion, then source units
+  by declaration position within each file. Duplicate source-unit ID diagnostics use
+  this order to identify the first declaration.
 - find `@sqlay` comments.
 - parse Hjson metadata payloads.
 - split files into source-ordered query, mutation, and fragment units.

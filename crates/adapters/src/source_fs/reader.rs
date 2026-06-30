@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sqlay_app::{SourceRead, SourceReader};
 use sqlay_core as core;
@@ -25,7 +25,7 @@ impl SourceReader for FileSystemSourceReader {
         let mut source_units = Vec::new();
         let mut diagnostics = core::DiagnosticReport::default();
         let mut fatal_diagnostics = core::DiagnosticReport::default();
-        let source_files = discover_source_files(plan)?;
+        let source_files = ordered_source_files(plan)?;
         let source_file_count = source_files.len();
 
         for path in source_files {
@@ -273,6 +273,17 @@ fn attach_repeat_usage_path(usage: core::RepeatUsage, path: &Path) -> core::Repe
     usage.with_item_param_usages(item_param_usages)
 }
 
+fn ordered_source_files(plan: &core::CompilationPlan) -> core::DiagnosticResult<Vec<PathBuf>> {
+    let mut source_files = discover_source_files(plan)?;
+    source_files.sort_by_key(|path| source_file_order_key(plan, path));
+    Ok(source_files)
+}
+
+fn source_file_order_key(plan: &core::CompilationPlan, path: &Path) -> PathBuf {
+    plan.source_relative_path(path)
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 struct SourceUnitDeclaration {
     kind: SourceUnitKind,
     location: Option<core::SourceLocation>,
@@ -370,7 +381,7 @@ fn collect_duplicate_source_unit_id(
             .with_location(location.unwrap_or_else(core::SourceLocation::unknown)),
         );
         diagnostics.push(
-            core::Diagnostic::note("first declared here").with_location(
+            core::Diagnostic::note("first declaration in source order is here").with_location(
                 first_declaration
                     .location
                     .clone()
@@ -390,22 +401,22 @@ fn duplicate_source_unit_message(
     match (first_kind, duplicate_kind) {
         (SourceUnitKind::Query, SourceUnitKind::Query) => {
             format!(
-                "duplicate query id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
+                "duplicate query id `{id}`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
         (SourceUnitKind::Mutation, SourceUnitKind::Mutation) => {
             format!(
-                "duplicate mutation id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
+                "duplicate mutation id `{id}`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
         (SourceUnitKind::Fragment, SourceUnitKind::Fragment) => {
             format!(
-                "duplicate fragment id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
+                "duplicate fragment id `{id}`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
         _ => {
             format!(
-                "duplicate source unit id `{id}`; query, mutation, and fragment IDs must be unique across the full compile run"
+                "duplicate source unit id `{id}`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run"
             )
         }
     }

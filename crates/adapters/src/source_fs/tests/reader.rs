@@ -567,20 +567,8 @@ SELECT id FROM archived_users;
 #[test]
 fn source_reader_rejects_duplicate_fragment_ids_across_files() {
     let project_dir = test_project_dir("duplicate-fragments-across-files");
-    let first_path = project_dir.join("sql").join("01_first.sql");
-    let second_path = project_dir.join("sql").join("02_second.sql");
-    write_sql(
-        &first_path,
-        r"
-/* @sqlay
-{
-  type: fragment
-  id: activeOnly
-}
-*/
-AND u.active = 1
-",
-    );
+    let first_path = project_dir.join("sql").join("nested").join("a_first.sql");
+    let second_path = project_dir.join("sql").join("z_second.sql");
     write_sql(
         &second_path,
         r"
@@ -593,9 +581,21 @@ AND u.active = 1
 AND u.deleted_at IS NULL
 ",
     );
+    write_sql(
+        &first_path,
+        r"
+/* @sqlay
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND u.active = 1
+",
+    );
     let plan = compilation_plan(
         &project_dir,
-        vec![project_dir.join("sql/**/*.sql")],
+        vec![second_path.clone(), first_path.clone()],
         Vec::new(),
     );
 
@@ -606,7 +606,13 @@ AND u.deleted_at IS NULL
     assert_duplicate_source_unit_report(
         &report,
         &second_path,
-        "duplicate fragment id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
+        "duplicate fragment id `activeOnly`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
+    );
+    assert_eq!(
+        report.diagnostics()[1]
+            .location()
+            .and_then(core::SourceLocation::path),
+        Some(first_path.as_path())
     );
     fs::remove_dir_all(project_dir).expect("test project directory should be removed");
 }
@@ -653,7 +659,7 @@ AND u.active = 1
     assert_duplicate_source_unit_report(
         &report,
         &fragment_path,
-        "duplicate source unit id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
+        "duplicate source unit id `activeOnly`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
     );
     fs::remove_dir_all(project_dir).expect("test project directory should be removed");
 }
@@ -713,10 +719,10 @@ AND u.active = 1
     assert_eq!(
         diagnostic_messages(&report),
         [
-            "duplicate source unit id `sharedUnit`; query, mutation, and fragment IDs must be unique across the full compile run",
-            "first declared here",
-            "duplicate source unit id `sharedUnit`; query, mutation, and fragment IDs must be unique across the full compile run",
-            "first declared here",
+            "duplicate source unit id `sharedUnit`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
+            "first declaration in source order is here",
+            "duplicate source unit id `sharedUnit`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
+            "first declaration in source order is here",
         ]
     );
     assert_eq!(
@@ -780,7 +786,7 @@ SELECT id FROM users;
     assert_duplicate_source_unit_report(
         &report,
         &source_path,
-        "duplicate source unit id `activeOnly`; query, mutation, and fragment IDs must be unique across the full compile run",
+        "duplicate source unit id `activeOnly`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
     );
     assert_eq!(
         report.diagnostics()[0]
@@ -856,8 +862,8 @@ SELECT id FROM archived_users;
         diagnostic_messages(&report),
         [
             "`cardinality: exec` is reserved for future non-SELECT support and is not currently supported",
-            "duplicate query id `listUsers`; query, mutation, and fragment IDs must be unique across the full compile run",
-            "first declared here",
+            "duplicate query id `listUsers`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
+            "first declaration in source order is here",
         ]
     );
     assert_eq!(

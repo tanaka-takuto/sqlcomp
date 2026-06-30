@@ -309,7 +309,10 @@ fn check_reports_multiple_source_intake_diagnostics_in_one_run() {
         stderr.contains("duplicate query id `duplicatedQuery`"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("first declared here"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("first declaration in source order is here"),
+        "stderr: {stderr}"
+    );
     assert!(
         stderr.contains("`cardinality: exec` is reserved for future non-SELECT support"),
         "stderr: {stderr}"

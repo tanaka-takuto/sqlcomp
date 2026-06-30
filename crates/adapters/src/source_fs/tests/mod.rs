@@ -14,7 +14,7 @@ fn assert_duplicate_query_report(report: &core::DiagnosticReport, duplicate_path
     assert_duplicate_source_unit_report(
         report,
         duplicate_path,
-        "duplicate query id `listUsers`; query, mutation, and fragment IDs must be unique across the full compile run",
+        "duplicate query id `listUsers`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
     );
 }
 
@@ -31,7 +31,10 @@ fn assert_duplicate_source_unit_report(
             .and_then(core::SourceLocation::path),
         Some(duplicate_path)
     );
-    assert_eq!(report.diagnostics()[1].message(), "first declared here");
+    assert_eq!(
+        report.diagnostics()[1].message(),
+        "first declaration in source order is here"
+    );
 }
 
 fn diagnostic_messages(report: &core::DiagnosticReport) -> Vec<&str> {
