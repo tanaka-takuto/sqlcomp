@@ -22,6 +22,8 @@ MySQL-specific operation with delete-plus-insert semantics.
 The generated files under `generated/` are committed expected artifacts. They are
 regenerated and compared byte for byte by the examples check.
 
-See [`../../docs/mutation-execution.md`](../../docs/mutation-execution.md) for
-`mysql2/promise` execution examples that use these generated builders without
-adding driver-specific code to the generated TypeScript.
+See [`../../docs/query-execution.md`](../../docs/query-execution.md) for a minimal
+`mysql2/promise` SELECT execution example, and
+[`../../docs/mutation-execution.md`](../../docs/mutation-execution.md) for mutation
+execution examples that use these generated builders without adding
+driver-specific code to the generated TypeScript.
