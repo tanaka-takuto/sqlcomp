@@ -69,7 +69,7 @@ async fn fetch_current_database_schema_columns(
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
-        "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name, DATA_TYPE AS type_name, COLUMN_TYPE AS column_type \
+        "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name, COLUMN_TYPE AS column_type \
          FROM information_schema.columns \
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({placeholders})"
     );
@@ -85,10 +85,9 @@ async fn fetch_current_database_schema_columns(
         .map(|row| {
             let table_name: String = row.get("table_name");
             let column_name: String = row.get("column_name");
-            let type_name: String = row.get("type_name");
             let column_type: String = row.get("column_type");
 
-            current_database_schema_column(table_name, column_name, &type_name, column_type)
+            current_database_schema_column(table_name, column_name, column_type)
         })
         .collect())
 }
@@ -117,7 +116,7 @@ async fn fetch_explicit_database_schema_columns(
             .collect::<Vec<_>>()
             .join(" OR ");
     let sql = format!(
-        "SELECT TABLE_SCHEMA AS database_name, TABLE_NAME AS table_name, COLUMN_NAME AS column_name, DATA_TYPE AS type_name, COLUMN_TYPE AS column_type \
+        "SELECT TABLE_SCHEMA AS database_name, TABLE_NAME AS table_name, COLUMN_NAME AS column_name, COLUMN_TYPE AS column_type \
          FROM information_schema.columns \
          WHERE {conditions}"
     );
@@ -134,16 +133,9 @@ async fn fetch_explicit_database_schema_columns(
             let database_name: String = row.get("database_name");
             let table_name: String = row.get("table_name");
             let column_name: String = row.get("column_name");
-            let type_name: String = row.get("type_name");
             let column_type: String = row.get("column_type");
 
-            explicit_database_schema_column(
-                database_name,
-                table_name,
-                column_name,
-                &type_name,
-                column_type,
-            )
+            explicit_database_schema_column(database_name, table_name, column_name, column_type)
         })
         .collect())
 }
@@ -151,30 +143,25 @@ async fn fetch_explicit_database_schema_columns(
 fn current_database_schema_column(
     table_name: String,
     column_name: String,
-    type_name: &str,
     column_type: String,
 ) -> MysqlSchemaColumn {
-    MysqlSchemaColumn::new_current_database(
-        table_name,
-        column_name,
-        column_type,
-        mysql_type_name_to_core_type(type_name),
-    )
+    let ty = mysql_type_name_to_core_type(&column_type);
+    MysqlSchemaColumn::new_current_database(table_name, column_name, column_type, ty)
 }
 
 fn explicit_database_schema_column(
     database_name: String,
     table_name: String,
     column_name: String,
-    type_name: &str,
     column_type: String,
 ) -> MysqlSchemaColumn {
+    let ty = mysql_type_name_to_core_type(&column_type);
     MysqlSchemaColumn::new_explicit_database(
         database_name,
         table_name,
         column_name,
         column_type,
-        mysql_type_name_to_core_type(type_name),
+        ty,
     )
 }
 
@@ -304,12 +291,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_database_schema_column_uses_type_name_and_preserves_column_type() {
+    fn current_database_schema_column_uses_column_type_details_for_core_type() {
         let column = current_database_schema_column(
             "orders".to_owned(),
             "quantity".to_owned(),
-            "bigint",
-            "bigint unsigned".to_owned(),
+            "int unsigned".to_owned(),
         );
 
         assert_eq!(
@@ -317,17 +303,16 @@ mod tests {
             MysqlSchemaTableRef::current_database("orders")
         );
         assert_eq!(column.column_name, "quantity");
-        assert_eq!(column.column_type, "bigint unsigned");
+        assert_eq!(column.column_type, "int unsigned");
         assert_eq!(column.ty, core::CoreType::Int64);
     }
 
     #[test]
-    fn explicit_database_schema_column_uses_type_name_and_preserves_column_type() {
+    fn explicit_database_schema_column_uses_column_type_details_for_core_type() {
         let column = explicit_database_schema_column(
             "billing".to_owned(),
             "orders".to_owned(),
             "quantity".to_owned(),
-            "bigint",
             "bigint unsigned".to_owned(),
         );
 
@@ -337,6 +322,6 @@ mod tests {
         );
         assert_eq!(column.column_name, "quantity");
         assert_eq!(column.column_type, "bigint unsigned");
-        assert_eq!(column.ty, core::CoreType::Int64);
+        assert_eq!(column.ty, core::CoreType::Unknown);
     }
 }
