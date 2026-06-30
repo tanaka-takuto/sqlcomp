@@ -12,8 +12,10 @@ mod query;
 mod reporting;
 
 pub use config::{
-    DatabaseConfig, DatabaseDialect, OutputConfig, ProjectConfig, SourceConfig, TargetConfig,
-    TargetLanguage,
+    BuilderTypeOverrides, ColumnTypeOverride, ColumnTypeReference, CoreTypeOverride,
+    DatabaseConfig, DatabaseDialect, NamedTypeOverride, OutputConfig, ProjectConfig,
+    RepeatTypeOverrides, SourceConfig, TargetConfig, TargetLanguage, TypeScriptTargetConfig,
+    TypeScriptTypeImport, TypeScriptTypeMappingConfig, TypeScriptTypeOverride,
 };
 pub use generated::{GENERATED_FILE_HEADER, GeneratedFile, GeneratedFiles};
 pub use ir::{

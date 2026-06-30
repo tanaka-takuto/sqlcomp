@@ -7,6 +7,7 @@ mod paths;
 mod raw;
 #[cfg(test)]
 mod tests;
+mod type_mapping;
 mod validation;
 
 use std::fs;

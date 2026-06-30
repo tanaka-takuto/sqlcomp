@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,4 +34,19 @@ pub(super) struct RawDatabaseConfig {
 #[serde(deny_unknown_fields)]
 pub(super) struct RawTargetConfig {
     pub(super) language: Option<String>,
+    pub(super) typescript: Option<RawTypeScriptTargetConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(super) struct RawTypeScriptTargetConfig {
+    pub(super) type_mapping: Option<RawTypeScriptTypeMappingConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RawTypeScriptTypeMappingConfig {
+    pub(super) core: Option<Value>,
+    pub(super) columns: Option<Value>,
+    pub(super) builders: Option<Value>,
 }

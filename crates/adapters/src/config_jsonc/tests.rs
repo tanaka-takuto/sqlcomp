@@ -71,6 +71,155 @@ mod parser {
     }
 
     #[test]
+    fn parses_typescript_type_mapping_config() {
+        let config = JsoncConfigLoader::parse_str(
+            r#"
+{
+  "source": { "include": ["sql/**/*.sql"] },
+  "output": { "dir": "src/generated/sqlay" },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "typescript",
+    "typescript": {
+      "typeMapping": {
+        "core": {
+          "decimal": "number",
+          "int64": "number"
+        },
+        "columns": {
+          "orders.total_amount": {
+            "type": "MoneyAmount",
+            "import": {
+              "from": "@/domain/money",
+              "name": "MoneyAmount"
+            }
+          },
+          "billing.orders.status": "BillingOrderStatus"
+        },
+        "builders": {
+          "listOrders": {
+            "fields": {
+              "totalAmount": "MoneyAmount"
+            },
+            "params": {
+              "minimumAmount": {
+                "type": "MoneyAmount",
+                "import": {
+                  "from": "@/domain/money",
+                  "name": "MoneyAmount"
+                }
+              }
+            },
+            "repeats": {
+              "lineItems": {
+                "fields": {
+                  "unitPrice": "MoneyAmount"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("TypeScript type mapping config should parse");
+        let mapping = config.target().typescript().type_mapping();
+
+        assert_core_type_mapping(mapping);
+        assert_column_type_mapping(mapping);
+        assert_builder_type_mapping(mapping);
+    }
+
+    fn assert_core_type_mapping(mapping: &core::TypeScriptTypeMappingConfig) {
+        assert_eq!(mapping.core().len(), 2);
+        let decimal = mapping
+            .core()
+            .iter()
+            .find(|entry| entry.core_type() == core::CoreType::Decimal)
+            .expect("decimal override should be parsed");
+        assert_eq!(decimal.type_override().type_name(), "number");
+        let int64 = mapping
+            .core()
+            .iter()
+            .find(|entry| entry.core_type() == core::CoreType::Int64)
+            .expect("int64 override should be parsed");
+        assert_eq!(int64.type_override().type_name(), "number");
+    }
+
+    fn assert_column_type_mapping(mapping: &core::TypeScriptTypeMappingConfig) {
+        assert_eq!(mapping.columns().len(), 2);
+        let total_amount = mapping
+            .columns()
+            .iter()
+            .find(|column| column.reference().column() == "total_amount")
+            .expect("table.column override should be parsed");
+        assert_eq!(total_amount.reference().database(), None);
+        assert_eq!(total_amount.reference().table(), "orders");
+        assert_eq!(total_amount.reference().column(), "total_amount");
+        let column_import = total_amount
+            .type_override()
+            .import()
+            .expect("column override should carry import metadata");
+        assert_eq!(column_import.from(), "@/domain/money");
+        assert_eq!(column_import.name(), "MoneyAmount");
+        let status = mapping
+            .columns()
+            .iter()
+            .find(|column| column.reference().column() == "status")
+            .expect("database.table.column override should be parsed");
+        assert_eq!(status.reference().database(), Some("billing"));
+        assert_eq!(status.reference().table(), "orders");
+        assert_eq!(status.reference().column(), "status");
+    }
+
+    fn assert_builder_type_mapping(mapping: &core::TypeScriptTypeMappingConfig) {
+        assert_eq!(mapping.builders().len(), 1);
+        let builder = mapping
+            .builders()
+            .iter()
+            .find(|entry| entry.builder_id() == "listOrders")
+            .expect("builder override should be parsed");
+        let total_amount_field = builder
+            .fields()
+            .iter()
+            .find(|field| field.name() == "totalAmount")
+            .expect("builder field override should be parsed");
+        assert_eq!(
+            total_amount_field.type_override().type_name(),
+            "MoneyAmount"
+        );
+        let minimum_amount = builder
+            .params()
+            .iter()
+            .find(|param| param.name() == "minimumAmount")
+            .expect("builder param override should be parsed");
+        assert_eq!(minimum_amount.type_override().type_name(), "MoneyAmount");
+        let minimum_amount_import = minimum_amount
+            .type_override()
+            .import()
+            .expect("builder param override should carry import metadata");
+        assert_eq!(minimum_amount_import.from(), "@/domain/money");
+        assert_eq!(minimum_amount_import.name(), "MoneyAmount");
+        let line_items = builder
+            .repeats()
+            .iter()
+            .find(|repeat| repeat.repeat_id() == "lineItems")
+            .expect("repeat override should be parsed");
+        let unit_price = line_items
+            .fields()
+            .iter()
+            .find(|field| field.name() == "unitPrice")
+            .expect("repeat field override should be parsed");
+        assert_eq!(unit_price.type_override().type_name(), "MoneyAmount");
+    }
+
+    #[test]
     fn rejects_unknown_fields() {
         let report = JsoncConfigLoader::parse_str(
             r#"
@@ -157,6 +306,108 @@ mod validation {
         assert!(messages.contains(
             "unsupported config field `target.language` value `go`; supported value is `typescript`"
         ));
+    }
+
+    #[test]
+    fn skips_typescript_validation_when_target_language_is_invalid() {
+        let report = JsoncConfigLoader::parse_str(
+            r#"
+{
+  "source": { "include": ["sql/**/*.sql"] },
+  "output": { "dir": "src/generated/sqlay" },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "go",
+    "typescript": {
+      "typeMapping": {
+        "core": {
+          "money": "MoneyAmount"
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect_err("unsupported target language should be rejected");
+        let messages = diagnostic_messages(&report);
+
+        assert!(messages.contains(
+            "unsupported config field `target.language` value `go`; supported value is `typescript`"
+        ));
+        assert!(!messages.contains("target.typescript"));
+    }
+
+    #[test]
+    fn rejects_invalid_typescript_type_mapping_config() {
+        let report = JsoncConfigLoader::parse_str(
+            r#"
+{
+  "source": { "include": ["sql/**/*.sql"] },
+  "output": { "dir": "src/generated/sqlay" },
+  "database": {
+    "dialect": "mysql",
+    "urlEnv": "DATABASE_URL"
+  },
+  "target": {
+    "language": "typescript",
+    "typescript": {
+      "typeMapping": {
+        "core": {
+          "money": "MoneyAmount"
+        },
+        "columns": {
+          "orders": "OrderType"
+        },
+        "builders": {
+          "listOrders": {
+            "fields": {
+              "totalAmount": {
+                "type": "MoneyAmount | null"
+              }
+            },
+            "params": {
+              "minimumAmount": {
+                "type": "MoneyAmount",
+                "import": {
+                  "from": "./money",
+                  "name": "Amount",
+                  "alias": "Money"
+                },
+                "nullable": true
+              }
+            },
+            "repeats": {
+              "lineItems": {
+                "params": {
+                  "unitPrice": "MoneyAmount"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect_err("invalid TypeScript type mapping config should be rejected");
+        let messages = diagnostic_messages(&report);
+
+        assert!(messages.contains("unsupported config field `target.typescript.typeMapping.core.money`; supported core type keys are `bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, `json`, and `unknown`"));
+        assert!(messages.contains(
+            "config field `target.typescript.typeMapping.columns.orders` must use `table.column` or `database.table.column`"
+        ));
+        assert!(messages.contains("config field `target.typescript.typeMapping.builders.listOrders.fields.totalAmount.type` value `MoneyAmount | null` must be a supported TypeScript primitive or portable type identifier matching `^[A-Za-z_][A-Za-z0-9_]*$`"));
+        assert!(messages.contains("config field `target.typescript.typeMapping.builders.listOrders.params.minimumAmount.import.from` value `./money` must be a non-relative module specifier"));
+        assert!(messages.contains("config field `target.typescript.typeMapping.builders.listOrders.params.minimumAmount.import.name` value `Amount` must match `type` value `MoneyAmount`; import aliases are not supported"));
+        assert!(messages.contains("unknown config field `target.typescript.typeMapping.builders.listOrders.params.minimumAmount.import.alias`; supported fields are `from` and `name`"));
+        assert!(messages.contains("unknown config field `target.typescript.typeMapping.builders.listOrders.params.minimumAmount.nullable`; supported fields are `type` and `import`"));
+        assert!(messages.contains("unknown config field `target.typescript.typeMapping.builders.listOrders.repeats.lineItems.params`; supported fields are `fields`"));
     }
 }
 
