@@ -91,6 +91,7 @@ fn no_args_prints_top_level_help() {
     );
     assert!(stdout.contains("ordinary SQL comments"), "stdout: {stdout}");
     assert!(stdout.contains("raw `?` placeholders"), "stdout: {stdout}");
+    assert!(stdout.contains("--format <human|json>"), "stdout: {stdout}");
     assert!(
         stdout.contains("JSON rendering is not yet available in this slice"),
         "stdout: {stdout}"
