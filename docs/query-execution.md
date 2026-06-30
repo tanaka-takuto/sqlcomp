@@ -13,7 +13,8 @@ The example below uses the generated `findBookDetail` builder from
 
 Read the same environment variable configured by `database.urlEnv`, pass the
 generated SQL and params to `mysql2`, and keep row typing tied to the generated
-builder types:
+builder types. The bookstore example config uses `DATABASE_URL`; pass a different
+name when your project sets a different `database.urlEnv` value.
 
 ```ts
 import mysql, {
@@ -29,10 +30,10 @@ import {
 
 type FindBookDetailMysqlRow = findBookDetail_Row & RowDataPacket;
 
-function readDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL;
+function readDatabaseUrl(envName: string): string {
+  const databaseUrl = process.env[envName];
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required");
+    throw new Error(`${envName} is required`);
   }
   return databaseUrl;
 }
@@ -50,7 +51,7 @@ async function loadBookDetail(
 }
 
 async function main(): Promise<void> {
-  const pool = mysql.createPool(readDatabaseUrl());
+  const pool = mysql.createPool(readDatabaseUrl("DATABASE_URL"));
 
   try {
     const book = await loadBookDetail(pool, { isbn: "9780441478125" });
