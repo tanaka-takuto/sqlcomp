@@ -27,6 +27,19 @@ fn init_writes_starter_config_to_current_directory() {
         stdout.contains("DATABASE_URL=... sqlay check"),
         "stdout: {stdout}"
     );
+    assert!(
+        stdout.contains("export DATABASE_URL=..."),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("database.urlEnv"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("sqlay does not load .env files automatically"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("searches from the current working directory upward"),
+        "stdout: {stdout}"
+    );
     assert!(stdout.contains("/* @sqlay"), "stdout: {stdout}");
     assert!(stdout.contains("type: query"), "stdout: {stdout}");
     assert!(stdout.contains("id: listUsers"), "stdout: {stdout}");
