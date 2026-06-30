@@ -14,9 +14,18 @@ fn assert_param_marker_guidance(stdout: &str) {
         "stdout: {stdout}"
     );
     assert!(
+        stdout.contains("type: param id: active valueType: bool nullable: true"),
+        "stdout: {stdout}"
+    );
+    assert!(
         stdout.contains("createdBefore: string | null;"),
         "stdout: {stdout}"
     );
+    assert!(
+        stdout.contains("active: boolean | null;"),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("TRUE"), "stdout: {stdout}");
     assert!(
         stdout.contains("valueType values: bool, int32, int64, float64, decimal, string, bytes, date, time, datetime, json"),
         "stdout: {stdout}"
