@@ -22,3 +22,17 @@
   AND b.format = /* @sqlay { type: param id: format } */
     'paperback'
     /* @sqlay { type: paramEnd } */
+
+/* @sqlay
+{
+  type: fragment
+  id: byBookIds
+}
+*/
+  AND b.id IN (
+    /* @sqlay { type: repeat id: ids separator: ", " } */
+    /* @sqlay { type: param id: id valueType: int64 } */
+    100
+    /* @sqlay { type: paramEnd } */
+    /* @sqlay { type: repeatEnd } */
+  )

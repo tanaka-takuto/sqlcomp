@@ -6,6 +6,9 @@ export type listAvailableBooks_Input = {
   discoveryFilter?: { $fragment: "staffPicksOnly" } | {
     $fragment: "byBookFormat";
     format: string;
+  } | {
+    $fragment: "byBookIds";
+    ids: readonly [{ id: string }, ...{ id: string }[]];
   };
 };
 
@@ -25,19 +28,37 @@ export type listAvailableBooks_Row = {
 export type listAvailableBooks_Output = listAvailableBooks_Row[];
 
 export function listAvailableBooks(
-  _input: listAvailableBooks_Input = {},
+  input: listAvailableBooks_Input,
 ): { sql: string; params: readonly SqlParam[] } {
   const sqlParts: string[] = [];
   const params: SqlParam[] = [];
 
   sqlParts.push("\nSELECT\n  b.id AS bookId,\n  b.isbn AS isbn,\n  b.title AS title,\n  a.display_name AS authorName,\n  b.format AS format,\n  b.price AS price,\n  b.stock_quantity AS stockQuantity,\n  COALESCE(ROUND(AVG(r.rating), 2), 0) AS averageRating,\n  COUNT(r.id) AS reviewCount,\n  CASE\n    WHEN b.stock_quantity = 0 THEN 'sold_out'\n    WHEN b.stock_quantity <= b.reorder_level THEN 'low_stock'\n    ELSE 'available'\n  END AS availability\nFROM bookstore_books AS b\nINNER JOIN bookstore_authors AS a\n  ON a.id = b.author_id\nLEFT JOIN bookstore_reviews AS r\n  ON r.book_id = b.id\n  AND r.approved = 1\nWHERE b.stock_quantity > 0\n");
-  switch (_input.discoveryFilter?.$fragment) {
+  switch (input.discoveryFilter?.$fragment) {
     case "staffPicksOnly":
       sqlParts.push("\n  AND EXISTS (\n    SELECT 1\n    FROM bookstore_book_categories AS filter_bc\n    INNER JOIN bookstore_categories AS filter_c\n      ON filter_c.id = filter_bc.category_id\n    WHERE filter_bc.book_id = b.id\n      AND filter_c.slug = 'staff-picks'\n  )\n\n");
       break;
     case "byBookFormat":
-      sqlParts.push("\n  AND b.format = ?\n");
-      params.push(_input.discoveryFilter.format);
+      sqlParts.push("\n  AND b.format = ?\n\n");
+      params.push(input.discoveryFilter.format);
+      break;
+    case "byBookIds":
+      if (input.discoveryFilter.ids.length === 0) {
+        throw new Error("Repeat `ids` requires at least one item");
+      }
+      sqlParts.push("\n  AND b.id IN (\n    ");
+      {
+        let repeatIndex = 0;
+        for (const repeatItem of input.discoveryFilter.ids) {
+          if (repeatIndex > 0) {
+            sqlParts.push(", ");
+          }
+          sqlParts.push("\n    ?\n    ");
+          params.push(repeatItem.id);
+          repeatIndex += 1;
+        }
+      }
+      sqlParts.push("\n  )\n");
       break;
   }
   sqlParts.push("\nGROUP BY\n  b.id,\n  b.isbn,\n  b.title,\n  a.display_name,\n  b.format,\n  b.price,\n  b.stock_quantity,\n  b.reorder_level\nORDER BY b.title;\n\n");
@@ -105,6 +126,9 @@ export type listTopRatedBooks_Input = {
   discoveryFilter?: { $fragment: "staffPicksOnly" } | {
     $fragment: "byBookFormat";
     format: string;
+  } | {
+    $fragment: "byBookIds";
+    ids: readonly [{ id: string }, ...{ id: string }[]];
   };
 };
 
@@ -119,19 +143,37 @@ export type listTopRatedBooks_Row = {
 export type listTopRatedBooks_Output = listTopRatedBooks_Row[];
 
 export function listTopRatedBooks(
-  _input: listTopRatedBooks_Input = {},
+  input: listTopRatedBooks_Input,
 ): { sql: string; params: readonly SqlParam[] } {
   const sqlParts: string[] = [];
   const params: SqlParam[] = [];
 
   sqlParts.push("\nSELECT\n  b.id AS bookId,\n  b.title AS title,\n  a.display_name AS authorName,\n  COUNT(r.id) AS reviewCount,\n  AVG(r.rating) AS averageRating\nFROM bookstore_books AS b\nINNER JOIN bookstore_authors AS a\n  ON a.id = b.author_id\nINNER JOIN bookstore_reviews AS r\n  ON r.book_id = b.id\n  AND r.approved = 1\nWHERE 1 = 1\n");
-  switch (_input.discoveryFilter?.$fragment) {
+  switch (input.discoveryFilter?.$fragment) {
     case "staffPicksOnly":
       sqlParts.push("\n  AND EXISTS (\n    SELECT 1\n    FROM bookstore_book_categories AS filter_bc\n    INNER JOIN bookstore_categories AS filter_c\n      ON filter_c.id = filter_bc.category_id\n    WHERE filter_bc.book_id = b.id\n      AND filter_c.slug = 'staff-picks'\n  )\n\n");
       break;
     case "byBookFormat":
-      sqlParts.push("\n  AND b.format = ?\n");
-      params.push(_input.discoveryFilter.format);
+      sqlParts.push("\n  AND b.format = ?\n\n");
+      params.push(input.discoveryFilter.format);
+      break;
+    case "byBookIds":
+      if (input.discoveryFilter.ids.length === 0) {
+        throw new Error("Repeat `ids` requires at least one item");
+      }
+      sqlParts.push("\n  AND b.id IN (\n    ");
+      {
+        let repeatIndex = 0;
+        for (const repeatItem of input.discoveryFilter.ids) {
+          if (repeatIndex > 0) {
+            sqlParts.push(", ");
+          }
+          sqlParts.push("\n    ?\n    ");
+          params.push(repeatItem.id);
+          repeatIndex += 1;
+        }
+      }
+      sqlParts.push("\n  )\n");
       break;
   }
   sqlParts.push("\nGROUP BY\n  b.id,\n  b.title,\n  a.display_name\nHAVING COUNT(r.id) >= 1\nORDER BY averageRating DESC, reviewCount DESC, b.title\nLIMIT 10;\n");

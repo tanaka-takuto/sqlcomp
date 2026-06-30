@@ -5,7 +5,7 @@ SQL Inlay.
 `sqlay` is a Rust CLI for writing plain SQL files while generating typed target
 language builders. The current supported workflow focuses on MySQL 8.x `SELECT`
 queries, MySQL mutation builders, inline `Param` value binding, Slot/Fragment
-composition, and TypeScript SQL builder generation.
+composition, Repeat list expansion, and TypeScript SQL builder generation.
 
 ## Why sqlay?
 
@@ -250,6 +250,68 @@ case limit. Slot expansion variants and Repeat representative cases both
 contribute to that count. All Slot variants must keep the same result row shape and
 effective cardinality as the all-slots-unselected base variant. Fragment-local
 slots and required slots are reserved for future work.
+
+## Repeat Lists
+
+Use paired inline `repeat` and `repeatEnd` markers when one SQL list item should be
+expanded from a caller-provided array. The Repeat range wraps one item template;
+ordinary SQL owns the surrounding list syntax such as `IN (` and `)`.
+
+```sql
+AND b.id IN (
+  /* @sqlay { type: repeat id: ids separator: ", " } */
+  /* @sqlay { type: param id: id valueType: int64 } */
+  100
+  /* @sqlay { type: paramEnd } */
+  /* @sqlay { type: repeatEnd } */
+)
+```
+
+Generated Repeat inputs are non-empty readonly arrays of item objects. Even a
+single-Param Repeat item uses an object item instead of a scalar array:
+
+```ts
+export type listBooks_Input = {
+  ids: readonly [{ id: string }, ...{ id: string }[]];
+};
+
+listBooks({ ids: [{ id: "100" }, { id: "102" }] });
+```
+
+Generated builders also reject empty arrays at runtime, so JavaScript callers or
+`any` casts cannot produce invalid SQL such as `IN ()`. Repeat does not define
+`maxItems` in the initial design; database and driver limits for very large input
+arrays remain caller responsibility.
+
+For bulk `VALUES`, put the Repeat range around one row tuple and provide the comma
+separator explicitly as raw SQL text:
+
+```sql
+INSERT INTO bookstore_order_items (
+  order_id,
+  book_id,
+  quantity
+) VALUES
+/* @sqlay { type: repeat id: items separator: "," } */
+(
+  /* @sqlay { type: param id: orderId } */
+  5000
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: bookId } */
+  100
+  /* @sqlay { type: paramEnd } */,
+  /* @sqlay { type: param id: quantity } */
+  1
+  /* @sqlay { type: paramEnd } */
+)
+/* @sqlay { type: repeatEnd } */;
+```
+
+`separator` is required and inserted exactly as raw SQL text between expanded
+items; sqlay does not infer commas, spaces, or newlines. Repeat can appear in
+SELECT queries, mutation builders, and fragments selected through Slots. It
+changes SQL builder input and parameter emission only; it is not a generated
+execution or batch helper.
 
 ## Local MySQL
 

@@ -36,6 +36,9 @@ where near-term work should point. The original MVP remains documented in
 - Initial SELECT `Slot`/`Fragment` composition as defined by
   [ADR 0009](./adr/0009-define-initial-select-slot-fragment-support.md), including
   validation variants, Slot input types, and runtime TypeScript SQL branch builders.
+- Variable-length SQL `Repeat` composition as defined by
+  [ADR 0011](./adr/0011-define-repeat-for-variable-length-sql-repetition.md),
+  including dynamic `IN` lists, bulk `VALUES` rows, and fragments selected by Slots.
 
 Generated TypeScript builders return SQL text and parameter arrays. They do not
 execute queries or mutations and do not depend on a database driver.
@@ -128,8 +131,8 @@ variant.
 ## Accepted Repeat Direction
 
 [ADR 0011](./adr/0011-define-repeat-for-variable-length-sql-repetition.md) defines
-the accepted direction for `Repeat`, a future variable-length SQL repetition
-feature for dynamic `IN` lists and bulk `VALUES` rows.
+the accepted direction for `Repeat`, a variable-length SQL repetition feature for
+dynamic `IN` lists and bulk `VALUES` rows.
 
 Repeat uses paired inline `repeat` and `repeatEnd` markers around one list item
 template. The surrounding list syntax remains ordinary SQL:

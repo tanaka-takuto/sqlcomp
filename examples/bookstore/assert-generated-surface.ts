@@ -12,6 +12,7 @@ import {
 } from "./generated/sql/books";
 import {
   createOrder,
+  type createOrderItems_Input,
   createOrderItems,
   deleteUnapprovedReview,
   findOrderById,
@@ -33,7 +34,7 @@ import {
   type listUnreviewedPurchases_Output,
 } from "./generated/sql/orders";
 
-const availableBooksQuery = listAvailableBooks();
+const availableBooksQuery = listAvailableBooks({});
 const availableBooksSql: string = availableBooksQuery.sql;
 const availableBooksParams: readonly unknown[] = availableBooksQuery.params;
 const availableBooksOutput: listAvailableBooks_Output = [];
@@ -43,6 +44,13 @@ const availableBooksByFormatQuery = listAvailableBooks({
 const availableBooksStaffPicksInput: listAvailableBooks_Input = {
   discoveryFilter: { $fragment: "staffPicksOnly" },
 };
+const availableBooksByIdsInput: listAvailableBooks_Input = {
+  discoveryFilter: {
+    $fragment: "byBookIds",
+    ids: [{ id: "100" }, { id: "102" }],
+  },
+};
+const availableBooksByIdsQuery = listAvailableBooks(availableBooksByIdsInput);
 
 const bookDetailQuery = findBookDetail({ isbn: "9780441478125" });
 const bookDetailSql: string = bookDetailQuery.sql;
@@ -58,6 +66,12 @@ const topRatedQuery = listTopRatedBooks({
 const topRatedOutput: listTopRatedBooks_Output = [];
 const topRatedByFormatInput: listTopRatedBooks_Input = {
   discoveryFilter: { $fragment: "byBookFormat", format: "ebook" },
+};
+const topRatedByIdsInput: listTopRatedBooks_Input = {
+  discoveryFilter: {
+    $fragment: "byBookIds",
+    ids: [{ id: "100" }],
+  },
 };
 
 const customerOrdersQuery = listCustomerOrders();
@@ -106,17 +120,26 @@ const markOrderPaidMutation = markOrderPaid({
   orderNumber: "BK-2000",
 });
 const deleteReviewMutation = deleteUnapprovedReview({ reviewId: "7003" });
-const orderItemsMutation = createOrderItems({
-  orderId: "5004",
-  firstBookId: "100",
-  firstQuantity: 1,
-  firstUnitPrice: "16.99",
-  firstDiscountAmount: null,
-  secondBookId: "102",
-  secondQuantity: 1,
-  secondUnitPrice: "18.00",
-  secondDiscountAmount: "2.00",
-});
+const orderItemsInput: createOrderItems_Input = {
+  items: [
+    {
+      orderId: "5004",
+      bookId: "100",
+      quantity: 1,
+      unitPrice: "16.99",
+      discountAmount: null,
+    },
+    {
+      orderId: "5004",
+      bookId: "102",
+      quantity: 1,
+      unitPrice: "18.00",
+      discountAmount: "2.00",
+    },
+  ],
+};
+const orderItemsMutation = createOrderItems(orderItemsInput);
+const orderItemsParams: readonly unknown[] = orderItemsMutation.params;
 const upsertOrderStatusMutation = upsertOrderStatus({
   customerId: "1000",
   orderNumber: "BK-2001",
@@ -137,6 +160,7 @@ void availableBooksParams;
 void availableBooksOutput;
 void availableBooksByFormatQuery;
 void availableBooksStaffPicksInput;
+void availableBooksByIdsQuery;
 void bookDetailSql;
 void bookDetailParams;
 void bookDetailOutput;
@@ -145,6 +169,7 @@ void restockOutput;
 void topRatedQuery;
 void topRatedOutput;
 void topRatedByFormatInput;
+void topRatedByIdsInput;
 void customerOrdersQuery;
 void customerOrdersOutput;
 void latestOrderQuery;
@@ -162,5 +187,6 @@ void upsertedOrderOutput;
 void markOrderPaidMutation;
 void deleteReviewMutation;
 void orderItemsMutation;
+void orderItemsParams;
 void upsertOrderStatusMutation;
 void replaceCategoryMutation;

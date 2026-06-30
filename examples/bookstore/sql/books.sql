@@ -26,7 +26,7 @@ LEFT JOIN bookstore_reviews AS r
   ON r.book_id = b.id
   AND r.approved = 1
 WHERE b.stock_quantity > 0
-/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
+/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat, byBookIds] } */
 GROUP BY
   b.id,
   b.isbn,
@@ -122,7 +122,7 @@ INNER JOIN bookstore_reviews AS r
   ON r.book_id = b.id
   AND r.approved = 1
 WHERE 1 = 1
-/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat] } */
+/* @sqlay { type: slot id: discoveryFilter targets: [staffPicksOnly, byBookFormat, byBookIds] } */
 GROUP BY
   b.id,
   b.title,

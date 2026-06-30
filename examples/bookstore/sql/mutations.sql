@@ -133,39 +133,26 @@ INSERT INTO bookstore_order_items (
   quantity,
   unit_price,
   discount_amount
-) VALUES (
+) VALUES
+/* @sqlay { type: repeat id: items separator: "," } */
+(
   /* @sqlay { type: param id: orderId } */
   5000
   /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: firstBookId } */
+  /* @sqlay { type: param id: bookId } */
   100
   /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: firstQuantity } */
+  /* @sqlay { type: param id: quantity } */
   1
   /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: firstUnitPrice } */
+  /* @sqlay { type: param id: unitPrice } */
   16.99
   /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: firstDiscountAmount nullable: true } */
+  /* @sqlay { type: param id: discountAmount nullable: true } */
   0.00
   /* @sqlay { type: paramEnd } */
-), (
-  /* @sqlay { type: param id: orderId } */
-  5000
-  /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: secondBookId } */
-  102
-  /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: secondQuantity } */
-  1
-  /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: secondUnitPrice } */
-  18.00
-  /* @sqlay { type: paramEnd } */,
-  /* @sqlay { type: param id: secondDiscountAmount nullable: true } */
-  2.00
-  /* @sqlay { type: paramEnd } */
-);
+)
+/* @sqlay { type: repeatEnd } */;
 
 /* @sqlay
 {
