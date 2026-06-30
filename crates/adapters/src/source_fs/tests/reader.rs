@@ -567,20 +567,8 @@ SELECT id FROM archived_users;
 #[test]
 fn source_reader_rejects_duplicate_fragment_ids_across_files() {
     let project_dir = test_project_dir("duplicate-fragments-across-files");
-    let first_path = project_dir.join("sql").join("01_first.sql");
-    let second_path = project_dir.join("sql").join("02_second.sql");
-    write_sql(
-        &first_path,
-        r"
-/* @sqlay
-{
-  type: fragment
-  id: activeOnly
-}
-*/
-AND u.active = 1
-",
-    );
+    let first_path = project_dir.join("sql").join("nested").join("a_first.sql");
+    let second_path = project_dir.join("sql").join("z_second.sql");
     write_sql(
         &second_path,
         r"
@@ -593,9 +581,21 @@ AND u.active = 1
 AND u.deleted_at IS NULL
 ",
     );
+    write_sql(
+        &first_path,
+        r"
+/* @sqlay
+{
+  type: fragment
+  id: activeOnly
+}
+*/
+AND u.active = 1
+",
+    );
     let plan = compilation_plan(
         &project_dir,
-        vec![project_dir.join("sql/**/*.sql")],
+        vec![second_path.clone(), first_path.clone()],
         Vec::new(),
     );
 
@@ -607,6 +607,12 @@ AND u.deleted_at IS NULL
         &report,
         &second_path,
         "duplicate fragment id `activeOnly`; this declaration appears after the first declaration in source order; query, mutation, and fragment IDs must be unique across the full compile run",
+    );
+    assert_eq!(
+        report.diagnostics()[1]
+            .location()
+            .and_then(core::SourceLocation::path),
+        Some(first_path.as_path())
     );
     fs::remove_dir_all(project_dir).expect("test project directory should be removed");
 }
