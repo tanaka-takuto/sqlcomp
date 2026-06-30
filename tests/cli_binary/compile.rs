@@ -135,6 +135,10 @@ fn compile_clean_skips_stale_cleanup_when_source_include_matches_no_sql_files() 
         stderr.contains("skipped stale generated file cleanup because no SQL files matched"),
         "stderr: {stderr}"
     );
+    assert!(
+        stderr.contains("pass `--allow-empty-clean` with `--clean`"),
+        "stderr: {stderr}"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Matched 0 SQL files."), "stdout: {stdout}");
     assert!(

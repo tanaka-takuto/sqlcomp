@@ -625,3 +625,60 @@ fn compile_clean_writes_generated_files_and_removes_stale_files() {
     );
     assert_eq!(current_files, generated_files);
 }
+
+#[test]
+fn compile_clean_skips_stale_cleanup_for_empty_source_without_cli_remediation() {
+    let config = project_config(PathBuf::from("/tmp/sqlay-project"));
+    let calls = CallLog::default();
+    let source_reader =
+        FakeSourceReader::new(calls.clone()).with_source_read(SourceRead::default());
+    let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
+    let metadata_provider = FakeMetadataProvider::new(calls.clone());
+    let query_compiler = LoggingQueryCompiler::new(calls.clone());
+    let target_generator =
+        FakeTargetGenerator::new(calls.clone(), core::GeneratedFiles::new(Vec::new()));
+    let generated_file_writer = RecordingGeneratedFileWriter::new(calls);
+    let pipeline = CompilePipeline {
+        planner: &DefaultCompilationPlanner,
+        source_reader: &source_reader,
+        dialect_analyzer: &dialect_analyzer,
+        metadata_provider: &metadata_provider,
+        query_compiler: &query_compiler,
+        target_generator: &target_generator,
+        generated_file_writer: &generated_file_writer,
+    };
+
+    let outcome = DefaultCompileUseCase::compile_with_empty_source_and_clean_policies(
+        &config,
+        &pipeline,
+        true,
+        crate::EmptySourceSetPolicy::Warn,
+        crate::EmptySourceSetCleanPolicy::Skip,
+    )
+    .expect("compile --clean should skip cleanup for empty source sets");
+
+    let diagnostic_messages = outcome
+        .diagnostics()
+        .diagnostics()
+        .iter()
+        .map(core::Diagnostic::message)
+        .collect::<Vec<_>>();
+    assert!(diagnostic_messages.iter().any(|message| {
+        message.starts_with("source.include matched no SQL files after applying source.exclude")
+    }));
+    assert!(
+        diagnostic_messages
+            .contains(&"skipped stale generated file cleanup because no SQL files matched")
+    );
+    assert!(
+        !diagnostic_messages
+            .iter()
+            .any(|message| message.contains("--allow-empty-clean")),
+        "app-layer diagnostics must stay CLI-neutral: {diagnostic_messages:?}"
+    );
+    assert_eq!(outcome.stale_file_removal_count(), None);
+    assert!(
+        generated_file_writer.cleaned_files().is_none(),
+        "empty-source cleanup should not reach the generated file cleaner"
+    );
+}

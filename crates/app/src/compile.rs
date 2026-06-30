@@ -272,7 +272,7 @@ fn should_clean_stale_generated_files(
     }
 
     output.diagnostics.push(core::Diagnostic::warning(
-        "skipped stale generated file cleanup because no SQL files matched; pass `--allow-empty-clean` with `--clean` to clean anyway",
+        "skipped stale generated file cleanup because no SQL files matched",
     ));
     false
 }

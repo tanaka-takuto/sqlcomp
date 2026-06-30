@@ -22,6 +22,8 @@ use crate::output::{ConfiguredCommandOutcome, print_success_summary};
 
 const EMPTY_SOURCE_SET_DIAGNOSTIC_PREFIX: &str =
     "source.include matched no SQL files after applying source.exclude";
+const SKIPPED_EMPTY_CLEAN_DIAGNOSTIC_PREFIX: &str =
+    "skipped stale generated file cleanup because no SQL files matched";
 
 /// Default CLI composition root.
 #[derive(Clone, Copy, Debug, Default)]
@@ -85,7 +87,8 @@ fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -
             .map_err(|report| add_empty_source_cli_remediation(report, command))
     }) {
         Ok(outcome) => {
-            print_diagnostics(outcome.diagnostics());
+            let diagnostics = add_success_cli_remediation(outcome.diagnostics().clone(), command);
+            print_diagnostics(&diagnostics);
             print_success_summary(&outcome);
             ExitCode::SUCCESS
         }
@@ -194,6 +197,25 @@ const fn empty_source_clean_policy(allow_empty_clean: bool) -> app::EmptySourceS
     }
 }
 
+fn add_success_cli_remediation(
+    mut report: core::DiagnosticReport,
+    command: ConfiguredCommand,
+) -> core::DiagnosticReport {
+    if command.skips_empty_clean()
+        && report.diagnostics().iter().any(|diagnostic| {
+            diagnostic
+                .message()
+                .starts_with(SKIPPED_EMPTY_CLEAN_DIAGNOSTIC_PREFIX)
+        })
+    {
+        report.push(core::Diagnostic::note(
+            "pass `--allow-empty-clean` with `--clean` only when empty-source cleanup is intentional",
+        ));
+    }
+
+    report
+}
+
 fn add_empty_source_cli_remediation(
     mut report: core::DiagnosticReport,
     command: ConfiguredCommand,
@@ -219,6 +241,17 @@ impl ConfiguredCommand {
         match self {
             Self::Check { fail_on_empty } | Self::Compile { fail_on_empty, .. } => fail_on_empty,
         }
+    }
+
+    const fn skips_empty_clean(self) -> bool {
+        matches!(
+            self,
+            Self::Compile {
+                clean: true,
+                allow_empty_clean: false,
+                ..
+            }
+        )
     }
 }
 
