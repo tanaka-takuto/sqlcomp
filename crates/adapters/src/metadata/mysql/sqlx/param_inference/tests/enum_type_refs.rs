@@ -54,12 +54,7 @@ fn resolves_result_type_refs_from_schema_backed_direct_projection_columns() {
         .expect("schema-backed direct projection columns should resolve");
 
     assert_eq!(result_type_refs.len(), 2);
-    assert_eq!(
-        result_type_refs[0]
-            .as_ref()
-            .and_then(core::CoreTypeRef::enum_values),
-        Some(["draft".to_owned(), "paid".to_owned()].as_slice())
-    );
+    assert_enum_values(result_type_refs[0].as_ref(), &["draft", "paid"]);
     assert_eq!(
         result_type_refs[1],
         Some(core::CoreTypeRef::from(core::CoreType::Decimal))
@@ -81,12 +76,7 @@ fn resolves_result_type_refs_from_current_database_three_part_projection_columns
         .expect("current-database three-part projection columns should resolve");
 
     assert_eq!(result_type_refs.len(), 1);
-    assert_eq!(
-        result_type_refs[0]
-            .as_ref()
-            .and_then(core::CoreTypeRef::enum_values),
-        Some(["draft".to_owned(), "paid".to_owned()].as_slice())
-    );
+    assert_enum_values(result_type_refs[0].as_ref(), &["draft", "paid"]);
 }
 
 #[test]
@@ -106,18 +96,8 @@ fn resolves_current_database_three_part_result_type_refs_when_table_name_is_ambi
     );
 
     assert_eq!(result_type_refs.len(), 2);
-    assert_eq!(
-        result_type_refs[0]
-            .as_ref()
-            .and_then(core::CoreTypeRef::enum_values),
-        Some(["draft".to_owned(), "paid".to_owned()].as_slice())
-    );
-    assert_eq!(
-        result_type_refs[1]
-            .as_ref()
-            .and_then(core::CoreTypeRef::enum_values),
-        Some(["archived".to_owned()].as_slice())
-    );
+    assert_enum_values(result_type_refs[0].as_ref(), &["draft", "paid"]);
+    assert_enum_values(result_type_refs[1].as_ref(), &["archived"]);
 }
 
 #[test]
@@ -181,4 +161,15 @@ fn enum_column_type(values: &[&str]) -> String {
 fn enum_type_ref(values: impl IntoIterator<Item = &'static str>) -> core::CoreTypeRef {
     core::CoreTypeRef::from_enum_values(values.into_iter().map(str::to_owned).collect())
         .expect("test enum values should build a Core type reference")
+}
+
+fn assert_enum_values(type_ref: Option<&core::CoreTypeRef>, expected: &[&str]) {
+    let expected = expected
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        type_ref.and_then(core::CoreTypeRef::enum_values),
+        Some(expected.as_slice())
+    );
 }
