@@ -145,7 +145,7 @@ fn resolve_current_database_qualified_mutation_table_ref(
     else {
         return None;
     };
-    if table_ref.table_name() != table_name {
+    if !table_ref.is_current_database() {
         return None;
     }
 
