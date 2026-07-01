@@ -178,6 +178,42 @@ fn query_compiler_rejects_repeated_param_ids_with_conflicting_semantics() {
 }
 
 #[test]
+fn query_compiler_rejects_repeated_param_ids_with_conflicting_enum_values() {
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findOrders".to_owned(), None),
+        "SELECT id FROM orders WHERE status = ? OR status = ?;".to_owned(),
+    )
+    .with_param_usages(vec![
+        core::ParamUsage::new(
+            "status".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+        core::ParamUsage::new(
+            "status".to_owned(),
+            None,
+            false,
+            core::SourceLocation::unknown(),
+        ),
+    ]);
+    let analysis = core::AnalyzedQuery::new(core::Cardinality::Many);
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new_type_ref("status".to_owned(), enum_type_ref(["draft", "paid"])),
+        core::DbParamUsage::new_type_ref("status".to_owned(), enum_type_ref(["draft", "void"])),
+    ]);
+
+    let report = DefaultQueryCompiler
+        .compile(&query, &analysis, &metadata)
+        .expect_err("conflicting repeated enum Param values should be rejected");
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "conflicting Param `status` types: first occurrence resolved to Enum([\"draft\", \"paid\"]) but later occurrence resolved to Enum([\"draft\", \"void\"])"
+    );
+}
+
+#[test]
 fn query_compiler_rejects_repeated_param_ids_with_conflicting_nullability() {
     let query = core::RawQuery::new(
         core::QueryMetadata::new("findUser".to_owned(), None),

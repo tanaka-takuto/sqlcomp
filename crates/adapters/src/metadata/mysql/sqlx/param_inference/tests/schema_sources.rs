@@ -159,6 +159,52 @@ fn resolves_schema_qualified_mutation_target_param_types() {
 }
 
 #[test]
+fn resolves_current_database_three_part_mutation_param_types() {
+    let mutation = raw_param_mutation(
+        "UPDATE orders SET sqlay.orders.status = ? WHERE sqlay.orders.id = ?;",
+        [param_usage("status", None), param_usage("orderId", None)],
+    );
+    let schema_columns = [
+        schema_column("orders", "id", core::CoreType::Int64),
+        schema_column("orders", "status", core::CoreType::String),
+        schema_column_in_database("sqlay", "orders", "id", core::CoreType::Int64),
+        schema_column_in_database("sqlay", "orders", "status", core::CoreType::String),
+    ];
+
+    let params = resolve_mutation_param_usage_metadata(&mutation, &schema_columns)
+        .expect("current-database three-part mutation contexts should resolve");
+
+    assert_eq!(
+        params,
+        [
+            core::DbParamUsage::new("status".to_owned(), core::CoreType::String),
+            core::DbParamUsage::new("orderId".to_owned(), core::CoreType::Int64),
+        ]
+    );
+}
+
+#[test]
+fn does_not_resolve_current_database_three_part_mutation_params_from_unrelated_explicit_sources() {
+    let mutation = raw_param_mutation(
+        "UPDATE archive.orders SET archive.orders.status = ? WHERE sqlay.orders.id = ?;",
+        [param_usage("status", None), param_usage("orderId", None)],
+    );
+    let schema_columns = [
+        schema_column_in_database("archive", "orders", "status", core::CoreType::String),
+        schema_column_in_database("sqlay", "orders", "id", core::CoreType::Int64),
+    ];
+
+    let report = resolve_mutation_param_usage_metadata(&mutation, &schema_columns).expect_err(
+        "unrelated explicit mutation sources should not drive current-database fallback",
+    );
+
+    assert_eq!(
+        report.diagnostics()[0].message(),
+        "Param `orderId` references unknown table alias `sqlay.orders`"
+    );
+}
+
+#[test]
 fn rejects_ambiguous_bare_mutation_table_names_without_value_type() {
     let mutation = raw_param_mutation(
         "UPDATE billing.orders JOIN archive.orders ON archive.orders.id = billing.orders.id SET billing.orders.status = ? WHERE orders.id = ?;",

@@ -3,8 +3,8 @@ use std::path::Path;
 use sqlay_core::{
     Cardinality, CompiledBuilder, CompiledDynamicQuery, CompiledMutation, CompiledQuery,
     CompiledRepeatOccurrence, CompiledSlotBranch, CompiledSlotDefinition, CompiledSlotOccurrence,
-    CompiledSqlBody, CompiledSqlSegment, CoreType, InputField, MutationId, MutationKind,
-    ParamBinding, QueryId, ResultColumn,
+    CompiledSqlBody, CompiledSqlSegment, CoreType, CoreTypeRef, InputField, MutationId,
+    MutationKind, ParamBinding, QueryId, ResultColumn,
 };
 
 #[test]
@@ -47,6 +47,31 @@ fn compiled_query_preserves_source_path_when_available() {
     .with_source_path("sql/users.sql");
 
     assert_eq!(query.source_path(), Some(Path::new("sql/users.sql")));
+}
+
+#[test]
+fn core_ir_can_carry_enum_value_type_refs_separately_from_nullability() {
+    let enum_type = CoreTypeRef::from_enum_values(vec!["draft".to_owned(), "paid".to_owned()])
+        .expect("non-empty enum values should build a Core type reference");
+
+    let input = InputField::new_type_ref("status".to_owned(), enum_type.clone(), true);
+    let param = ParamBinding::new_type_ref("status".to_owned(), enum_type.clone(), true);
+    let column = ResultColumn::new_type_ref("status".to_owned(), enum_type.clone(), false);
+
+    assert_eq!(input.ty(), CoreType::String);
+    assert_eq!(param.ty(), CoreType::String);
+    assert_eq!(column.ty(), CoreType::String);
+    assert_eq!(input.type_ref(), &enum_type);
+    assert_eq!(param.type_ref(), &enum_type);
+    assert_eq!(column.type_ref(), &enum_type);
+    assert_eq!(
+        enum_type.enum_values(),
+        Some(["draft".to_owned(), "paid".to_owned()].as_slice())
+    );
+    assert_ne!(enum_type, CoreTypeRef::from(CoreType::String));
+    assert!(input.is_nullable());
+    assert!(param.is_nullable());
+    assert!(!column.is_nullable());
 }
 
 #[test]

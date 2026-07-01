@@ -3,9 +3,14 @@ use sqlay_app::{MetadataProvider, MutationMetadataProvider};
 use sqlay_core as core;
 
 use super::diagnostics::{mutation_error, query_error};
-use super::param_inference::{resolve_mutation_param_usage_metadata, resolve_param_usage_metadata};
+use super::param_inference::{
+    resolve_mutation_param_usage_metadata, resolve_param_usage_metadata,
+    resolve_result_column_type_refs,
+};
 use super::result_mapping::map_mysql_result_column_metadata;
-use super::schema_columns::{fetch_mutation_schema_columns, fetch_schema_columns};
+use super::schema_columns::{
+    MysqlSchemaColumn, fetch_mutation_schema_columns, fetch_schema_columns,
+};
 
 /// sqlx-backed `MySQL` metadata provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -137,7 +142,8 @@ async fn describe_query_metadata(
             )
         })?;
 
-    let param_usages = describe_param_usages(&mut connection, query).await?;
+    let schema_columns = fetch_schema_columns(&mut connection, query).await?;
+    let param_usages = describe_param_usages(query, &schema_columns)?;
 
     // The dialect analyzer has already accepted this query as the supported
     // single-SELECT statement shape. sqlx requires the assertion for dynamic SQL
@@ -147,16 +153,24 @@ async fn describe_query_metadata(
         .await
         .map_err(|error| query_error(query, format!("failed to describe MySQL query: {error}")))?;
 
+    let result_type_refs = resolve_result_column_type_refs(query, &schema_columns)?;
+    let result_type_refs = if result_type_refs.len() == description.columns().len() {
+        result_type_refs
+    } else {
+        Vec::new()
+    };
+
     Ok(core::DbQueryMetadata::new(
         description
             .columns()
             .iter()
             .enumerate()
             .map(|(index, column)| {
-                map_mysql_result_column_metadata(
+                map_mysql_result_column_metadata_with_schema_type_ref(
                     column.name(),
                     column.type_info().name(),
                     description.nullable(index),
+                    result_type_refs.get(index).cloned().flatten(),
                 )
             })
             .collect(),
@@ -182,16 +196,30 @@ async fn describe_mutation_metadata(
     Ok(core::DbMutationMetadata::new().with_param_usages(param_usages))
 }
 
-async fn describe_param_usages(
-    connection: &mut MySqlConnection,
+fn map_mysql_result_column_metadata_with_schema_type_ref(
+    name: &str,
+    type_name: &str,
+    nullable: Option<bool>,
+    type_ref: Option<core::CoreTypeRef>,
+) -> core::DbResultColumn {
+    if let Some(type_ref) = type_ref
+        && type_ref.enum_values().is_some()
+    {
+        return core::DbResultColumn::new_type_ref(name.to_owned(), type_ref, nullable);
+    }
+
+    map_mysql_result_column_metadata(name, type_name, nullable)
+}
+
+fn describe_param_usages(
     query: &core::RawQuery,
+    schema_columns: &[MysqlSchemaColumn],
 ) -> core::DiagnosticResult<Vec<core::DbParamUsage>> {
     if query.param_usages().is_empty() {
         return Ok(Vec::new());
     }
 
-    let schema_columns = fetch_schema_columns(connection, query).await?;
-    resolve_param_usage_metadata(query, &schema_columns)
+    resolve_param_usage_metadata(query, schema_columns)
 }
 
 async fn describe_mutation_param_usages(
@@ -204,4 +232,27 @@ async fn describe_mutation_param_usages(
 
     let schema_columns = fetch_mutation_schema_columns(connection, mutation).await?;
     resolve_mutation_param_usage_metadata(mutation, &schema_columns)
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlay_core as core;
+
+    use super::map_mysql_result_column_metadata_with_schema_type_ref;
+
+    #[test]
+    fn schema_scalar_type_ref_does_not_override_sqlx_result_type_metadata() {
+        let column = map_mysql_result_column_metadata_with_schema_type_ref(
+            "boolCol",
+            "BOOL",
+            Some(false),
+            Some(core::CoreTypeRef::from(core::CoreType::Int32)),
+        );
+
+        assert_eq!(column.ty(), core::CoreType::Bool);
+        assert_eq!(
+            column.type_ref(),
+            &core::CoreTypeRef::from(core::CoreType::Bool)
+        );
+    }
 }

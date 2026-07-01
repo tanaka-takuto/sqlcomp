@@ -150,7 +150,28 @@ fn check_rejects_slot_variant_row_shape_core_type_mismatch() {
 
     assert_eq!(
         diagnostic_messages(&report),
-        "Slot expansion variant for query `listUsers` result column 1 CoreType `String` does not match base CoreType `Int64`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+        "Slot expansion variant for query `listUsers` result column 1 type reference `String` does not match base type reference `Int64`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+}
+
+#[test]
+fn check_rejects_slot_variant_row_shape_enum_values_mismatch() {
+    let report = row_shape_mismatch_report_with_base(
+        vec![core::DbResultColumn::new_type_ref(
+            "status".to_owned(),
+            enum_type_ref(["draft", "paid"]),
+            Some(false),
+        )],
+        vec![core::DbResultColumn::new_type_ref(
+            "status".to_owned(),
+            enum_type_ref(["draft", "void"]),
+            Some(false),
+        )],
+    );
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` result column 1 type reference `Enum([\"draft\", \"void\"])` does not match base type reference `Enum([\"draft\", \"paid\"])`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
     );
 }
 

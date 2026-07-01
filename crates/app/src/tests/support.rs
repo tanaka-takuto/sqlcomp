@@ -138,6 +138,20 @@ pub(super) fn repeated_slot_dynamic_ir_fixture() -> (core::RawQuery, core::RawFr
 pub(super) fn row_shape_mismatch_report(
     variant_columns: Vec<core::DbResultColumn>,
 ) -> core::DiagnosticReport {
+    row_shape_mismatch_report_with_base(
+        vec![core::DbResultColumn::new(
+            "id".to_owned(),
+            core::CoreType::Int64,
+            Some(false),
+        )],
+        variant_columns,
+    )
+}
+
+pub(super) fn row_shape_mismatch_report_with_base(
+    base_columns: Vec<core::DbResultColumn>,
+    variant_columns: Vec<core::DbResultColumn>,
+) -> core::DiagnosticReport {
     let config = project_config(PathBuf::from("/tmp/sqlay-project"));
     let calls = CallLog::default();
     let query_sql = "SELECT u.id FROM users AS u WHERE 1 = 1;";
@@ -168,6 +182,7 @@ pub(super) fn row_shape_mismatch_report(
     let source_reader = FakeSourceReader::new(calls.clone()).with_source_read(source_read);
     let dialect_analyzer = FakeDialectAnalyzer::new(calls.clone());
     let metadata_provider = FakeMetadataProvider::new(calls.clone())
+        .with_columns_for_sql(query_sql, base_columns)
         .with_columns_for_sql("\nAND u.email IS NOT NULL", variant_columns);
     let query_compiler = LoggingQueryCompiler::new(calls.clone());
     let target_generator =
@@ -190,6 +205,11 @@ pub(super) fn row_shape_mismatch_report(
 pub(super) fn test_param_usage(id: &str, placeholder_index: usize) -> core::ParamUsage {
     core::ParamUsage::new(id.to_owned(), None, false, core::SourceLocation::unknown())
         .with_placeholder_index(placeholder_index)
+}
+
+pub(super) fn enum_type_ref(values: impl IntoIterator<Item = &'static str>) -> core::CoreTypeRef {
+    core::CoreTypeRef::from_enum_values(values.into_iter().map(str::to_owned).collect())
+        .expect("test enum values should build a Core type reference")
 }
 
 #[test]

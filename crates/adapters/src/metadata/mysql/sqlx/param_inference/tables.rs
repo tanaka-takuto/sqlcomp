@@ -3,11 +3,18 @@ use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use sqlparser::ast::{ObjectName, Query as SqlQuery, Select, SetExpr, TableFactor, TableWithJoins};
 
 use super::super::schema_columns::MysqlSchemaTableRef;
+use super::SchemaColumnTypes;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum TableResolution {
     SchemaBacked { table_ref: MysqlSchemaTableRef },
     Unsupported,
+}
+
+pub(super) enum QuerySchemaTableRefResolution {
+    Resolved(MysqlSchemaTableRef),
+    Unsupported,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -86,6 +93,64 @@ pub(super) fn select_from_query(query: &SqlQuery) -> Option<&Select> {
         | SetExpr::Merge(_)
         | SetExpr::Table(_) => None,
     }
+}
+
+pub(super) fn resolve_query_schema_table_ref(
+    table_sources: &SelectTableSources,
+    schema: &SchemaColumnTypes,
+    qualifier: &str,
+) -> Option<MysqlSchemaTableRef> {
+    match resolve_query_schema_table_ref_status(table_sources, schema, qualifier) {
+        QuerySchemaTableRefResolution::Resolved(table_ref) => Some(table_ref),
+        QuerySchemaTableRefResolution::Unsupported | QuerySchemaTableRefResolution::Unknown => None,
+    }
+}
+
+pub(super) fn resolve_query_schema_table_ref_status(
+    table_sources: &SelectTableSources,
+    schema: &SchemaColumnTypes,
+    qualifier: &str,
+) -> QuerySchemaTableRefResolution {
+    match table_sources.resolve(qualifier) {
+        Some(TableResolution::SchemaBacked { table_ref }) => {
+            return QuerySchemaTableRefResolution::Resolved(table_ref.clone());
+        }
+        Some(TableResolution::Unsupported) => return QuerySchemaTableRefResolution::Unsupported,
+        None => {}
+    }
+
+    resolve_current_database_qualified_table_ref(table_sources, schema, qualifier).map_or(
+        QuerySchemaTableRefResolution::Unknown,
+        QuerySchemaTableRefResolution::Resolved,
+    )
+}
+
+pub(super) fn resolve_current_database_qualified_table_ref(
+    table_sources: &SelectTableSources,
+    schema: &SchemaColumnTypes,
+    qualifier: &str,
+) -> Option<MysqlSchemaTableRef> {
+    let (database_name, table_name) = qualifier.split_once('.')?;
+    let current_database_ref = MysqlSchemaTableRef::current_database(table_name.to_owned());
+    let qualified_ref =
+        MysqlSchemaTableRef::explicit_database(database_name.to_owned(), table_name.to_owned());
+    if table_sources
+        .schema_table_refs
+        .contains(&current_database_ref)
+        && schema.has_table(&qualified_ref)
+    {
+        return Some(qualified_ref);
+    }
+
+    let Some(TableResolution::SchemaBacked { table_ref }) = table_sources.resolve(table_name)
+    else {
+        return None;
+    };
+    if !table_ref.is_current_database() {
+        return None;
+    }
+
+    schema.has_table(&qualified_ref).then_some(qualified_ref)
 }
 
 fn cte_names(query: &SqlQuery) -> BTreeSet<String> {

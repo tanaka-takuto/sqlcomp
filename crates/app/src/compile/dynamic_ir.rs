@@ -408,9 +408,9 @@ fn compiled_param_binding(
         ));
     };
 
-    Ok(core::ParamBinding::new(
+    Ok(core::ParamBinding::new_type_ref(
         usage.id().to_owned(),
-        binding.ty,
+        binding.type_ref.clone(),
         binding.nullable,
     ))
 }
@@ -434,9 +434,9 @@ fn compiled_mutation_param_binding(
         ));
     };
 
-    Ok(core::ParamBinding::new(
+    Ok(core::ParamBinding::new_type_ref(
         usage.id().to_owned(),
-        binding.ty,
+        binding.type_ref.clone(),
         binding.nullable,
     ))
 }

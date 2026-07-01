@@ -1,4 +1,4 @@
-use crate::{CoreType, ResultColumn};
+use crate::{CoreType, CoreTypeRef, ResultColumn};
 
 /// Database metadata description normalized for compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,7 +70,7 @@ impl DbMutationMetadata {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbResultColumn {
     name: String,
-    ty: CoreType,
+    type_ref: CoreTypeRef,
     nullable: Option<bool>,
 }
 
@@ -78,7 +78,17 @@ impl DbResultColumn {
     /// Build a database result column metadata value.
     #[must_use]
     pub const fn new(name: String, ty: CoreType, nullable: Option<bool>) -> Self {
-        Self { name, ty, nullable }
+        Self::new_type_ref(name, CoreTypeRef::Scalar(ty), nullable)
+    }
+
+    /// Build a database result column metadata value from a richer Core type reference.
+    #[must_use]
+    pub const fn new_type_ref(name: String, type_ref: CoreTypeRef, nullable: Option<bool>) -> Self {
+        Self {
+            name,
+            type_ref,
+            nullable,
+        }
     }
 
     /// Column name exactly as reported by the database metadata provider.
@@ -90,7 +100,13 @@ impl DbResultColumn {
     /// Language-neutral column type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
-        self.ty
+        self.type_ref.core_type()
+    }
+
+    /// Language-neutral column type reference.
+    #[must_use]
+    pub const fn type_ref(&self) -> &CoreTypeRef {
+        &self.type_ref
     }
 
     /// Database nullability metadata, when the provider can determine it.
@@ -108,7 +124,11 @@ impl DbResultColumn {
     /// Convert database metadata into a compiled result column.
     #[must_use]
     pub fn to_result_column(&self) -> ResultColumn {
-        ResultColumn::new(self.name.clone(), self.ty, self.is_nullable_for_output())
+        ResultColumn::new_type_ref(
+            self.name.clone(),
+            self.type_ref.clone(),
+            self.is_nullable_for_output(),
+        )
     }
 }
 
@@ -116,14 +136,20 @@ impl DbResultColumn {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DbParamUsage {
     id: String,
-    ty: CoreType,
+    type_ref: CoreTypeRef,
 }
 
 impl DbParamUsage {
     /// Build resolved Param usage metadata.
     #[must_use]
     pub const fn new(id: String, ty: CoreType) -> Self {
-        Self { id, ty }
+        Self::new_type_ref(id, CoreTypeRef::Scalar(ty))
+    }
+
+    /// Build resolved Param usage metadata from a richer Core type reference.
+    #[must_use]
+    pub const fn new_type_ref(id: String, type_ref: CoreTypeRef) -> Self {
+        Self { id, type_ref }
     }
 
     /// Param ID exactly as written in source metadata.
@@ -135,7 +161,13 @@ impl DbParamUsage {
     /// Language-neutral Param type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
-        self.ty
+        self.type_ref.core_type()
+    }
+
+    /// Language-neutral Param type reference.
+    #[must_use]
+    pub const fn type_ref(&self) -> &CoreTypeRef {
+        &self.type_ref
     }
 }
 

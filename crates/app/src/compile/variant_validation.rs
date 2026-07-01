@@ -67,11 +67,11 @@ pub(super) fn validate_variant_row_shape(
             );
             return Err(row_shape_difference_error(variant, &difference));
         }
-        if variant_column.ty() != base_column.ty() {
+        if variant_column.type_ref() != base_column.type_ref() {
             let difference = format!(
-                "result column {column_number} CoreType `{:?}` does not match base CoreType `{:?}`",
-                variant_column.ty(),
-                base_column.ty(),
+                "result column {column_number} type reference `{:?}` does not match base type reference `{:?}`",
+                variant_column.type_ref(),
+                base_column.type_ref(),
             );
             return Err(row_shape_difference_error(variant, &difference));
         }

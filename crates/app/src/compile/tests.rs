@@ -322,6 +322,61 @@ fn query_repeat_param_validation_reports_repeat_locations() {
 }
 
 #[test]
+fn query_repeat_param_validation_rejects_conflicting_enum_values() {
+    let repeat_location = core::SourceLocation::at_position(
+        "sql/orders.sql",
+        core::SourcePosition::one_based(4, 12).expect("test position should be valid"),
+    );
+    let query = core::RawQuery::new(
+        core::QueryMetadata::new("findOrders".to_owned(), None),
+        "SELECT id FROM orders WHERE status IN (?,?);".to_owned(),
+    )
+    .with_param_usages(vec![
+        test_param_usage("status", 39, false),
+        test_param_usage("status", 41, false),
+    ]);
+    let variant = AnalyzedQueryVariant {
+        query,
+        analysis: core::AnalyzedQuery::new(core::Cardinality::Many),
+        context: None,
+        param_scopes: vec![
+            ExpandedParamScope::RepeatItem {
+                repeat_id: "statuses".to_owned(),
+            },
+            ExpandedParamScope::RepeatItem {
+                repeat_id: "statuses".to_owned(),
+            },
+        ],
+        param_occurrences: vec![
+            ExpandedParamOccurrence::RepeatItem(ExpandedRepeatParamOccurrence {
+                repeat_id: "statuses".to_owned(),
+                representative_item_index: 1,
+                repeat_location: repeat_location.clone(),
+            }),
+            ExpandedParamOccurrence::RepeatItem(ExpandedRepeatParamOccurrence {
+                repeat_id: "statuses".to_owned(),
+                representative_item_index: 2,
+                repeat_location,
+            }),
+        ],
+    };
+    let metadata = core::DbQueryMetadata::new(Vec::new()).with_param_usages(vec![
+        core::DbParamUsage::new_type_ref("status".to_owned(), enum_type_ref(["draft", "paid"])),
+        core::DbParamUsage::new_type_ref("status".to_owned(), enum_type_ref(["draft", "void"])),
+    ]);
+    let mut scoped_param_bindings = Vec::new();
+
+    let report =
+        validate_expanded_variant_param_bindings(&variant, &metadata, &mut scoped_param_bindings)
+            .expect_err("Repeat item Param enum value conflicts should be rejected");
+
+    assert_diagnostic_messages(
+        &report,
+        "conflicting Repeat item Param `status` type in query `findOrders`, Repeat `statuses`: first representative occurrence resolved to Enum([\"draft\", \"paid\"]) but conflicting representative occurrence resolved to Enum([\"draft\", \"void\"]); Repeat item fields with the same ID must resolve matching Param type and nullability\nfirst Repeat `statuses` occurrence is here\nconflicting Repeat `statuses` occurrence is here",
+    );
+}
+
+#[test]
 fn mutation_repeat_param_validation_reports_repeat_locations() {
     let repeat_location = core::SourceLocation::at_position(
         "sql/users.sql",
@@ -706,7 +761,7 @@ fn repeat_item_binding(repeat_id: &str, param_id: &str) -> ScopedParamBinding {
             repeat_id: repeat_id.to_owned(),
         },
         id: param_id.to_owned(),
-        ty: core::CoreType::String,
+        type_ref: core::CoreTypeRef::from(core::CoreType::String),
         nullable: false,
         first_occurrence: ExpandedParamOccurrence::RepeatItem(ExpandedRepeatParamOccurrence {
             repeat_id: repeat_id.to_owned(),
@@ -714,6 +769,11 @@ fn repeat_item_binding(repeat_id: &str, param_id: &str) -> ScopedParamBinding {
             repeat_location: core::SourceLocation::unknown(),
         }),
     }
+}
+
+fn enum_type_ref(values: impl IntoIterator<Item = &'static str>) -> core::CoreTypeRef {
+    core::CoreTypeRef::from_enum_values(values.into_iter().map(str::to_owned).collect())
+        .expect("test enum values should build a Core type reference")
 }
 
 fn test_param_usage(id: &str, placeholder_index: usize, nullable: bool) -> core::ParamUsage {
