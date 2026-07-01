@@ -1,7 +1,10 @@
+use serde_json::{Map, Value, json};
 use sqlay_app as app;
 use sqlay_core as core;
 use std::fmt::Write as _;
 use std::path::Path;
+
+use crate::args::{ConfiguredCommand, OutputFormat};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfiguredCommandOutcome {
@@ -20,6 +23,36 @@ impl ConfiguredCommandOutcome {
 
 pub fn print_success_summary(outcome: &ConfiguredCommandOutcome) {
     print!("{}", format_success_summary(outcome));
+}
+
+pub fn print_json_failure_result(
+    command: ConfiguredCommand,
+    config_path: Option<&Path>,
+    report: &core::DiagnosticReport,
+) {
+    println!(
+        "{}",
+        format_json_failure_result(command, config_path, report)
+    );
+}
+
+pub fn format_json_failure_result(
+    command: ConfiguredCommand,
+    config_path: Option<&Path>,
+    report: &core::DiagnosticReport,
+) -> String {
+    serde_json::to_string(&json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "command": {
+            "name": command_name(command),
+            "options": command_options_json(command, config_path),
+        },
+        "status": "failure",
+        "exitCode": 1,
+        "summary": null,
+        "diagnostics": diagnostics_json(report),
+    }))
+    .expect("JSON failure envelope should serialize")
 }
 
 pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
@@ -100,6 +133,99 @@ pub fn format_success_summary(outcome: &ConfiguredCommandOutcome) -> String {
     }
 
     output
+}
+
+const fn command_name(command: ConfiguredCommand) -> &'static str {
+    match command {
+        ConfiguredCommand::Check { .. } => "check",
+        ConfiguredCommand::Compile { .. } => "compile",
+    }
+}
+
+fn command_options_json(command: ConfiguredCommand, config_path: Option<&Path>) -> Value {
+    let mut options = Map::new();
+    options.insert(
+        "config".to_owned(),
+        config_path.map_or(Value::Null, |path| json!(path.display().to_string())),
+    );
+
+    match command {
+        ConfiguredCommand::Check {
+            format,
+            fail_on_empty,
+        } => {
+            options.insert("failOnEmpty".to_owned(), json!(fail_on_empty));
+            options.insert("format".to_owned(), json!(format_name(format)));
+        }
+        ConfiguredCommand::Compile {
+            format,
+            clean,
+            fail_on_empty,
+            allow_empty_clean,
+        } => {
+            options.insert("failOnEmpty".to_owned(), json!(fail_on_empty));
+            options.insert("clean".to_owned(), json!(clean));
+            options.insert("allowEmptyClean".to_owned(), json!(allow_empty_clean));
+            options.insert("format".to_owned(), json!(format_name(format)));
+        }
+    }
+
+    Value::Object(options)
+}
+
+const fn format_name(format: OutputFormat) -> &'static str {
+    match format {
+        OutputFormat::Human => "human",
+        OutputFormat::Json => "json",
+    }
+}
+
+fn diagnostics_json(report: &core::DiagnosticReport) -> Value {
+    Value::Array(report.diagnostics().iter().map(diagnostic_json).collect())
+}
+
+fn diagnostic_json(diagnostic: &core::Diagnostic) -> Value {
+    let mut object = Map::new();
+    object.insert("severity".to_owned(), json!(diagnostic.severity().as_str()));
+    object.insert("message".to_owned(), json!(diagnostic.message()));
+
+    if let Some(location) = diagnostic.location().and_then(location_json) {
+        object.insert("location".to_owned(), location);
+    }
+
+    Value::Object(object)
+}
+
+fn location_json(location: &core::SourceLocation) -> Option<Value> {
+    let mut object = Map::new();
+
+    if let Some(path) = location.path() {
+        object.insert("path".to_owned(), json!(path.display().to_string()));
+    }
+
+    if let Some(range) = location.range() {
+        object.insert("range".to_owned(), range_json(range));
+    }
+
+    (!object.is_empty()).then_some(Value::Object(object))
+}
+
+fn range_json(range: core::SourceRange) -> Value {
+    let mut object = Map::new();
+    object.insert("start".to_owned(), position_json(range.start()));
+
+    if let Some(end) = range.end() {
+        object.insert("end".to_owned(), position_json(end));
+    }
+
+    Value::Object(object)
+}
+
+fn position_json(position: core::SourcePosition) -> Value {
+    json!({
+        "line": position.line(),
+        "column": position.column(),
+    })
 }
 
 fn format_builder_breakdown(query_count: usize, mutation_count: usize) -> String {

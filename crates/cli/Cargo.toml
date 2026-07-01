@@ -11,6 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
+serde_json = "1.0.150"
 sqlay-adapters = { path = "../adapters" }
 sqlay-app = { path = "../app" }
 sqlay-core = { path = "../core" }

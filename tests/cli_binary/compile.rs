@@ -2,7 +2,7 @@ use std::process::Command;
 
 use crate::support::{
     TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL, VALID_CONFIG, assert_empty_source_diagnostic,
-    unique_temp_dir, write_fragment_only_project, write_managed_generated_file,
+    json_stdout, unique_temp_dir, write_fragment_only_project, write_managed_generated_file,
     write_simple_query_project,
 };
 
@@ -443,6 +443,55 @@ fn compile_clean_uses_compile_pipeline_database_configuration() {
         ),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn compile_format_json_reports_pipeline_failure_to_stdout_only() {
+    let config_dir = unique_temp_dir("sqlay-cli-compile-json-failure");
+    write_simple_query_project(&config_dir);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args([
+            "compile",
+            "--config",
+            "sqlay.config.json",
+            "--format=json",
+            "--clean",
+        ])
+        .current_dir(&config_dir)
+        .env_remove(TEST_DATABASE_URL_ENV)
+        .output()
+        .expect("sqlay compile should run");
+
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json["command"]["name"], "compile");
+    assert_eq!(json["command"]["options"]["config"], "sqlay.config.json");
+    assert_eq!(json["command"]["options"]["format"], "json");
+    assert_eq!(json["command"]["options"]["failOnEmpty"], false);
+    assert_eq!(json["command"]["options"]["clean"], true);
+    assert_eq!(json["command"]["options"]["allowEmptyClean"], false);
+    assert_eq!(json["status"], "failure");
+    assert_eq!(json["exitCode"], 1);
+    assert_eq!(json["summary"], serde_json::Value::Null);
+    assert_eq!(json["diagnostics"][0]["severity"], "error");
+    assert!(
+        json["diagnostics"][0]["message"]
+            .as_str()
+            .expect("diagnostic message should be a string")
+            .contains(
+                "environment variable `SQLAY_TEST_DATABASE_URL` configured by `database.urlEnv` is not set"
+            ),
+        "json: {json}"
     );
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");

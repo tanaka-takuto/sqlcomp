@@ -3,7 +3,7 @@ use std::process::Command;
 use crate::support::{
     DUPLICATE_IDS_FIXTURE, EXEC_CARDINALITY_FIXTURE, INVALID_SOURCE_CONFIG, TEST_DATABASE_URL_ENV,
     UNSUPPORTED_CONFIG, UNUSED_DATABASE_URL, VALID_CONFIG, assert_empty_source_diagnostic,
-    unique_temp_dir, write_simple_query_project,
+    json_stdout, unique_temp_dir, write_simple_query_project,
 };
 
 #[test]
@@ -132,6 +132,58 @@ fn check_fail_on_empty_reports_empty_source_before_database_url_requirement() {
 }
 
 #[test]
+fn check_format_json_reports_empty_source_failure_to_stdout_only() {
+    let config_dir = unique_temp_dir("sqlay-cli-empty-source-json-failure");
+    std::fs::create_dir_all(&config_dir).expect("temp config dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), VALID_CONFIG)
+        .expect("temp config should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["check", "--format=json", "--fail-on-empty"])
+        .current_dir(&config_dir)
+        .env_remove(TEST_DATABASE_URL_ENV)
+        .output()
+        .expect("sqlay check should run");
+
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json["command"]["name"], "check");
+    assert_eq!(
+        json["command"]["options"]["config"],
+        serde_json::Value::Null
+    );
+    assert_eq!(json["command"]["options"]["format"], "json");
+    assert_eq!(json["command"]["options"]["failOnEmpty"], true);
+    assert_eq!(json["status"], "failure");
+    assert_eq!(json["exitCode"], 1);
+    assert_eq!(json["summary"], serde_json::Value::Null);
+    assert_eq!(json["diagnostics"][0]["severity"], "error");
+    assert!(
+        json["diagnostics"][0]["message"]
+            .as_str()
+            .expect("diagnostic message should be a string")
+            .contains("source.include matched no SQL files after applying source.exclude"),
+        "json: {json}"
+    );
+    assert_eq!(json["diagnostics"][1]["severity"], "note");
+    assert!(
+        json["diagnostics"][1]["message"]
+            .as_str()
+            .expect("diagnostic message should be a string")
+            .contains("disable `--fail-on-empty`"),
+        "json: {json}"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
 fn check_does_not_warn_for_empty_or_comment_only_sql_files() {
     let config_dir = unique_temp_dir("sqlay-cli-comment-only-sql");
     let sql_dir = config_dir.join("sql");
@@ -253,6 +305,47 @@ fn check_reports_unsupported_config_before_pipeline_skeleton() {
 }
 
 #[test]
+fn check_format_json_reports_config_loading_failure_to_stdout_only() {
+    let start_dir = unique_temp_dir("sqlay-cli-missing-config-json");
+    std::fs::create_dir_all(&start_dir).expect("temp start dir should be created");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["check", "--format", "json"])
+        .current_dir(&start_dir)
+        .output()
+        .expect("sqlay check should run");
+
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json["command"]["name"], "check");
+    assert_eq!(
+        json["command"]["options"]["config"],
+        serde_json::Value::Null
+    );
+    assert_eq!(json["command"]["options"]["format"], "json");
+    assert_eq!(json["command"]["options"]["failOnEmpty"], false);
+    assert_eq!(json["status"], "failure");
+    assert_eq!(json["exitCode"], 1);
+    assert_eq!(json["summary"], serde_json::Value::Null);
+    assert_eq!(json["diagnostics"][0]["severity"], "error");
+    assert!(
+        json["diagnostics"][0]["message"]
+            .as_str()
+            .expect("diagnostic message should be a string")
+            .contains("failed to find `sqlay.config.json`"),
+        "json: {json}"
+    );
+
+    std::fs::remove_dir_all(start_dir).expect("temp start dir should be removed");
+}
+
+#[test]
 fn check_reports_missing_database_url_environment_variable() {
     let config_dir = unique_temp_dir("sqlay-cli-missing-database-url");
     write_simple_query_project(&config_dir);
@@ -316,6 +409,67 @@ fn check_reports_multiple_source_intake_diagnostics_in_one_run() {
     assert!(
         stderr.contains("`cardinality: exec` is reserved for future non-SELECT support"),
         "stderr: {stderr}"
+    );
+
+    std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
+}
+
+#[test]
+fn check_format_json_serializes_diagnostic_locations() {
+    let config_dir = unique_temp_dir("sqlay-cli-json-diagnostic-location");
+    let invalid_dir = config_dir.join("invalid");
+    std::fs::create_dir_all(&invalid_dir).expect("temp invalid SQL dir should be created");
+    std::fs::write(config_dir.join("sqlay.config.json"), INVALID_SOURCE_CONFIG)
+        .expect("temp config should be written");
+    std::fs::write(invalid_dir.join("duplicate_ids.sql"), DUPLICATE_IDS_FIXTURE)
+        .expect("duplicate id fixture should be written");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_sqlay"))
+        .args(["check", "--format=json"])
+        .current_dir(&config_dir)
+        .env(TEST_DATABASE_URL_ENV, UNUSED_DATABASE_URL)
+        .output()
+        .expect("sqlay check should run");
+
+    assert_eq!(output.status.code(), Some(1), "status: {:?}", output.status);
+    assert!(
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = json_stdout(&output);
+    let diagnostics = json["diagnostics"]
+        .as_array()
+        .expect("diagnostics should be an array");
+    let duplicate_id = diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("duplicate query id `duplicatedQuery`"))
+        })
+        .expect("duplicate id diagnostic should be present");
+
+    assert!(
+        duplicate_id["location"]["path"]
+            .as_str()
+            .expect("diagnostic path should be a string")
+            .ends_with("invalid/duplicate_ids.sql"),
+        "json: {json}"
+    );
+    assert!(
+        duplicate_id["location"]["range"]["start"]["line"]
+            .as_u64()
+            .expect("start line should be a number")
+            > 0,
+        "json: {json}"
+    );
+    assert!(
+        duplicate_id["location"]["range"]["start"]["column"]
+            .as_u64()
+            .expect("start column should be a number")
+            > 0,
+        "json: {json}"
     );
 
     std::fs::remove_dir_all(config_dir).expect("temp config tree should be removed");
