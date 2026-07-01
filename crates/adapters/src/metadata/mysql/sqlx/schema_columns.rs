@@ -3,7 +3,7 @@ use sqlay_core as core;
 
 use super::diagnostics::{mutation_error, query_error};
 use super::param_inference::{mutation_schema_table_refs, schema_table_refs};
-use super::result_mapping::mysql_type_name_to_core_type;
+use super::result_mapping::mysql_type_name_to_core_type_ref;
 
 pub(super) async fn fetch_schema_columns(
     connection: &mut MySqlConnection,
@@ -145,8 +145,8 @@ fn current_database_schema_column(
     column_name: String,
     column_type: String,
 ) -> MysqlSchemaColumn {
-    let ty = mysql_type_name_to_core_type(&column_type);
-    MysqlSchemaColumn::new_current_database(table_name, column_name, column_type, ty)
+    let type_ref = mysql_type_name_to_core_type_ref(&column_type);
+    MysqlSchemaColumn::new_current_database(table_name, column_name, column_type, type_ref)
 }
 
 fn explicit_database_schema_column(
@@ -155,13 +155,13 @@ fn explicit_database_schema_column(
     column_name: String,
     column_type: String,
 ) -> MysqlSchemaColumn {
-    let ty = mysql_type_name_to_core_type(&column_type);
+    let type_ref = mysql_type_name_to_core_type_ref(&column_type);
     MysqlSchemaColumn::new_explicit_database(
         database_name,
         table_name,
         column_name,
         column_type,
-        ty,
+        type_ref,
     )
 }
 
@@ -253,6 +253,7 @@ pub(super) struct MysqlSchemaColumn {
     pub(super) column_name: String,
     pub(super) column_type: String,
     pub(super) ty: core::CoreType,
+    pub(super) type_ref: core::CoreTypeRef,
 }
 
 impl MysqlSchemaColumn {
@@ -260,13 +261,15 @@ impl MysqlSchemaColumn {
         table_name: String,
         column_name: String,
         column_type: String,
-        ty: core::CoreType,
+        type_ref: impl Into<core::CoreTypeRef>,
     ) -> Self {
+        let type_ref = type_ref.into();
         Self {
             table_ref: MysqlSchemaTableRef::current_database(table_name),
             column_name,
             column_type,
-            ty,
+            ty: type_ref.core_type(),
+            type_ref,
         }
     }
 
@@ -275,13 +278,15 @@ impl MysqlSchemaColumn {
         table_name: String,
         column_name: String,
         column_type: String,
-        ty: core::CoreType,
+        type_ref: impl Into<core::CoreTypeRef>,
     ) -> Self {
+        let type_ref = type_ref.into();
         Self {
             table_ref: MysqlSchemaTableRef::explicit_database(database_name, table_name),
             column_name,
             column_type,
-            ty,
+            ty: type_ref.core_type(),
+            type_ref,
         }
     }
 }

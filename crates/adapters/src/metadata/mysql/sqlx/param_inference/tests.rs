@@ -8,6 +8,7 @@ use super::{
 };
 
 mod context_traversal;
+mod enum_type_refs;
 mod schema_sources;
 
 #[test]

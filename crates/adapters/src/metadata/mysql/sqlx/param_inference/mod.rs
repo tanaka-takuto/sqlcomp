@@ -1,6 +1,7 @@
 mod contexts;
 mod mutation_contexts;
 mod mutations;
+mod result_columns;
 mod tables;
 mod unsupported_contexts;
 
@@ -18,13 +19,14 @@ use super::diagnostics::{param_usage_error, query_error};
 use super::schema_columns::{MysqlSchemaColumn, MysqlSchemaTableRef};
 use contexts::{ColumnRef, collect_query_param_contexts};
 pub(super) use mutations::{mutation_schema_table_refs, resolve_mutation_param_usage_metadata};
+pub(super) use result_columns::resolve_result_column_type_refs;
 use tables::{SelectTableSources, TableResolution, select_from_query, select_table_sources};
 
 const SUPPORTED_PARAM_VALUE_TYPES_MESSAGE: &str = "`bool`, `int32`, `int64`, `float64`, `decimal`, `string`, `bytes`, `date`, `time`, `datetime`, and `json`";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct SchemaColumnTypes {
-    columns: BTreeMap<(MysqlSchemaTableRef, String), core::CoreType>,
+    columns: BTreeMap<(MysqlSchemaTableRef, String), core::CoreTypeRef>,
     tables: BTreeSet<MysqlSchemaTableRef>,
 }
 
@@ -35,17 +37,17 @@ impl SchemaColumnTypes {
             schema.tables.insert(column.table_ref.clone());
             schema.columns.insert(
                 (column.table_ref.clone(), column.column_name.clone()),
-                column.ty,
+                column.type_ref.clone(),
             );
         }
 
         schema
     }
 
-    fn get(&self, table_ref: &MysqlSchemaTableRef, column_name: &str) -> Option<core::CoreType> {
+    fn get(&self, table_ref: &MysqlSchemaTableRef, column_name: &str) -> Option<core::CoreTypeRef> {
         self.columns
             .get(&(table_ref.clone(), column_name.to_owned()))
-            .copied()
+            .cloned()
     }
 
     fn has_table(&self, table_ref: &MysqlSchemaTableRef) -> bool {
@@ -83,12 +85,15 @@ pub(super) fn resolve_param_usage_metadata(
     let mut params = Vec::with_capacity(query.param_usages().len());
 
     for (usage, context) in query.param_usages().iter().zip(contexts) {
-        let ty = if let Some(value_type) = usage.value_type_override() {
-            value_type
+        let type_ref = if let Some(value_type) = usage.value_type_override() {
+            core::CoreTypeRef::from(value_type)
         } else {
             resolve_inferred_param_type(query, usage, context.as_ref(), &table_sources, &schema)?
         };
-        params.push(core::DbParamUsage::new(usage.id().to_owned(), ty));
+        params.push(core::DbParamUsage::new_type_ref(
+            usage.id().to_owned(),
+            type_ref,
+        ));
     }
 
     Ok(params)
@@ -100,7 +105,7 @@ fn resolve_inferred_param_type(
     context: Option<&ColumnRef>,
     table_sources: &SelectTableSources,
     schema: &SchemaColumnTypes,
-) -> core::DiagnosticResult<core::CoreType> {
+) -> core::DiagnosticResult<core::CoreTypeRef> {
     let Some(column) = context else {
         return Err(param_usage_error(
             query,
@@ -138,8 +143,8 @@ fn resolve_inferred_param_type(
         ));
     };
 
-    if let Some(ty) = schema.get(table_ref, &column.column) {
-        return Ok(ty);
+    if let Some(type_ref) = schema.get(table_ref, &column.column) {
+        return Ok(type_ref);
     }
 
     if !schema.has_table(table_ref) {

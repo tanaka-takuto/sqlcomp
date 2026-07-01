@@ -27,9 +27,9 @@ pub(super) fn resolve_schema_column_type(
     table_ref: &MysqlSchemaTableRef,
     column_name: &str,
     schema: &SchemaColumnTypes,
-) -> core::DiagnosticResult<core::CoreType> {
-    if let Some(ty) = schema.get(table_ref, column_name) {
-        return Ok(ty);
+) -> core::DiagnosticResult<core::CoreTypeRef> {
+    if let Some(type_ref) = schema.get(table_ref, column_name) {
+        return Ok(type_ref);
     }
 
     if !schema.has_table(table_ref) {

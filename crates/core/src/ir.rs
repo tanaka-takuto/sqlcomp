@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use crate::{Cardinality, MutationId, QueryId};
 
@@ -256,7 +259,7 @@ impl CompiledBuilder {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputField {
     name: String,
-    ty: CoreType,
+    type_ref: CoreTypeRef,
     nullable: bool,
 }
 
@@ -264,7 +267,17 @@ impl InputField {
     /// Build a query input field.
     #[must_use]
     pub const fn new(name: String, ty: CoreType, nullable: bool) -> Self {
-        Self { name, ty, nullable }
+        Self::new_type_ref(name, CoreTypeRef::Scalar(ty), nullable)
+    }
+
+    /// Build a query input field from a richer Core type reference.
+    #[must_use]
+    pub const fn new_type_ref(name: String, type_ref: CoreTypeRef, nullable: bool) -> Self {
+        Self {
+            name,
+            type_ref,
+            nullable,
+        }
     }
 
     /// Input field name.
@@ -276,7 +289,13 @@ impl InputField {
     /// Language-neutral input type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
-        self.ty
+        self.type_ref.core_type()
+    }
+
+    /// Language-neutral input type reference.
+    #[must_use]
+    pub const fn type_ref(&self) -> &CoreTypeRef {
+        &self.type_ref
     }
 
     /// Whether the input field accepts null.
@@ -290,7 +309,7 @@ impl InputField {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParamBinding {
     input_name: String,
-    ty: CoreType,
+    type_ref: CoreTypeRef,
     nullable: bool,
 }
 
@@ -298,9 +317,15 @@ impl ParamBinding {
     /// Build a query parameter binding.
     #[must_use]
     pub const fn new(input_name: String, ty: CoreType, nullable: bool) -> Self {
+        Self::new_type_ref(input_name, CoreTypeRef::Scalar(ty), nullable)
+    }
+
+    /// Build a query parameter binding from a richer Core type reference.
+    #[must_use]
+    pub const fn new_type_ref(input_name: String, type_ref: CoreTypeRef, nullable: bool) -> Self {
         Self {
             input_name,
-            ty,
+            type_ref,
             nullable,
         }
     }
@@ -314,7 +339,13 @@ impl ParamBinding {
     /// Language-neutral parameter type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
-        self.ty
+        self.type_ref.core_type()
+    }
+
+    /// Language-neutral parameter type reference.
+    #[must_use]
+    pub const fn type_ref(&self) -> &CoreTypeRef {
+        &self.type_ref
     }
 
     /// Whether this parameter occurrence accepts null.
@@ -328,7 +359,7 @@ impl ParamBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResultColumn {
     name: String,
-    ty: CoreType,
+    type_ref: CoreTypeRef,
     nullable: bool,
 }
 
@@ -336,7 +367,17 @@ impl ResultColumn {
     /// Build a result row column.
     #[must_use]
     pub const fn new(name: String, ty: CoreType, nullable: bool) -> Self {
-        Self { name, ty, nullable }
+        Self::new_type_ref(name, CoreTypeRef::Scalar(ty), nullable)
+    }
+
+    /// Build a result row column from a richer Core type reference.
+    #[must_use]
+    pub const fn new_type_ref(name: String, type_ref: CoreTypeRef, nullable: bool) -> Self {
+        Self {
+            name,
+            type_ref,
+            nullable,
+        }
     }
 
     /// Result column name exactly as reported by database metadata.
@@ -348,7 +389,13 @@ impl ResultColumn {
     /// Language-neutral result column type.
     #[must_use]
     pub const fn ty(&self) -> CoreType {
-        self.ty
+        self.type_ref.core_type()
+    }
+
+    /// Language-neutral result column type reference.
+    #[must_use]
+    pub const fn type_ref(&self) -> &CoreTypeRef {
+        &self.type_ref
     }
 
     /// Whether generated output should treat this column as nullable.
@@ -385,4 +432,81 @@ pub enum CoreType {
     Json,
     /// Unknown database type.
     Unknown,
+}
+
+/// Language-neutral type reference for generated output surfaces.
+#[derive(Clone, Eq, PartialEq)]
+pub enum CoreTypeRef {
+    /// Broad scalar Core type.
+    Scalar(CoreType),
+    /// Ordered schema-backed enum string value set.
+    Enum(CoreEnumType),
+}
+
+impl CoreTypeRef {
+    /// Build a schema-backed enum type reference from ordered enum values.
+    #[must_use]
+    pub fn from_enum_values(values: Vec<String>) -> Option<Self> {
+        CoreEnumType::from_values(values).map(Self::Enum)
+    }
+
+    /// Broad Core type used by existing target-language mappings.
+    #[must_use]
+    pub const fn core_type(&self) -> CoreType {
+        match self {
+            Self::Scalar(ty) => *ty,
+            Self::Enum(_) => CoreType::String,
+        }
+    }
+
+    /// Ordered enum values when this is a schema-backed enum type reference.
+    #[must_use]
+    pub fn enum_values(&self) -> Option<&[String]> {
+        match self {
+            Self::Scalar(_) => None,
+            Self::Enum(enum_type) => Some(enum_type.values()),
+        }
+    }
+}
+
+impl From<CoreType> for CoreTypeRef {
+    fn from(value: CoreType) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+impl fmt::Debug for CoreTypeRef {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Scalar(ty) => fmt::Debug::fmt(ty, formatter),
+            Self::Enum(enum_type) => formatter
+                .debug_tuple("Enum")
+                .field(&enum_type.values())
+                .finish(),
+        }
+    }
+}
+
+/// Ordered value set for a schema-backed enum type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CoreEnumType {
+    values: Vec<String>,
+}
+
+impl CoreEnumType {
+    /// Build an enum type from ordered values.
+    #[must_use]
+    pub fn from_values(values: Vec<String>) -> Option<Self> {
+        if values.is_empty() {
+            return None;
+        }
+
+        Some(Self { values })
+    }
+
+    /// Ordered enum values exactly as reported by schema metadata.
+    #[must_use]
+    pub fn values(&self) -> &[String] {
+        &self.values
+    }
 }

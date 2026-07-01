@@ -9,8 +9,7 @@ use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 
 use super::super::diagnostics::{mutation_error, mutation_param_usage_error};
-use super::super::schema_columns::MysqlSchemaColumn;
-use super::super::schema_columns::MysqlSchemaTableRef;
+use super::super::schema_columns::{MysqlSchemaColumn, MysqlSchemaTableRef};
 use super::contexts::{ColumnRef, is_placeholder, join_constraint};
 use super::mutation_contexts::{collect_mutation_expr_param_contexts, resolve_schema_column_type};
 use super::tables::{TableResolution, object_name_parts, schema_table_ref_from_parts};
@@ -101,8 +100,8 @@ pub(in crate::metadata::mysql::sqlx) fn resolve_mutation_param_usage_metadata(
     let mut params = Vec::with_capacity(mutation.param_usages().len());
 
     for (usage, context) in mutation.param_usages().iter().zip(contexts) {
-        let ty = if let Some(value_type) = usage.value_type_override() {
-            value_type
+        let type_ref = if let Some(value_type) = usage.value_type_override() {
+            core::CoreTypeRef::from(value_type)
         } else {
             resolve_inferred_mutation_param_type(
                 mutation,
@@ -112,7 +111,10 @@ pub(in crate::metadata::mysql::sqlx) fn resolve_mutation_param_usage_metadata(
                 &schema,
             )?
         };
-        params.push(core::DbParamUsage::new(usage.id().to_owned(), ty));
+        params.push(core::DbParamUsage::new_type_ref(
+            usage.id().to_owned(),
+            type_ref,
+        ));
     }
 
     Ok(params)
@@ -124,7 +126,7 @@ fn resolve_inferred_mutation_param_type(
     context: Option<&ColumnRef>,
     table_sources: &MutationTableSources,
     schema: &SchemaColumnTypes,
-) -> core::DiagnosticResult<core::CoreType> {
+) -> core::DiagnosticResult<core::CoreTypeRef> {
     let Some(column) = context else {
         return Err(mutation_param_usage_error(
             mutation,

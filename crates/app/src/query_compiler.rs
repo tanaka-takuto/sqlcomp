@@ -108,15 +108,15 @@ fn compile_param_bindings(
 
         let nullable = source_usage.nullable_override();
         if let Some(existing) = input.iter().find(|field| field.name() == source_usage.id()) {
-            if existing.ty() != resolved_usage.ty() {
+            if existing.type_ref() != resolved_usage.type_ref() {
                 return Err(param_usage_error(
                     source_location,
                     source_usage,
                     format!(
                         "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
                         source_usage.id(),
-                        existing.ty(),
-                        resolved_usage.ty()
+                        existing.type_ref(),
+                        resolved_usage.type_ref()
                     ),
                 ));
             }
@@ -133,16 +133,16 @@ fn compile_param_bindings(
                 ));
             }
         } else {
-            input.push(core::InputField::new(
+            input.push(core::InputField::new_type_ref(
                 source_usage.id().to_owned(),
-                resolved_usage.ty(),
+                resolved_usage.type_ref().clone(),
                 nullable,
             ));
         }
 
-        params.push(core::ParamBinding::new(
+        params.push(core::ParamBinding::new_type_ref(
             source_usage.id().to_owned(),
-            resolved_usage.ty(),
+            resolved_usage.type_ref().clone(),
             nullable,
         ));
     }

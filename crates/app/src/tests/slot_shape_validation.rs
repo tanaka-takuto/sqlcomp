@@ -155,6 +155,27 @@ fn check_rejects_slot_variant_row_shape_core_type_mismatch() {
 }
 
 #[test]
+fn check_rejects_slot_variant_row_shape_enum_values_mismatch() {
+    let report = row_shape_mismatch_report_with_base(
+        vec![core::DbResultColumn::new_type_ref(
+            "status".to_owned(),
+            enum_type_ref(["draft", "paid"]),
+            Some(false),
+        )],
+        vec![core::DbResultColumn::new_type_ref(
+            "status".to_owned(),
+            enum_type_ref(["draft", "void"]),
+            Some(false),
+        )],
+    );
+
+    assert_eq!(
+        diagnostic_messages(&report),
+        "Slot expansion variant for query `listUsers` result column 1 CoreType `Enum([\"draft\", \"void\"])` does not match base CoreType `Enum([\"draft\", \"paid\"])`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
+    );
+}
+
+#[test]
 fn check_rejects_slot_variant_row_shape_nullability_mismatch() {
     let report = row_shape_mismatch_report(vec![core::DbResultColumn::new(
         "id".to_owned(),
@@ -166,6 +187,11 @@ fn check_rejects_slot_variant_row_shape_nullability_mismatch() {
         diagnostic_messages(&report),
         "Slot expansion variant for query `listUsers` result column 1 nullability `nullable` does not match base nullability `not nullable`; all variants must have matching result row shape\nwhile validating Slot expansion variant for query `listUsers` with selections: filter=shapeChanger\nSlot `filter` selected `shapeChanger` in this variant"
     );
+}
+
+fn enum_type_ref(values: impl IntoIterator<Item = &'static str>) -> core::CoreTypeRef {
+    core::CoreTypeRef::from_enum_values(values.into_iter().map(str::to_owned).collect())
+        .expect("test enum values should build a Core type reference")
 }
 
 #[test]

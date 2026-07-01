@@ -11,7 +11,7 @@ pub(super) fn param_type_conflict_error(
     query: &core::RawQuery,
     usage: &core::ParamUsage,
     existing: &ScopedParamBinding,
-    later_ty: core::CoreType,
+    later_ty: &core::CoreTypeRef,
     later_occurrence: &ExpandedParamOccurrence,
 ) -> core::DiagnosticReport {
     if let Some((first, later)) =
@@ -27,7 +27,7 @@ pub(super) fn param_type_conflict_error(
                 usage.id(),
                 query.metadata().id(),
                 first.repeat_id,
-                existing.ty,
+                existing.type_ref,
                 later_ty,
             ),
         );
@@ -47,7 +47,7 @@ pub(super) fn param_type_conflict_error(
                 first.slot_id,
                 first.target_id,
                 first.repeat_id,
-                existing.ty,
+                existing.type_ref,
                 later_ty,
             ),
         );
@@ -67,7 +67,7 @@ pub(super) fn param_type_conflict_error(
                 first.slot_id,
                 first.target_id,
                 first.slot_occurrence_index,
-                existing.ty,
+                existing.type_ref,
                 later.slot_occurrence_index,
                 later_ty,
             ),
@@ -80,7 +80,7 @@ pub(super) fn param_type_conflict_error(
         format!(
             "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
             usage.id(),
-            existing.ty,
+            existing.type_ref,
             later_ty
         ),
     )
@@ -169,7 +169,7 @@ pub(super) fn mutation_param_type_conflict_error(
     mutation: &core::RawMutation,
     usage: &core::ParamUsage,
     existing: &ScopedParamBinding,
-    later_ty: core::CoreType,
+    later_ty: &core::CoreTypeRef,
     later_occurrence: &ExpandedParamOccurrence,
 ) -> core::DiagnosticReport {
     if let Some((first, later)) =
@@ -185,7 +185,7 @@ pub(super) fn mutation_param_type_conflict_error(
                 usage.id(),
                 mutation.metadata().id(),
                 first.repeat_id,
-                existing.ty,
+                existing.type_ref,
                 later_ty,
             ),
         );
@@ -205,7 +205,7 @@ pub(super) fn mutation_param_type_conflict_error(
                 first.slot_id,
                 first.target_id,
                 first.repeat_id,
-                existing.ty,
+                existing.type_ref,
                 later_ty,
             ),
         );
@@ -225,7 +225,7 @@ pub(super) fn mutation_param_type_conflict_error(
                 first.slot_id,
                 first.target_id,
                 first.slot_occurrence_index,
-                existing.ty,
+                existing.type_ref,
                 later.slot_occurrence_index,
                 later_ty,
             ),
@@ -238,7 +238,7 @@ pub(super) fn mutation_param_type_conflict_error(
         format!(
             "conflicting Param `{}` types: first occurrence resolved to {:?} but later occurrence resolved to {:?}",
             usage.id(),
-            existing.ty,
+            existing.type_ref,
             later_ty
         ),
     )

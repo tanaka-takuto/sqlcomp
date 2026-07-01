@@ -18,7 +18,7 @@ use conflicts::{
 pub(super) struct ScopedParamBinding {
     pub(super) scope: ExpandedParamScope,
     pub(super) id: String,
-    pub(super) ty: core::CoreType,
+    pub(super) type_ref: core::CoreTypeRef,
     pub(super) nullable: bool,
     pub(super) first_occurrence: ExpandedParamOccurrence,
 }
@@ -84,12 +84,12 @@ pub(super) fn validate_expanded_variant_param_bindings(
             .iter()
             .find(|binding| binding.scope == *scope && binding.id == source_usage.id())
         {
-            if existing.ty != resolved_usage.ty() {
+            if existing.type_ref != *resolved_usage.type_ref() {
                 return Err(param_type_conflict_error(
                     query,
                     source_usage,
                     existing,
-                    resolved_usage.ty(),
+                    resolved_usage.type_ref(),
                     occurrence,
                 ));
             }
@@ -106,7 +106,7 @@ pub(super) fn validate_expanded_variant_param_bindings(
             scoped_bindings.push(ScopedParamBinding {
                 scope: scope.clone(),
                 id: source_usage.id().to_owned(),
-                ty: resolved_usage.ty(),
+                type_ref: resolved_usage.type_ref().clone(),
                 nullable,
                 first_occurrence: occurrence.clone(),
             });
@@ -177,12 +177,12 @@ pub(super) fn validate_expanded_mutation_variant_param_bindings(
             .iter()
             .find(|binding| binding.scope == *scope && binding.id == source_usage.id())
         {
-            if existing.ty != resolved_usage.ty() {
+            if existing.type_ref != *resolved_usage.type_ref() {
                 return Err(mutation_param_type_conflict_error(
                     mutation,
                     source_usage,
                     existing,
-                    resolved_usage.ty(),
+                    resolved_usage.type_ref(),
                     occurrence,
                 ));
             }
@@ -199,7 +199,7 @@ pub(super) fn validate_expanded_mutation_variant_param_bindings(
             scoped_bindings.push(ScopedParamBinding {
                 scope: scope.clone(),
                 id: source_usage.id().to_owned(),
-                ty: resolved_usage.ty(),
+                type_ref: resolved_usage.type_ref().clone(),
                 nullable,
                 first_occurrence: occurrence.clone(),
             });
