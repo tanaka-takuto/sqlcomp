@@ -202,7 +202,9 @@ fn map_mysql_result_column_metadata_with_schema_type_ref(
     nullable: Option<bool>,
     type_ref: Option<core::CoreTypeRef>,
 ) -> core::DbResultColumn {
-    if let Some(type_ref) = type_ref {
+    if let Some(type_ref) = type_ref
+        && type_ref.enum_values().is_some()
+    {
         return core::DbResultColumn::new_type_ref(name.to_owned(), type_ref, nullable);
     }
 
@@ -230,4 +232,27 @@ async fn describe_mutation_param_usages(
 
     let schema_columns = fetch_mutation_schema_columns(connection, mutation).await?;
     resolve_mutation_param_usage_metadata(mutation, &schema_columns)
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlay_core as core;
+
+    use super::map_mysql_result_column_metadata_with_schema_type_ref;
+
+    #[test]
+    fn schema_scalar_type_ref_does_not_override_sqlx_result_type_metadata() {
+        let column = map_mysql_result_column_metadata_with_schema_type_ref(
+            "boolCol",
+            "BOOL",
+            Some(false),
+            Some(core::CoreTypeRef::from(core::CoreType::Int32)),
+        );
+
+        assert_eq!(column.ty(), core::CoreType::Bool);
+        assert_eq!(
+            column.type_ref(),
+            &core::CoreTypeRef::from(core::CoreType::Bool)
+        );
+    }
 }

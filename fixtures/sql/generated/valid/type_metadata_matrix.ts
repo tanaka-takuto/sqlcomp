@@ -194,7 +194,7 @@ export function typeMetadataExpressions(
 export type typeMetadataAggregateExpressions_Input = Record<string, never>;
 
 export type typeMetadataAggregateExpressions_Row = {
-  boolCol: number | null;
+  boolCol: boolean | null;
   countStarCol: string;
   sumIntNnCol: string | null;
   caseVarcharCol: string;
