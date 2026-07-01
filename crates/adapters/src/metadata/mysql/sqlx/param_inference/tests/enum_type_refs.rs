@@ -89,6 +89,37 @@ fn resolves_result_type_refs_from_current_database_three_part_projection_columns
     );
 }
 
+#[test]
+fn resolves_current_database_three_part_result_type_refs_when_table_name_is_ambiguous() {
+    let query = raw_param_query(
+        "SELECT sqlay.orders.status AS orderStatus, archive.orders.status AS archiveStatus FROM orders JOIN archive.orders ON archive.orders.id = sqlay.orders.id;",
+        Vec::<core::ParamUsage>::new(),
+    );
+    let schema_columns = [
+        schema_enum_column("orders", "status", ["draft", "paid"]),
+        schema_enum_column_in_database("sqlay", "orders", "status", ["draft", "paid"]),
+        schema_enum_column_in_database("archive", "orders", "status", ["archived"]),
+    ];
+
+    let result_type_refs = resolve_result_column_type_refs(&query, &schema_columns).expect(
+        "current-database qualified projection should resolve even with duplicate table names",
+    );
+
+    assert_eq!(result_type_refs.len(), 2);
+    assert_eq!(
+        result_type_refs[0]
+            .as_ref()
+            .and_then(core::CoreTypeRef::enum_values),
+        Some(["draft".to_owned(), "paid".to_owned()].as_slice())
+    );
+    assert_eq!(
+        result_type_refs[1]
+            .as_ref()
+            .and_then(core::CoreTypeRef::enum_values),
+        Some(["archived".to_owned()].as_slice())
+    );
+}
+
 fn schema_enum_column(
     table_name: &str,
     column_name: &str,

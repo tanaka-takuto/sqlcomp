@@ -109,6 +109,17 @@ pub(super) fn resolve_current_database_qualified_table_ref(
     qualifier: &str,
 ) -> Option<MysqlSchemaTableRef> {
     let (database_name, table_name) = qualifier.split_once('.')?;
+    let current_database_ref = MysqlSchemaTableRef::current_database(table_name.to_owned());
+    let qualified_ref =
+        MysqlSchemaTableRef::explicit_database(database_name.to_owned(), table_name.to_owned());
+    if table_sources
+        .schema_table_refs
+        .contains(&current_database_ref)
+        && schema.has_table(&qualified_ref)
+    {
+        return Some(qualified_ref);
+    }
+
     let Some(TableResolution::SchemaBacked { table_ref }) = table_sources.resolve(table_name)
     else {
         return None;
@@ -117,8 +128,6 @@ pub(super) fn resolve_current_database_qualified_table_ref(
         return None;
     }
 
-    let qualified_ref =
-        MysqlSchemaTableRef::explicit_database(database_name.to_owned(), table_name.to_owned());
     schema.has_table(&qualified_ref).then_some(qualified_ref)
 }
 
