@@ -15,10 +15,10 @@ use sqlay_app::{
 };
 use sqlay_core as core;
 
-use crate::args::{Command, ConfiguredCommand, parse_args};
+use crate::args::{Command, ConfiguredCommand, OutputFormat, parse_args};
 use crate::diagnostics::{fail, print_diagnostics, single_cli_error};
 use crate::help::{INIT_NEXT_STEPS, help_text};
-use crate::output::{ConfiguredCommandOutcome, print_success_summary};
+use crate::output::{ConfiguredCommandOutcome, print_json_failure_result, print_success_summary};
 
 const EMPTY_SOURCE_SET_DIAGNOSTIC_PREFIX: &str =
     "source.include matched no SQL files after applying source.exclude";
@@ -84,6 +84,7 @@ fn run_with_args(args: impl IntoIterator<Item = OsString>) -> ExitCode {
 }
 
 fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -> ExitCode {
+    let config_path = config.clone();
     let loader = config.map_or_else(
         JsoncConfigLoader::discover_from_current_dir,
         JsoncConfigLoader::new,
@@ -101,7 +102,20 @@ fn run_configured_command(command: ConfiguredCommand, config: Option<PathBuf>) -
             print_success_summary(&outcome);
             ExitCode::SUCCESS
         }
-        Err(report) => fail(&report),
+        Err(report) => fail_configured_command(command, config_path.as_deref(), &report),
+    }
+}
+
+fn fail_configured_command(
+    command: ConfiguredCommand,
+    config_path: Option<&std::path::Path>,
+    report: &core::DiagnosticReport,
+) -> ExitCode {
+    if command.format() == OutputFormat::Json {
+        print_json_failure_result(command, config_path, report);
+        ExitCode::FAILURE
+    } else {
+        fail(report)
     }
 }
 
@@ -247,6 +261,12 @@ fn add_empty_source_cli_remediation(
 }
 
 impl ConfiguredCommand {
+    const fn format(self) -> OutputFormat {
+        match self {
+            Self::Check { format, .. } | Self::Compile { format, .. } => format,
+        }
+    }
+
     const fn fail_on_empty(self) -> bool {
         match self {
             Self::Check { fail_on_empty, .. } | Self::Compile { fail_on_empty, .. } => {
